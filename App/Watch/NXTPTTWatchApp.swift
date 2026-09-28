@@ -3,7 +3,7 @@ import UserNotifications
 import WatchKit
 
 @main
-struct ChirpWatchApp: App {
+struct NXTPTTWatchApp: App {
     @WKApplicationDelegateAdaptor(WatchAppDelegate.self) private var appDelegate
     @StateObject private var model = WatchModel()
     @Environment(\.scenePhase) private var scenePhase

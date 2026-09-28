@@ -1,6 +1,6 @@
-# Chirp
+# NXTPTT
 
-Chirp is the app's name; the repository is still called ePTT.
+NXTPTT is the app's name (bundle ID `com.lightwave.chirp`); the repository is still called ePTT.
 
 Nextel-style push-to-talk for iPhone and Apple Watch, with **no server**.
 
@@ -51,10 +51,10 @@ project.yml          XcodeGen project definition
 
 ## Build
 
-Open **`Chirp.xcodeproj`** in Xcode 16 or later. Then:
+Open **`NXTPTT.xcodeproj`** in Xcode 16 or later. Then:
 
-1. Select the **Chirp** target, open *Signing & Capabilities* and pick your
-   team. Do the same for **ChirpWatch**.
+1. Select the **NXTPTT** target, open *Signing & Capabilities* and pick your
+   team. Do the same for **NXTPTTWatch**.
 2. To make that permanent, and to set your own bundle ID, copy
    `Config/Secrets.example.xcconfig` to `Config/Secrets.xcconfig` and fill it in.
 3. Choose your iPhone and press **Run**.

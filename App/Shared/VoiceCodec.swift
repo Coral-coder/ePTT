@@ -279,7 +279,7 @@ enum VoiceCodecFactory {
         if let opus = OpusEncoder() { return opus }
         if let pcm = PCM16Encoder() { return pcm }
         // Creating a Float32 mono 16 kHz format cannot fail in practice.
-        fatalError("Chirp: unable to create any voice encoder")
+        fatalError("NXTPTT: unable to create any voice encoder")
     }
 
     static func makeDecoder(codec: VoiceCodecID, sampleRate: UInt32, frameMilliseconds: UInt8) -> VoiceDecoder? {

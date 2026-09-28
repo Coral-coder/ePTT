@@ -5,7 +5,7 @@ import os
 /// Nearby links over MultipeerConnectivity, which picks Bluetooth, peer-to-peer Wi-Fi or the
 /// local network automatically. Works with Wi-Fi and cellular off, like Nextel Direct Talk.
 ///
-/// The session itself is unencrypted on purpose: every Chirp packet is already sealed and
+/// The session itself is unencrypted on purpose: every NXTPTT packet is already sealed and
 /// authenticated end to end, so the transport only needs to move bytes.
 final class NearbyTransport: NSObject {
     static let serviceType = "chirp-ptt"   // ≤15 chars; Info.plist lists _chirp-ptt._tcp/_udp

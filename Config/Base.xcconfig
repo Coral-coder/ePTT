@@ -1,5 +1,5 @@
 // Defaults. Put your own values in Config/Secrets.xcconfig (git-ignored); see docs/SETUP.md.
-EPTT_BUNDLE_ID = app.eptt.ptt
+EPTT_BUNDLE_ID = com.lightwave.chirp
 DEVELOPMENT_TEAM =
 CODE_SIGN_STYLE = Automatic
 // Set by the release workflow for manual (ad-hoc) signing; empty means automatic.

@@ -1,4 +1,4 @@
-# Keeps Chirp.xcodeproj in the repo in sync with project.yml, so the app opens and builds in
+# Keeps NXTPTT.xcodeproj in the repo in sync with project.yml, so the app opens and builds in
 # Xcode without installing XcodeGen. Edit project.yml, not the .xcodeproj.
 name: Xcode project
 
@@ -28,11 +28,11 @@ jobs:
       - run: xcodegen generate
       - name: Commit the project if it changed
         run: |
-          git add -A Chirp.xcodeproj
+          git add -A NXTPTT.xcodeproj
           if git diff --cached --quiet; then
-            echo "Chirp.xcodeproj is up to date"
+            echo "NXTPTT.xcodeproj is up to date"
             exit 0
           fi
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-            commit -m "Regenerate Chirp.xcodeproj from project.yml"
+            commit -m "Regenerate NXTPTT.xcodeproj from project.yml"
           git push origin "HEAD:${GITHUB_REF_NAME}"

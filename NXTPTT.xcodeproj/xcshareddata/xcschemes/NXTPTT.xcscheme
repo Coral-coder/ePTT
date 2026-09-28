@@ -15,10 +15,10 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "B77C1F6D69DED1C1A7A1870C"
-               BuildableName = "ChirpWatch.app"
-               BlueprintName = "ChirpWatch"
-               ReferencedContainer = "container:Chirp.xcodeproj">
+               BlueprintIdentifier = "691ECBC4A57C302D9F9E966C"
+               BuildableName = "NXTPTT.app"
+               BlueprintName = "NXTPTT"
+               ReferencedContainer = "container:NXTPTT.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -32,10 +32,10 @@
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "B77C1F6D69DED1C1A7A1870C"
-            BuildableName = "ChirpWatch.app"
-            BlueprintName = "ChirpWatch"
-            ReferencedContainer = "container:Chirp.xcodeproj">
+            BlueprintIdentifier = "691ECBC4A57C302D9F9E966C"
+            BuildableName = "NXTPTT.app"
+            BlueprintName = "NXTPTT"
+            ReferencedContainer = "container:NXTPTT.xcodeproj">
          </BuildableReference>
       </MacroExpansion>
       <Testables>
@@ -57,10 +57,10 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "B77C1F6D69DED1C1A7A1870C"
-            BuildableName = "ChirpWatch.app"
-            BlueprintName = "ChirpWatch"
-            ReferencedContainer = "container:Chirp.xcodeproj">
+            BlueprintIdentifier = "691ECBC4A57C302D9F9E966C"
+            BuildableName = "NXTPTT.app"
+            BlueprintName = "NXTPTT"
+            ReferencedContainer = "container:NXTPTT.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
       <CommandLineArguments>
@@ -76,10 +76,10 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "B77C1F6D69DED1C1A7A1870C"
-            BuildableName = "ChirpWatch.app"
-            BlueprintName = "ChirpWatch"
-            ReferencedContainer = "container:Chirp.xcodeproj">
+            BlueprintIdentifier = "691ECBC4A57C302D9F9E966C"
+            BuildableName = "NXTPTT.app"
+            BlueprintName = "NXTPTT"
+            ReferencedContainer = "container:NXTPTT.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
       <CommandLineArguments>

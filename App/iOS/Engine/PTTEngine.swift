@@ -26,6 +26,8 @@ struct EngineSnapshot {
     var localIdentity: PublicIdentity?
     var transfers: [TransferRecord] = []
     var relayAvailable = false
+    /// How the transmission being received reached us.
+    var receivingRoute: Route?
 }
 
 /// Where a peer was last heard: a UDP endpoint or a MultipeerConnectivity peer.
@@ -267,7 +269,7 @@ final class PTTEngine {
         ptt.onJoined = { [weak self] in
             guard let self else { return }
             self.queue.async {
-                self.ptt.setDescriptorName(self.selectedChannel?.name ?? "Chirp")
+                self.ptt.setDescriptorName(self.selectedChannel?.name ?? "NXTPTT")
                 self.ptt.setServiceStatus(.ready)
                 self.publish()
             }
@@ -842,7 +844,7 @@ final class PTTEngine {
     func select(_ channel: ChannelID) {
         queue.async { [self] in
             state.settings.selectedChannel = channel
-            ptt.setDescriptorName(self.channel(channel)?.name ?? "Chirp")
+            ptt.setDescriptorName(self.channel(channel)?.name ?? "NXTPTT")
             save()
         }
     }
@@ -1237,6 +1239,7 @@ final class PTTEngine {
             snapshot.talk = .transmitting(t.channel.id)
         } else if let r = rx {
             snapshot.talk = .receiving(r.channel.id, talker: r.talker)
+            snapshot.receivingRoute = r.route
         }
         lastOnline = onlinePeers()
         snapshot.onlinePeers = lastOnline

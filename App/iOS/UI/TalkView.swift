@@ -5,33 +5,36 @@ struct RootView: View {
     @EnvironmentObject private var model: AppModel
 
     var body: some View {
-        TabView {
-            TalkView()
-                .tabItem { Label("Talk", systemImage: "antenna.radiowaves.left.and.right") }
-            ChannelsView()
-                .tabItem { Label("Channels", systemImage: "person.3") }
-            ContactsView()
-                .tabItem { Label("Contacts", systemImage: "person.crop.circle") }
-            ActivityView()
-                .tabItem { Label("Activity", systemImage: "clock.arrow.circlepath") }
-            SettingsView()
-                .tabItem { Label("Settings", systemImage: "gearshape") }
+        Group {
+            switch model.tab {
+            case .talk: TalkView()
+            case .channels: ChannelsView()
+            case .pair: PairView()
+            case .activity: ActivityView()
+            case .settings: SettingsView()
+            }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            NeonTabBar(selection: $model.tab)
         }
         .overlay(alignment: .top) { BannerView() }
+        .preferredColorScheme(.dark)
+        .tint(NX.cyan)
     }
 }
 
-/// Transient status messages ("Channel busy", call alerts, …).
+/// Transient status messages ("Channel busy", call alerts, …) on a glass capsule.
 struct BannerView: View {
     @EnvironmentObject private var model: AppModel
 
     var body: some View {
         if let text = model.banner {
             Text(text)
-                .font(.callout.weight(.semibold))
-                .padding(.horizontal, 16)
+                .font(NX.label(14, .semibold))
+                .foregroundStyle(NX.text)
+                .padding(.horizontal, 18)
                 .padding(.vertical, 10)
-                .background(.thinMaterial, in: Capsule())
+                .glassCapsule(glow: 0.35, strong: true)
                 .padding(.top, 8)
                 .transition(.move(edge: .top).combined(with: .opacity))
                 .task(id: text) {
@@ -44,122 +47,331 @@ struct BannerView: View {
 
 struct TalkView: View {
     @EnvironmentObject private var model: AppModel
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 28) {
-                channelPicker
-                StatusPanel()
-                Spacer()
-                TalkButton()
-                Spacer()
-                if let channel = model.selectedChannel, channel.kind == .direct, let peer = channel.members.first {
-                    Button {
-                        model.engine.sendCallAlert(to: peer)
-                    } label: {
-                        Label("Call alert", systemImage: "bell.badge")
-                    }
-                    .buttonStyle(.bordered)
-                }
-            }
-            .padding()
-            .navigationTitle("Chirp")
-        }
-    }
-
-    private var channelPicker: some View {
-        Menu {
-            ForEach(model.snapshot.channels) { channel in
-                Button {
-                    model.engine.select(channel.id)
-                } label: {
-                    Label(model.displayName(of: channel),
-                          systemImage: channel.kind == .group ? "person.3.fill" : "person.fill")
-                }
-            }
-        } label: {
-            HStack {
-                Image(systemName: model.selectedChannel?.kind == .group ? "person.3.fill" : "person.fill")
-                Text(model.selectedChannel.map(model.displayName(of:)) ?? "Choose a channel")
-                    .font(.title3.weight(.semibold))
-                Image(systemName: "chevron.up.chevron.down").font(.caption)
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 10)
-            .background(Color(.secondarySystemBackground), in: Capsule())
-        }
-        .disabled(model.snapshot.channels.isEmpty)
-    }
-}
-
-struct StatusPanel: View {
-    @EnvironmentObject private var model: AppModel
-
-    var body: some View {
-        VStack(spacing: 6) {
-            switch model.snapshot.talk {
-            case .idle:
-                Text(model.selectedChannel.map { model.isOnline($0) ? "Connected" : "Standing by" } ?? "No channel")
-                    .foregroundStyle(.secondary)
-            case .transmitting:
-                Text("Talking…").foregroundStyle(.red)
-            case .receiving(_, let talker):
-                Label(talker, systemImage: "speaker.wave.2.fill")
-                    .foregroundStyle(.green)
-            }
-        }
-        .font(.headline)
-        .frame(height: 30)
-    }
-}
-
-/// The big hold-to-talk button.
-struct TalkButton: View {
-    @EnvironmentObject private var model: AppModel
     @State private var pressed = false
+    @State private var txStart: Date?
+    @State private var rxStart: Date?
 
-    private var transmitting: Bool {
-        if case .transmitting = model.snapshot.talk { return true }
-        return false
+    private var talk: EngineSnapshot.Talk { model.snapshot.talk }
+
+    private var orbMode: TalkOrb.Mode {
+        switch talk {
+        case .transmitting: return .transmitting
+        case .receiving: return .receiving
+        case .idle: return model.selectedChannel == nil ? .disabled : .idle
+        }
     }
 
-    private var receiving: Bool {
-        if case .receiving = model.snapshot.talk { return true }
-        return false
+    private var energy: Double {
+        switch talk {
+        case .idle: return 1
+        case .receiving: return 1.3
+        case .transmitting: return 1.8
+        }
     }
 
     var body: some View {
-        let color: Color = transmitting ? .red : (receiving ? .green : .orange)
-        Circle()
-            .fill(color.gradient)
-            .overlay(
-                VStack(spacing: 6) {
-                    Image(systemName: transmitting ? "mic.fill" : "mic")
-                        .font(.system(size: 54, weight: .bold))
-                    Text(transmitting ? "RELEASE TO LISTEN" : "HOLD TO TALK")
-                        .font(.caption.weight(.heavy))
+        GeometryReader { geo in
+            ZStack {
+                GridBackground(horizon: 0.64, energy: energy)
+                VStack(spacing: 16) {
+                    header
+                    ChannelCapsule()
+                    status
+                    Spacer(minLength: 0)
+                    orb(diameter: max(160, min(300, geo.size.width - 60, geo.size.height * 0.44)))
+                    Spacer(minLength: 0)
+                    footer
                 }
-                .foregroundStyle(.white)
-            )
-            .frame(width: 230, height: 230)
-            .scaleEffect(pressed ? 0.94 : 1)
-            .shadow(color: color.opacity(0.4), radius: pressed ? 4 : 14)
-            .animation(.spring(response: 0.2), value: pressed)
+                .padding(.horizontal, 22)
+                .padding(.top, 8)
+                .padding(.bottom, 12)
+            }
+        }
+        .onChange(of: talk) { newValue in
+            switch newValue {
+            case .transmitting:
+                if txStart == nil { txStart = Date() }
+                rxStart = nil
+            case .receiving:
+                if rxStart == nil { rxStart = Date() }
+                txStart = nil
+            case .idle:
+                txStart = nil
+                rxStart = nil
+            }
+        }
+    }
+
+    // MARK: Header
+
+    private var header: some View {
+        HStack {
+            Text("NXTPTT")
+                .font(NX.display(22))
+                .tracking(7)
+                .foregroundStyle(Color(hex: 0xEAFFFF))
+                .neonGlow(NX.cyan, radius: 10)
+                .accessibilityAddTraits(.isHeader)
+            Spacer()
+            Button {
+                model.tab = .settings
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(NX.frost)
+                    .frame(width: 44, height: 44)
+                    .background(GlassBackground(shape: Circle(), glow: 0.25))
+            }
+            .accessibilityLabel("Settings")
+        }
+    }
+
+    // MARK: Status
+
+    @ViewBuilder
+    private var status: some View {
+        switch talk {
+        case .idle:
+            VStack(spacing: 10) {
+                BreathingText(text: idleCaption)
+                HStack(spacing: 8) {
+                    RouteChip(title: "Nearby", symbol: "dot.radiowaves.left.and.right")
+                    RouteChip(title: "Internet", symbol: "globe", lit: hasInternetPath)
+                    RouteChip(title: relayReady ? "Relay ready" : "No relay", symbol: "icloud", lit: relayReady)
+                }
+            }
+            .padding(.top, 6)
+        case .transmitting:
+            VStack(spacing: 6) {
+                Text("TALK PERMIT")
+                    .font(NX.label(13, .bold))
+                    .tracking(5.5)
+                    .foregroundStyle(Color(hex: 0xBFFCFF))
+                    .neonGlow(NX.cyan, radius: 10)
+                ElapsedText(since: txStart)
+                    .font(NX.display(30, relativeTo: .largeTitle))
+                    .foregroundStyle(.white)
+                    .neonGlow(NX.cyan, radius: 14)
+                ActivityBars(count: 18, maxHeight: 26)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Transmitting")
+        case .receiving(_, let talker):
+            VStack(spacing: 12) {
+                TalkerCard(talker: talker, route: model.snapshot.receivingRoute, since: rxStart)
+                ActivityBars(count: 30, maxHeight: 32)
+            }
+        }
+    }
+
+    private var idleCaption: String {
+        guard let channel = model.selectedChannel else { return "NO CHANNEL" }
+        return model.isOnline(channel) ? "ON THE GRID" : "STANDING BY"
+    }
+
+    private var relayReady: Bool {
+        model.snapshot.relayAvailable && model.snapshot.settings.relayEnabled
+    }
+
+    /// True when we have an address the wider internet can reach (not only LAN addresses).
+    private var hasInternetPath: Bool {
+        model.snapshot.candidates.contains { candidate in
+            switch candidate {
+            case .ipv4(let bytes, _):
+                let b = [UInt8](bytes)
+                guard b.count == 4 else { return false }
+                return !(b[0] == 10 || (b[0] == 172 && (b[1] & 0xF0) == 16) || (b[0] == 192 && b[1] == 168))
+            case .ipv6(let bytes, _):
+                return (bytes.first ?? 0) & 0xE0 == 0x20   // global unicast 2000::/3
+            case .host:
+                return true
+            }
+        }
+    }
+
+    // MARK: Orb
+
+    private func orb(diameter: CGFloat) -> some View {
+        TalkOrb(mode: orbMode, diameter: diameter, pressed: pressed)
+            .contentShape(Circle())
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { _ in
-                        guard !pressed else { return }
+                        guard !pressed, model.selectedChannel != nil else { return }
                         pressed = true
                         UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
                         model.engine.pressTalk()
                     }
                     .onEnded { _ in
+                        guard pressed else { return }
                         pressed = false
                         model.engine.releaseTalk()
                     }
             )
-            .disabled(model.selectedChannel == nil)
+            .accessibilityElement()
             .accessibilityLabel("Push to talk")
+            .accessibilityValue(orbMode == .transmitting ? "Transmitting" : orbMode == .receiving ? "Receiving" : "Ready")
+            .accessibilityHint("Touch and hold to talk")
             .accessibilityAddTraits(.isButton)
+            .accessibilityAction(named: "Start talking") { model.engine.pressTalk() }
+            .accessibilityAction(named: "Stop talking") { model.engine.releaseTalk() }
+    }
+
+    // MARK: Footer
+
+    @ViewBuilder
+    private var footer: some View {
+        switch talk {
+        case .transmitting:
+            Text("Live on \(model.selectedChannel.map(model.displayName(of:)) ?? "the channel") · end-to-end encrypted")
+                .font(NX.body(13))
+                .foregroundStyle(Color(hex: 0xCFFBFF))
+                .multilineTextAlignment(.center)
+                .frame(minHeight: 50)
+        case .receiving:
+            Text("End-to-end encrypted · fresh key for this transmission")
+                .font(NX.body(13))
+                .foregroundStyle(NX.textMuted)
+                .multilineTextAlignment(.center)
+                .frame(minHeight: 50)
+        case .idle:
+            if let channel = model.selectedChannel, channel.kind == .direct, let peer = channel.members.first {
+                Button {
+                    model.engine.sendCallAlert(to: peer)
+                } label: {
+                    Label("CALL ALERT", systemImage: "bell")
+                }
+                .buttonStyle(NXButtonStyle(kind: .glass))
+                .frame(maxWidth: 220)
+            } else {
+                Text("Hold the orb to key up")
+                    .font(NX.body(13))
+                    .foregroundStyle(NX.textMuted)
+                    .frame(minHeight: 50)
+            }
+        }
+    }
+}
+
+/// The selected channel as a glass capsule; tap to switch.
+struct ChannelCapsule: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        Menu {
+            ForEach(model.snapshot.channels) { channel in
+                Button {
+                    model.engine.select(channel.id)
+                } label: {
+                    Label(model.displayName(of: channel), systemImage: channel.kind == .group ? "person.3" : "person")
+                }
+            }
+        } label: {
+            HStack(spacing: 12) {
+                GelBead(size: 44) {
+                    Image(systemName: model.selectedChannel?.kind == .direct ? "person.fill" : "person.2.fill")
+                        .font(.system(size: 17, weight: .semibold))
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text((model.selectedChannel.map(model.displayName(of:)) ?? "Choose a channel").uppercased())
+                        .font(NX.label(17, .bold))
+                        .tracking(1)
+                        .foregroundStyle(NX.text)
+                        .lineLimit(1)
+                    Text(subtitle)
+                        .font(NX.body(13))
+                        .foregroundStyle(NX.textDim)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(NX.frost)
+            }
+            .padding(.leading, 10)
+            .padding(.trailing, 18)
+            .frame(minHeight: 64)
+            .glassCapsule(glow: 0.2, strong: true)
+        }
+        .disabled(model.snapshot.channels.isEmpty)
+        .accessibilityLabel("Channel: \(model.selectedChannel.map(model.displayName(of:)) ?? "none")")
+    }
+
+    private var subtitle: String {
+        guard let channel = model.selectedChannel else {
+            return model.snapshot.channels.isEmpty ? "Pair with someone to get started" : "Tap to pick one"
+        }
+        let online = channel.members.filter { model.snapshot.onlinePeers.contains($0) }.count
+        if channel.kind == .group {
+            return "Talk group · \(online + 1) of \(channel.members.count + 1) on the grid"
+        }
+        return online > 0 ? "Private · on the grid" : "Private · wakes by push"
+    }
+}
+
+/// Who is talking, how it reached us, and for how long.
+struct TalkerCard: View {
+    let talker: String
+    let route: Route?
+    let since: Date?
+
+    var body: some View {
+        HStack(spacing: 14) {
+            InitialsRing(name: talker.components(separatedBy: " · ").first ?? talker, size: 52)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(talker)
+                    .font(NX.label(18, .bold))
+                    .foregroundStyle(NX.text)
+                    .lineLimit(1)
+                if let route {
+                    Label(route.label, systemImage: route.symbol)
+                        .font(NX.body(13))
+                        .foregroundStyle(NX.textDim)
+                }
+            }
+            Spacer(minLength: 0)
+            ElapsedText(since: since, short: true)
+                .font(NX.display(14))
+                .foregroundStyle(NX.frost)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .glass(cornerRadius: 22, glow: 0.3, strong: true)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(talker) is talking")
+    }
+}
+
+/// mm:ss since a date, ticking once a second.
+struct ElapsedText: View {
+    let since: Date?
+    var short = false
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { timeline in
+            let seconds = max(0, Int(timeline.date.timeIntervalSince(since ?? timeline.date)))
+            Text(short ? String(format: "%d:%02d", seconds / 60, seconds % 60)
+                       : String(format: "%02d:%02d", seconds / 60, seconds % 60))
+                .monospacedDigit()
+        }
+    }
+}
+
+/// A caption that slowly pulses, like a light waiting for traffic.
+struct BreathingText: View {
+    let text: String
+    @State private var bright = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Text(text)
+            .font(NX.label(13, .semibold))
+            .tracking(5.5)
+            .foregroundStyle(Color(hex: 0x8FF3FF))
+            .opacity(reduceMotion ? 1 : (bright ? 1 : 0.55))
+            .onAppear {
+                guard !reduceMotion else { return }
+                withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) { bright = true }
+            }
     }
 }

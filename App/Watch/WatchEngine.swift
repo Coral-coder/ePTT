@@ -204,7 +204,7 @@ final class WatchEngine {
     private func play(_ payload: Data) {
         guard var processor, let sync, let packets = try? Relay.decode(payload) else { return }
         var start: BurstStart?
-        var talker = "Chirp"
+        var talker = "NXTPTT"
         var frames: [UInt32: Data] = [:]
         var sender: SenderID?
         var burst: MessageID?
@@ -218,7 +218,7 @@ final class WatchEngine {
                 start = s
                 sender = inbound.header.senderID
                 burst = inbound.header.messageID
-                let name = sync.contacts.first { $0.senderID == inbound.header.senderID }?.name ?? "Chirp"
+                let name = sync.contacts.first { $0.senderID == inbound.header.senderID }?.name ?? "NXTPTT"
                 talker = inbound.channel.kind == .group ? "\(name) · \(inbound.channel.name)" : name
             case .voice(let index, let voiceFrames):
                 for (offset, frame) in voiceFrames.enumerated() { frames[index + UInt32(offset)] = frame }

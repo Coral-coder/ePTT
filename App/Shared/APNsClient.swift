@@ -2,7 +2,7 @@ import Foundation
 import os
 import EPTTCore
 
-/// Sends pushes straight to Apple, peer to peer. There is no Chirp server: the signing key ships
+/// Sends pushes straight to Apple, peer to peer. There is no NXTPTT server: the signing key ships
 /// with the app (docs/ARCHITECTURE.md, "APNs key"; docs/SETUP.md for provisioning).
 final class APNsClient {
     private let credentials: APNsCredentials

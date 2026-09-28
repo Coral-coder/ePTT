@@ -1,5 +1,5 @@
 # Generate the Xcode project with XcodeGen:  brew install xcodegen && xcodegen
-name: Chirp
+name: NXTPTT
 options:
   bundleIdPrefix: app.eptt
   deploymentTarget:
@@ -18,7 +18,7 @@ packages:
   EPTTCore:
     path: Packages/EPTTCore
 targets:
-  Chirp:
+  NXTPTT:
     type: application
     platform: iOS
     sources:
@@ -34,7 +34,7 @@ targets:
           fi
     dependencies:
       - package: EPTTCore
-      - target: ChirpWatch
+      - target: NXTPTTWatch
         embed: true
         codeSign: true
         copy:
@@ -45,13 +45,21 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: $(EPTT_BUNDLE_ID)
         PROVISIONING_PROFILE_SPECIFIER: $(EPTT_IOS_PROFILE)
         TARGETED_DEVICE_FAMILY: "1,2"
-        CODE_SIGN_ENTITLEMENTS: App/iOS/Support/Chirp.entitlements
+        CODE_SIGN_ENTITLEMENTS: App/iOS/Support/NXTPTT.entitlements
         ENABLE_USER_SCRIPT_SANDBOXING: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: ""
     info:
       path: App/iOS/Support/Info.plist
       properties:
-        CFBundleDisplayName: Chirp
+        CFBundleDisplayName: NXTPTT
+        UIAppFonts:
+          - Michroma-Regular.ttf
+          - Exo2-Medium.ttf
+          - Exo2-SemiBold.ttf
+          - Exo2-Bold.ttf
+          - Hind-Regular.ttf
+          - Hind-Medium.ttf
+          - Hind-SemiBold.ttf
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
@@ -62,10 +70,10 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         UIBackgroundModes: [audio, push-to-talk, remote-notification]
-        NSMicrophoneUsageDescription: Chirp uses the microphone while you hold the talk button.
-        NSCameraUsageDescription: Chirp uses the camera to scan contact codes.
-        NSLocalNetworkUsageDescription: Chirp talks directly to nearby devices on your network, with no server in between.
-        NSBluetoothAlwaysUsageDescription: Chirp uses Bluetooth to talk to nearby phones when there is no network.
+        NSMicrophoneUsageDescription: NXTPTT uses the microphone while you hold the talk button.
+        NSCameraUsageDescription: NXTPTT uses the camera to scan contact codes.
+        NSLocalNetworkUsageDescription: NXTPTT talks directly to nearby devices on your network, with no server in between.
+        NSBluetoothAlwaysUsageDescription: NXTPTT uses Bluetooth to talk to nearby phones when there is no network.
         NSBonjourServices: [_eptt._udp, _chirp-ptt._tcp, _chirp-ptt._udp]
         CFBundleURLTypes:
           - CFBundleURLName: app.eptt.links
@@ -76,7 +84,7 @@ targets:
         EPTTCloudContainer: iCloud.$(EPTT_BUNDLE_ID)
     scheme: {}
 
-  ChirpWatch:
+  NXTPTTWatch:
     type: application
     platform: watchOS
     sources:
@@ -87,7 +95,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(EPTT_BUNDLE_ID).watchkitapp
-        CODE_SIGN_ENTITLEMENTS: App/Watch/ChirpWatch.entitlements
+        CODE_SIGN_ENTITLEMENTS: App/Watch/NXTPTTWatch.entitlements
         PROVISIONING_PROFILE_SPECIFIER: $(EPTT_WATCH_PROFILE)
         TARGETED_DEVICE_FAMILY: "4"
         SKIP_INSTALL: YES
@@ -95,7 +103,15 @@ targets:
     info:
       path: App/Watch/Info.plist
       properties:
-        CFBundleDisplayName: Chirp
+        CFBundleDisplayName: NXTPTT
+        UIAppFonts:
+          - Michroma-Regular.ttf
+          - Exo2-Medium.ttf
+          - Exo2-SemiBold.ttf
+          - Exo2-Bold.ttf
+          - Hind-Regular.ttf
+          - Hind-Medium.ttf
+          - Hind-SemiBold.ttf
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         WKApplication: true
@@ -104,5 +120,5 @@ targets:
         UIBackgroundModes: [remote-notification]
         EPTTAPNsEnvironment: $(EPTT_APNS_ENVIRONMENT)
         EPTTCloudContainer: iCloud.$(EPTT_BUNDLE_ID)
-        NSMicrophoneUsageDescription: Chirp uses the microphone while you hold the talk button.
+        NSMicrophoneUsageDescription: NXTPTT uses the microphone while you hold the talk button.
     scheme: {}
