@@ -163,8 +163,17 @@ in **Safari** on a registered iPhone and tap **Install**.
 ## TestFlight from GitHub Actions
 
 `.github/workflows/testflight.yml` archives the app and uploads it to TestFlight.
-It never runs on a push: start it from **Actions → TestFlight → Run workflow**
-and enter the version to publish (for example `0.2.0`). Signing is automatic: an App Store Connect API
+It never runs on an ordinary push:
+
+- **New version:** push a tag, `git tag v0.2.0 && git push origin v0.2.0`. That
+  uploads 0.2.0, build 1.
+- **Same version, new build:** **Actions → TestFlight → Run workflow**. That
+  uploads the current version with the build number plus one. Both fields in
+  that form are optional overrides.
+
+The current version and build are `MARKETING_VERSION` and
+`CURRENT_PROJECT_VERSION` in `project.yml`. After each successful upload the
+workflow commits the numbers it used back to `main`. Signing is automatic: an App Store Connect API
 key lets Xcode create and use the distribution certificate and profiles itself.
 
 1. **The app record.** It must already exist in App Store Connect (it does once
@@ -185,9 +194,7 @@ key lets Xcode create and use the distribution certificate and profiles itself.
    | `EPTT_BUNDLE_ID` | *optional*, defaults to `com.lightwave.chirp` |
    | `APNS_KEY_P8`, `APNS_KEY_ID` | *optional*, bundled only when the repository **variable** `BUNDLE_APNS_KEY` is `true` (live Push to Talk wakes; TestFlight builds are private to your testers) |
 
-Build numbers come from the run number (10011, 10021, …), so they always
-increase and stay above builds uploaded by hand. The version is the one you
-enter when starting the run. Builds show up in TestFlight after Apple
+Builds show up in TestFlight after Apple
 finishes processing, usually within 5 to 20 minutes.
 
 ## Export compliance (encryption)

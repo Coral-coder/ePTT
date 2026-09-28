@@ -3,9 +3,8 @@
 name: Ad-hoc release
 
 on:
+  # Manual only: version tags (v1.2.3) go to TestFlight (testflight.yml).
   workflow_dispatch:
-  push:
-    tags: ["v*"]
 
 permissions:
   contents: write
