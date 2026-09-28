@@ -2,6 +2,7 @@ import AVFoundation
 import Foundation
 import WatchConnectivity
 import WatchKit
+import EPTTCore
 
 /// The watch is a remote for the phone: it sends hold-to-talk commands and microphone audio
 /// over WatchConnectivity, and shows who is talking (docs/ARCHITECTURE.md, "Apple Watch").
@@ -18,19 +19,44 @@ final class WatchModel: NSObject, ObservableObject {
     @Published var talker = ""
     @Published var listening = false
     @Published var phoneReachable = false
+    /// Standalone status (iPhone out of range): what the relay path is doing.
+    @Published var standaloneStatus: WatchEngine.Status = .idle
+    @Published private(set) var standaloneReady = false
 
     private let session: WCSession? = WCSession.isSupported() ? .default : nil
     private let audio = WatchAudio()
+    let engine = WatchEngine.shared
+    private var standaloneBurst = false
 
     override init() {
         super.init()
         session?.delegate = self
         session?.activate()
+        engine.onStatus = { [weak self] status in
+            self?.standaloneStatus = status
+            if case .playing = status { WKInterfaceDevice.current().play(.notification) }
+        }
+        engine.onPlayback = { [weak self] pcm in self?.audio.play(pcm) }
+        refreshStandalone()
     }
+
+    /// With the iPhone out of range, a set-up watch talks on its own through the iCloud relay.
+    var isStandalone: Bool { !phoneReachable && standaloneReady }
 
     var selectedName: String { channels.first { $0.id == selected }?.name ?? "No channel" }
 
     func press() {
+        if isStandalone {
+            guard let bytes = Data(hex: selected), let id = try? ChannelID(bytes: bytes),
+                  engine.beginBurst(on: id) else {
+                WKInterfaceDevice.current().play(.failure)
+                return
+            }
+            standaloneBurst = true
+            WKInterfaceDevice.current().play(.start)
+            audio.startRecording { [weak self] chunk in self?.engine.append(pcm16k: chunk) }
+            return
+        }
         guard phoneReachable else {
             WKInterfaceDevice.current().play(.failure)
             return
@@ -44,13 +70,38 @@ final class WatchModel: NSObject, ObservableObject {
 
     func release() {
         audio.stopRecording()
-        send([WatchProtocol.command: WatchProtocol.Command.release.rawValue])
+        if standaloneBurst {
+            standaloneBurst = false
+            // Let the last microphone chunk arrive before sealing the burst.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [engine] in engine.endBurst() }
+        } else {
+            send([WatchProtocol.command: WatchProtocol.Command.release.rawValue])
+        }
         WKInterfaceDevice.current().play(.stop)
     }
 
     func select(_ channel: ChannelItem) {
         selected = channel.id
         send([WatchProtocol.command: WatchProtocol.Command.select.rawValue, WatchProtocol.channelID: channel.id])
+    }
+
+    /// Checks the relay for messages (on launch, on activation and on iCloud notifications).
+    func fetchRelay() {
+        engine.fetchRelay()
+    }
+
+    fileprivate func refreshStandalone() {
+        standaloneReady = engine.isConfigured
+        guard standaloneReady, channels.isEmpty || !phoneReachable else { return }
+        // Without the phone, list channels from the mirrored state.
+        let names = engine.channels.map { channel -> ChannelItem in
+            let name = channel.kind == .direct
+                ? (channel.members.first.flatMap { engine.contactName($0) } ?? channel.name)
+                : channel.name
+            return ChannelItem(id: channel.id.bytes.hex, name: name)
+        }
+        if !names.isEmpty { channels = names }
+        if selected.isEmpty { selected = names.first?.id ?? "" }
     }
 
     func setListening(_ on: Bool) {
@@ -85,6 +136,7 @@ final class WatchModel: NSObject, ObservableObject {
     fileprivate func refreshReachability() {
         phoneReachable = session?.isReachable ?? false
         if !phoneReachable { state = .offline }
+        refreshStandalone()
     }
 
     fileprivate func playReceived(_ pcm: Data) {
@@ -119,6 +171,16 @@ extension WatchModel: WCSessionDelegate {
         Task { @MainActor in
             self.phoneReachable = true
             self.apply(message)
+        }
+    }
+
+    nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
+        guard let data = userInfo[WatchProtocol.sync] as? Data,
+              let sync = try? JSONDecoder().decode(WatchSync.self, from: data) else { return }
+        WatchEngine.shared.apply(sync)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            self.refreshStandalone()
         }
     }
 

@@ -27,6 +27,9 @@ final class AppModel: ObservableObject {
         engine.onWatchAudio = { [weak self] pcm in
             Task { @MainActor in self?.watch.sendAudio(pcm) }
         }
+        engine.onWatchSync = { [weak self] sync in
+            Task { @MainActor in self?.watch.sendSync(sync) }
+        }
         watch.engine = engine
     }
 

@@ -54,6 +54,9 @@ final class PTTEngine {
     var onEvent: ((EngineEvent) -> Void)?
     /// Decoded playback audio for the watch (mono Int16 16 kHz), when forwarding is enabled.
     var onWatchAudio: ((Data) -> Void)?
+    /// Identity, contacts and keys for a standalone watch; called when they change.
+    var onWatchSync: ((WatchSync) -> Void)?
+    private var lastWatchSync: WatchSync?
 
     let queue = DispatchQueue(label: "app.eptt.engine", qos: .userInteractive)
     private let log = Logger(subsystem: "app.eptt", category: "engine")
@@ -165,7 +168,10 @@ final class PTTEngine {
         if changed || prekeys.signed == nil {
             prekeys.signed = try? prekeys.store.current(signedBy: identity)
         }
-        if changed { PrekeyKeychain.save(prekeys.store) }
+        if changed {
+            PrekeyKeychain.save(prekeys.store)
+            if onWatchSync != nil { syncWatch() }
+        }
         return changed
     }
 
@@ -886,6 +892,7 @@ final class PTTEngine {
             PushKeyKeychain.save(key)
             if !bundlesPushKey { apns = APNsClient.fromKeychain() }
             publish()
+            syncWatch()
         }
     }
 
@@ -1185,6 +1192,29 @@ final class PTTEngine {
         rebuildIndexes()
         Store.save(state)
         publish()
+        syncWatch()
+    }
+
+    /// Mirrors what a standalone watch needs, only when it changed.
+    private func syncWatch() {
+        guard state.settings.standaloneWatch else { return }
+        let sync = WatchSync(signingSeed: identity.signingSeed, keyAgreementSeed: identity.keyAgreementSeed,
+                             prekeys: prekeys.store, displayName: state.settings.displayName,
+                             contacts: state.contacts, channels: state.channels,
+                             selectedChannel: state.settings.selectedChannel,
+                             relayMailbox: relay != nil && state.settings.relayEnabled ? state.relayMailbox : nil,
+                             pushKey: PushKeyKeychain.load())
+        guard sync != lastWatchSync else { return }
+        lastWatchSync = sync
+        onWatchSync?(sync)
+    }
+
+    /// Re-sends the watch sync (e.g. after the watch app is reinstalled).
+    func resyncWatch() {
+        queue.async { [self] in
+            lastWatchSync = nil
+            syncWatch()
+        }
     }
 
     private var lastOnline: Set<IdentityID> = []

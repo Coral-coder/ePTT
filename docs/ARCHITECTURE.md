@@ -168,6 +168,7 @@ ID). The loser stops, hears a bonk and starts receiving. See
 | Path | Works for | Notes |
 | --- | --- | --- |
 | **Bonjour + AWDL** (`includePeerToPeer`) | Nearby iPhones with no Wi-Fi or cell service at all | Like the old Nextel Direct Talk. Discovery is automatic. |
+| **Bluetooth / MultipeerConnectivity** (`NearbyTransport`) | Nearby iPhones, iPads and Macs, including with Wi-Fi switched off | iOS picks Bluetooth, peer-to-peer Wi-Fi or the LAN. The session is unencrypted on purpose, because every packet is already sealed end to end. |
 | **Same LAN** (Bonjour/mDNS) | Any devices on one Wi-Fi network | Works cross-platform, Android included |
 | **IPv6 global addresses** | Most US and EU carriers hand out IPv6 | Carrier firewalls often drop unsolicited inbound traffic, so both sides send (hole punching) |
 | **Public IPv4 via STUN** | Both sides behind NAT | Uses a public STUN server (Google's by default) to learn the public mapping. STUN only reflects your address, it is not a relay. Fails on symmetric or carrier-grade NAT. |
@@ -179,11 +180,23 @@ at the same time, sends the talker a background APNs push with its own
 candidates (a **wake-ack**). The talker then sends HELLOs back. Both sides
 sending at once opens NAT and firewall pinholes.
 
-**Known gap:** when both sides are behind symmetric NAT or carrier-grade NAT
-with no IPv6 and no overlay, a direct path is impossible and no audio
-flows. Only a relay (TURN) fixes that, and a relay is a server. The app
-reports "unreachable" rather than failing silently. A user-supplied TURN or
-overlay endpoint is the escape hatch.
+**When no direct path exists** (both sides behind symmetric or carrier-grade
+NAT, no IPv6, no overlay), Chirp falls back to the **iCloud relay**:
+
+- **Upload:** when the talker releases, any member who never connected gets
+  the burst, still sealed, left in the app's CloudKit public database
+  (PROTOCOL.md §11). Apple hosts that database. There's nothing to run, and
+  Apple only sees ciphertext.
+- **Unlinkable records:** each record is filed under a tag derived from the
+  recipient's secret mailbox, and the tag changes every day, so records can't
+  be linked to a person.
+- **Delivery:** a CloudKit subscription notifies the recipient. This works
+  even for people with no APNs push key. The recipient plays relayed bursts
+  in order and deletes them. Anything left over expires after 24 h.
+- **Trade-off:** this is store-and-forward rather than live. A relayed
+  transmission arrives a few seconds after the talker releases.
+
+The **Activity** tab shows which route each transmission took.
 
 ## Audio
 
@@ -244,20 +257,22 @@ Limitations:
 
 | Property | v1 | Notes |
 | --- | --- | --- |
-| Confidentiality and integrity of voice and control | ✅ ChaCha20-Poly1305, one key per burst | Header is AAD |
-| Talker authentication in groups | ◐ BURST_START is Ed25519-signed | Frames within a burst are authenticated only by the group key, so a malicious *member* could inject frames |
-| Replay protection | ✅ Timestamps plus a message ID cache, a frame index window per burst | |
-| Forward secrecy | ❌ | Static-static direct keys and long-lived group keys. v2 adds ephemeral X25519 per session. |
-| Metadata privacy | ◐ | Apple sees push timing. Bonjour adverts use a random name per launch, but packet headers carry the 8-byte sender ID in the clear. |
+| Confidentiality and integrity of voice and control | ✅ ChaCha20-Poly1305 | Header is AAD |
+| Fresh session keys | ✅ A random key per burst, wrapped to each recipient with a one-time ephemeral X25519 key | PROTOCOL.md §6.2 |
+| Forward secrecy | ✅ Signed prekeys rotate daily; old private prekeys are deleted after 7 days | Once deleted, recorded or relayed audio can't be decrypted even with every key on the device. Group invites are sealed the same way. Contacts are added before any prekey is known, so the first burst to a new contact uses their static key. |
+| Talker authentication | ✅ BURST_START is Ed25519-signed and covers the ephemeral key and every envelope | Frames inside a burst are authenticated by the burst key, which every recipient of that burst holds |
+| Replay protection | ✅ Timestamps, a message ID cache, frame indexes per burst | Relayed bursts accept timestamps up to 24 h old |
+| Relay privacy | ✅ Only sealed packets; tags rotate daily; records deleted after delivery or 24 h | Apple sees record sizes and timing |
+| Metadata privacy | ◐ | Apple sees push timing. Bonjour and Multipeer adverts use random names per launch, but packet headers carry the 8-byte sender ID in the clear. |
 
 ## Roadmap
 
-1. **v0.1 (this PR):** core protocol and crypto with vectors; iOS app with
-   direct channels and talk groups, nearby, LAN and IPv6/STUN transport, and
-   PushToTalk with direct APNs wake; watch remote; ad-hoc release pipeline.
-2. **v0.2:** group rekey on member removal, safety-number UI, ephemeral
-   session keys (forward secrecy), Opus packet-loss concealment.
-3. **v0.3:** optional public-relay rendezvous (Nostr) for peers whose
-   candidates went stale; optional TURN or overlay configuration.
-4. **v0.4:** Android and Wear OS port.
-5. **Later:** standalone watch (cellular), member relaying for large groups.
+1. **v0.1 (this PR):** core protocol and crypto with vectors; forward
+   secrecy; iOS and iPad app with direct channels and talk groups; nearby
+   (AWDL, Bluetooth), LAN and IPv6/STUN transport; PushToTalk with direct APNs
+   wake; iCloud relay fallback; transfer history; watch; ad-hoc release
+   pipeline.
+2. **v0.2:** group rekey on member removal, Opus packet-loss concealment.
+3. **v0.3:** Android and Wear OS port. Android can use the same CloudKit
+   relay through CloudKit JS web services, or an equivalent shared store.
+4. **Later:** member relaying for large groups.

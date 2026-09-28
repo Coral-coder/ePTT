@@ -1,4 +1,5 @@
 import Foundation
+import EPTTCore
 
 /// Keys and framing shared by the iPhone app and the watch app over WatchConnectivity.
 enum WatchProtocol {
@@ -26,4 +27,26 @@ enum WatchProtocol {
     static let audioSampleRate: Double = 16_000
     static let audioFromWatch: UInt8 = 0x01
     static let audioToWatch: UInt8 = 0x02
+}
+
+
+extension WatchProtocol {
+    /// userInfo key carrying an encoded `WatchSync` (phone → watch, via `transferUserInfo`).
+    static let sync = "sync"
+}
+
+/// Everything the watch needs to act as this user when the iPhone is out of range.
+///
+/// It includes private keys, so it only ever travels over WatchConnectivity between a user's
+/// own paired devices (encrypted by the OS), and the watch keeps it in its Keychain.
+struct WatchSync: Codable, Equatable {
+    var signingSeed: Data
+    var keyAgreementSeed: Data
+    var prekeys: PrekeyStore
+    var displayName: String
+    var contacts: [Contact]
+    var channels: [Channel]
+    var selectedChannel: ChannelID?
+    var relayMailbox: Data?
+    var pushKey: PushKey?
 }

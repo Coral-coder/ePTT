@@ -47,8 +47,13 @@ struct SettingsView: View {
                     Text("The push key lets Chirp wake your friends' phones when you key up. Everyone in your group needs the same key; share it in person.")
                 }
 
-                Section("Apple Watch") {
+                Section {
                     Toggle("Play received audio on watch", isOn: binding(\.forwardAudioToWatch))
+                    Toggle("Standalone watch", isOn: binding(\.standaloneWatch))
+                } header: {
+                    Text("Apple Watch")
+                } footer: {
+                    Text("Copies your Chirp identity, contacts and keys to your paired watch over the encrypted watch link, so it can send and receive through the iCloud relay when your iPhone isn't nearby.")
                 }
 
                 Section("Status") {

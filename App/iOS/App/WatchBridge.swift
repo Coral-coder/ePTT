@@ -44,6 +44,17 @@ final class WatchBridge: NSObject {
         if session.isReachable { session.sendMessage(context, replyHandler: nil, errorHandler: nil) }
     }
 
+    /// Hands the watch what it needs to work on its own. Only the newest sync matters, so
+    /// older queued ones are cancelled.
+    func sendSync(_ sync: WatchSync) {
+        guard let session, session.activationState == .activated, session.isWatchAppInstalled,
+              let data = try? JSONEncoder().encode(sync) else { return }
+        for transfer in session.outstandingUserInfoTransfers where transfer.userInfo[WatchProtocol.sync] != nil {
+            transfer.cancel()
+        }
+        session.transferUserInfo([WatchProtocol.sync: data])
+    }
+
     func sendAudio(_ pcm: Data) {
         guard let session, session.isReachable else { return }
         session.sendMessageData(Data([WatchProtocol.audioToWatch]) + pcm, replyHandler: nil, errorHandler: nil)
@@ -51,7 +62,9 @@ final class WatchBridge: NSObject {
 }
 
 extension WatchBridge: WCSessionDelegate {
-    func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {}
+    func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
+        if activationState == .activated { engine?.resyncWatch() }
+    }
     func sessionDidBecomeInactive(_ session: WCSession) {}
     func sessionDidDeactivate(_ session: WCSession) { session.activate() }
 
@@ -76,6 +89,7 @@ extension WatchBridge: WCSessionDelegate {
                 self.lastContext = [:]
                 if let snapshot = self.lastSnapshot { self.update(snapshot) }
             }
+            engine.resyncWatch()
         }
     }
 

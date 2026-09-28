@@ -20,6 +20,9 @@ In [Certificates, Identifiers & Profiles](https://developer.apple.com/account/re
    `com.yourname.eptt`. Enable these capabilities:
    - **Push Notifications**
    - **Push to Talk**
+   - **iCloud**, with **CloudKit**, and a container named
+     `iCloud.com.yourname.eptt` (that is, `iCloud.` plus your bundle ID). This
+     is the relay fallback.
 2. Create a second App ID, `com.yourname.eptt.watchkitapp`, for the watch app.
    It needs no capabilities.
 3. **Keys → +** → enable **Apple Push Notifications service (APNs)**. If the
@@ -27,6 +30,25 @@ In [Certificates, Identifiers & Profiles](https://developer.apple.com/account/re
    to *Production* and your bundle ID. That limits the damage if the key ever
    leaks. Download `AuthKey_XXXXXXXXXX.p8` and note the **Key ID** and your
    **Team ID**. The key can be downloaded only once, so keep it safe.
+
+### iCloud relay (one-time)
+
+In the [CloudKit Console](https://icloud.developer.apple.com/), for your
+container:
+
+1. Run a development build once. The first relayed message creates the
+   `RelayMessage` record type. Alternatively, create it by hand with the
+   fields `mailbox` (String), `payload` (Bytes) and `expires` (Date/Time).
+2. **Indexes:** make `mailbox` *Queryable*, and `recordName` *Queryable* as
+   well, which CloudKit needs for subscriptions.
+3. **Security roles:** give the *Authenticated* role **Write** on
+   `RelayMessage`, so recipients can delete a message once it is delivered.
+   Without this, messages are still removed, but only when they expire after
+   24 h. Records only ever contain encrypted data.
+4. **Deploy Schema Changes** to Production. Ad-hoc builds use the production
+   environment.
+
+Everyone using the relay must be signed in to iCloud on their iPhone.
 
 ## 2. Build from Xcode (development)
 

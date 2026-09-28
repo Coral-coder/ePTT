@@ -34,13 +34,23 @@ struct WatchTalkView: View {
                                 model.release()
                             }
                     )
-                    .opacity(model.phoneReachable ? 1 : 0.4)
+                    .opacity(model.phoneReachable || model.isStandalone ? 1 : 0.4)
             }
             .padding(.horizontal)
         }
     }
 
     private var statusText: String {
+        if model.isStandalone {
+            switch model.standaloneStatus {
+            case .idle: return "Via iCloud · hold to talk"
+            case .recording: return "Recording…"
+            case .sending: return "Sending…"
+            case .sent(let n): return n == 1 ? "Sent" : "Sent to \(n)"
+            case .failed(let reason): return reason
+            case .playing(let talker): return talker
+            }
+        }
         switch model.state {
         case .receiving: return model.talker
         case .transmitting: return "Talking"

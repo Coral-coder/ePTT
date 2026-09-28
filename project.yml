@@ -82,9 +82,12 @@ targets:
     sources:
       - path: App/Watch
       - path: App/Shared
+    dependencies:
+      - package: EPTTCore
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(EPTT_BUNDLE_ID).watchkitapp
+        CODE_SIGN_ENTITLEMENTS: App/Watch/ChirpWatch.entitlements
         PROVISIONING_PROFILE_SPECIFIER: $(EPTT_WATCH_PROFILE)
         TARGETED_DEVICE_FAMILY: "4"
         SKIP_INSTALL: YES
@@ -97,5 +100,9 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         WKApplication: true
         WKCompanionAppBundleIdentifier: $(EPTT_BUNDLE_ID)
+        WKRunsIndependentlyOfCompanionApp: false
+        UIBackgroundModes: [remote-notification]
+        EPTTAPNsEnvironment: $(EPTT_APNS_ENVIRONMENT)
+        EPTTCloudContainer: iCloud.$(EPTT_BUNDLE_ID)
         NSMicrophoneUsageDescription: Chirp uses the microphone while you hold the talk button.
     scheme: {}

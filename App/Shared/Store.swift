@@ -13,6 +13,8 @@ struct Settings: Codable, Equatable {
     var forwardAudioToWatch = false
     /// Leave messages in the iCloud relay for people who couldn't be reached directly.
     var relayEnabled = true
+    /// Give the paired Apple Watch this identity so it can talk without the iPhone nearby.
+    var standaloneWatch = true
     var selectedChannel: ChannelID?
 
     var parsedStaticCandidates: [Candidate] {
@@ -132,6 +134,7 @@ extension Settings {
         staticCandidates = try c.decodeIfPresent([String].self, forKey: .staticCandidates) ?? d.staticCandidates
         forwardAudioToWatch = try c.decodeIfPresent(Bool.self, forKey: .forwardAudioToWatch) ?? d.forwardAudioToWatch
         relayEnabled = try c.decodeIfPresent(Bool.self, forKey: .relayEnabled) ?? d.relayEnabled
+        standaloneWatch = try c.decodeIfPresent(Bool.self, forKey: .standaloneWatch) ?? d.standaloneWatch
         selectedChannel = try c.decodeIfPresent(ChannelID.self, forKey: .selectedChannel)
     }
 }
