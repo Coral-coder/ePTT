@@ -1,5 +1,6 @@
 # Keeps NXTPTT.xcodeproj in the repo in sync with project.yml, so the app opens and builds in
-# Xcode without installing XcodeGen. Edit project.yml, not the .xcodeproj.
+# Xcode without installing XcodeGen. Edit project.yml, not the .xcodeproj or the Info.plists
+# (XcodeGen writes those from the `info:` properties).
 name: Xcode project
 
 on:
@@ -28,9 +29,9 @@ jobs:
       - run: xcodegen generate
       - name: Commit the project if it changed
         run: |
-          git add -A NXTPTT.xcodeproj
+          git add -A NXTPTT.xcodeproj App/iOS/Support/Info.plist App/Watch/Info.plist
           if git diff --cached --quiet; then
-            echo "NXTPTT.xcodeproj is up to date"
+            echo "NXTPTT.xcodeproj and Info.plists are up to date"
             exit 0
           fi
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
