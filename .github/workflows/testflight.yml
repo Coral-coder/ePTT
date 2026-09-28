@@ -1,11 +1,18 @@
-# Archives NXTPTT and uploads it to TestFlight. Never runs on an ordinary push.
+# Archives NXTPTT and (optionally) uploads it to TestFlight, driven by markers in the commit
+# message of a push to main:
 #
-#   git tag v0.2.0 && git push origin v0.2.0   → uploads version 0.2.0, build 1
-#   Actions → TestFlight → Run workflow         → same version, build number + 1
+#   no marker   nothing happens here (ci.yml still builds and tests)
+#   *b          archive and sign only, as a check; nothing is uploaded
+#   *u          archive and upload to TestFlight, same version, build number + 1
+#
+# To release a new version, tag the *u commit: `git tag v0.2.0` and push the tag with the
+# branch (`git push origin main v0.2.0`). That uploads 0.2.0 as build 1. A tag on a commit
+# without *b or *u does nothing. Running the workflow by hand (Actions → TestFlight → Run
+# workflow) always uploads; its version and build fields are optional overrides.
 #
 # The current version and build live in project.yml (MARKETING_VERSION,
-# CURRENT_PROJECT_VERSION); after a successful upload the workflow commits the numbers it
-# used back to main, so the next run continues from there.
+# CURRENT_PROJECT_VERSION); after an upload the workflow commits the numbers it used back to
+# main (that commit doesn't trigger workflows).
 # Signing is automatic ("cloud signing"): the App Store Connect API key lets Xcode create and
 # use the distribution certificate and profiles, so no certificates or profiles are stored here.
 # Setup: docs/SETUP.md, "TestFlight from GitHub Actions".
@@ -13,6 +20,7 @@ name: TestFlight
 
 on:
   push:
+    branches: [main]
     tags: ["v*.*.*"]
   workflow_dispatch:
     inputs:
@@ -26,16 +34,46 @@ on:
 permissions:
   contents: write
 
-concurrency:
-  group: testflight
-  cancel-in-progress: true
-
 jobs:
+  # Reads the *b / *u markers; cheap, so it runs on Linux for every push.
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.plan.outputs.build }}
+      upload: ${{ steps.plan.outputs.upload }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: plan
+        run: |
+          message=$(git log -1 --format=%B)
+          build=false; upload=false
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            build=true; upload=true
+          else
+            case "$message" in *'*u'*) build=true; upload=true ;; *'*b'*) build=true ;; esac
+          fi
+          # A tagged commit is handled by the tag's run, not the branch's, so it isn't built twice.
+          if [ "$GITHUB_REF_TYPE" = "branch" ] && [ "$build" = true ]; then
+            git fetch --quiet --tags origin
+            if git tag --points-at HEAD | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+              echo "Tagged commit; the tag's run handles it."; build=false; upload=false
+            fi
+          fi
+          echo "build=$build upload=$upload"
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+          echo "upload=$upload" >> "$GITHUB_OUTPUT"
+
   upload:
+    needs: plan
+    if: needs.plan.outputs.build == 'true'
     runs-on: macos-15
+    concurrency:
+      group: testflight-upload
+      cancel-in-progress: false
     # The App Store Connect secrets live in this GitHub environment (Settings → Environments).
     environment: Coral
     env:
+      UPLOAD: ${{ needs.plan.outputs.upload }}
       TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
@@ -120,6 +158,7 @@ jobs:
             archive | tail -60
 
       - name: Upload to TestFlight
+        if: env.UPLOAD == 'true'
         run: |
           cat > build/ExportOptions.plist <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
@@ -142,6 +181,7 @@ jobs:
           echo "Uploaded $VERSION ($BUILD_NUMBER). It appears in TestFlight after Apple finishes processing (usually 5 to 20 minutes)."
 
       - name: Record the version and build on main
+        if: env.UPLOAD == 'true'
         run: |
           git fetch origin main
           git checkout -B main origin/main

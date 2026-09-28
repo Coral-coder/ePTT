@@ -163,13 +163,19 @@ in **Safari** on a registered iPhone and tap **Install**.
 ## TestFlight from GitHub Actions
 
 `.github/workflows/testflight.yml` archives the app and uploads it to TestFlight.
-It never runs on an ordinary push:
+Pushes to `main` are controlled by markers in the commit message:
 
-- **New version:** push a tag, `git tag v0.2.0 && git push origin v0.2.0`. That
-  uploads 0.2.0, build 1.
-- **Same version, new build:** **Actions → TestFlight → Run workflow**. That
-  uploads the current version with the build number plus one. Both fields in
-  that form are optional overrides.
+| Commit message | What happens |
+| --- | --- |
+| no marker | nothing (the normal CI build still runs) |
+| contains `*b` | archive and sign only, as a check; nothing is uploaded |
+| contains `*u` | archive and upload to TestFlight: same version, build number plus one |
+
+- **New version:** put `*u` in the commit message, tag the commit and push both:
+  `git tag v0.2.0 && git push origin main v0.2.0`. That uploads 0.2.0, build 1.
+  A tag on a commit without `*b` or `*u` does nothing.
+- **By hand:** **Actions → TestFlight → Run workflow** always uploads. Its
+  version and build fields are optional overrides.
 
 The current version and build are `MARKETING_VERSION` and
 `CURRENT_PROJECT_VERSION` in `project.yml`. After each successful upload the
