@@ -1,4 +1,5 @@
 #include "Base.xcconfig"
 // Ad-hoc and App Store builds get production push tokens.
 EPTT_APNS_ENVIRONMENT = production
+EPTT_ICLOUD_ENVIRONMENT = Production
 #include? "Secrets.xcconfig"

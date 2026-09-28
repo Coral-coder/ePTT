@@ -23,6 +23,8 @@ struct EngineSnapshot {
     var pushToTalkAvailable = false
     var wakeAvailable = false
     var localIdentity: PublicIdentity?
+    var transfers: [TransferRecord] = []
+    var relayAvailable = false
 }
 
 enum EngineEvent {
@@ -65,6 +67,13 @@ final class PTTEngine {
     private let audio = AudioEngine()
     let ptt = PushToTalkManager()
     private var apns = APNsClient.fromBundle() ?? APNsClient.fromKeychain()
+    private let relay = CloudRelay()
+    /// Relayed bursts waiting to be played, oldest first (record name, sealed packets).
+    private var relayQueue: [(record: String, packets: [Data])] = []
+    private var relayRecordsSeen: Set<String> = []
+    private var relayFetchInFlight = false
+    private var lastRelayFetch = Date.distantPast
+    private var subscribedTags: [String] = []
     private let bundlesPushKey = APNsClient.fromBundle() != nil
 
     // Derived lookups, rebuilt whenever contacts or channels change.
@@ -101,6 +110,9 @@ final class PTTEngine {
         let burst: MessageID
         let sender: SenderID
         let talker: String
+        let route: Route
+        var framesPlayed = 0
+        var frameMilliseconds = 20
         var jitter = JitterBuffer()
         /// BURST_END arrived: play out what is buffered, then stop.
         var draining = false
@@ -127,6 +139,10 @@ final class PTTEngine {
         transport = UDPTransport(queue: queue)
         if state.settings.displayName.isEmpty {
             state.settings.displayName = UIDevice.current.name
+        }
+        if state.relayMailbox == nil {
+            state.relayMailbox = .random(count: 16)
+            Store.save(state)
         }
         rebuildIndexes()
         rotatePrekeysIfNeeded()
@@ -162,6 +178,9 @@ final class PTTEngine {
             transport.start()
             startHousekeeping()
             if state.settings.alwaysListening { startManualAudio() }
+            refreshRelaySubscription()
+            fetchRelay()
+            purgeExpiredRelayUploads()
             publish()
         }
         if !state.settings.alwaysListening {
@@ -174,6 +193,7 @@ final class PTTEngine {
         queue.async { [self] in
             transport.start()
             announceReachability()
+            fetchRelay()
         }
     }
 
@@ -212,6 +232,11 @@ final class PTTEngine {
             earlyVoice.expire(now: now)
             earlyPackets.expire(now: now)
             if rotatePrekeysIfNeeded() { announceReachability() }
+            if now.timeIntervalSince(lastRelayFetch) >= 60 {
+                fetchRelay()
+                refreshRelaySubscription()
+                purgeExpiredRelayUploads()
+            }
             publishIfOnlineChanged()
         }
     }
@@ -387,15 +412,17 @@ final class PTTEngine {
         if floor.isTransmitting { _ = floor.releaseTalk() }
         tx = nil
         let end = BurstEnd(timestamp: currentTimestamp(), frameCount: t.nextFrameIndex)
-        if let packet = try? builder.sealBurst(.burstEnd, plaintext: end.encoded, keys: t.channel.keys,
-                                               burstID: t.burst, burstKey: t.burstKey, seq: t.nextFrameIndex) {
+        let endPacket = try? builder.sealBurst(.burstEnd, plaintext: end.encoded, keys: t.channel.keys,
+                                               burstID: t.burst, burstKey: t.burstKey, seq: t.nextFrameIndex)
+        if let endPacket {
             // Three copies 40 ms apart; receivers drop the duplicates.
             for i in 0..<3 {
                 queue.asyncAfter(deadline: .now() + .milliseconds(40 * i)) { [weak self] in
-                    self?.send(packet, to: t.delivered)
+                    self?.send(endPacket, to: t.delivered)
                 }
             }
         }
+        finishOutgoing(t, endPacket: endPacket)
         if !usesPushToTalk && rx == nil && !state.settings.alwaysListening {
             queue.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 guard let self, self.tx == nil, self.rx == nil else { return }
@@ -452,17 +479,20 @@ final class PTTEngine {
         queue.async { self.handleDatagram(packet, from: nil) }
     }
 
-    private func handleDatagram(_ data: Data, from endpoint: NWEndpoint?) {
+    private func handleDatagram(_ data: Data, from endpoint: NWEndpoint?, relayed: Bool = false) {
         let inbound: InboundPacket
         do {
             inbound = try processor.process(
                 data,
+                maxAge: relayed ? Relay.lifetime : ReplayGuard.maxClockSkew,
                 channelLookup: { [self] in channel($0) },
                 memberLookup: { [self] in contact($0)?.identity }
             )
         } catch InboundError.unknownBurst {
             // VOICE overtook its BURST_START (or the start is still in flight): retry after it lands.
-            if let header = try? PacketHeader(packet: data) { earlyPackets.append((data, endpoint), for: header.messageID) }
+            if !relayed, let header = try? PacketHeader(packet: data) {
+                earlyPackets.append((data, endpoint), for: header.messageID)
+            }
             return
         } catch InboundError.replay {
             // Retransmitted BURST_START/END; still proof the peer is reachable here.
@@ -487,6 +517,7 @@ final class PTTEngine {
             }
             guard inbound.channel.isMonitored || inbound.channel.kind == .direct else { return }
             pendingBurstInfo[inbound.header.messageID] = start
+            pendingRoutes[inbound.header.messageID] = relayed ? .relay : PTTEngine.route(for: endpoint)
             apply(floor.remoteBurstStarted(channel: inbound.channel.id, burst: inbound.header.messageID,
                                            sender: sender, timestamp: start.timestamp))
             floor.remoteActivity(channel: inbound.channel.id, burst: inbound.header.messageID)
@@ -523,6 +554,7 @@ final class PTTEngine {
 
     /// BURST_START details by burst, needed when reception begins.
     private var pendingBurstInfo: [MessageID: BurstStart] = [:]
+    private var pendingRoutes: [MessageID: Route] = [:]
 
     private func handleHello(_ hello: Hello, from sender: SenderID, endpoint: NWEndpoint?) {
         guard let i = contactsBySender[sender] else { return }
@@ -553,9 +585,12 @@ final class PTTEngine {
         stopReception(playEndTone: false)
         guard let channel = self.channel(channelID), let contact = self.contact(sender) else { return }
         let start = pendingBurstInfo.removeValue(forKey: burst)
+        let route = pendingRoutes.removeValue(forKey: burst) ?? .internet
         pendingBurstInfo.removeAll()
+        pendingRoutes.removeAll()
         let talker = channel.kind == .group ? "\(contact.name) · \(channel.name)" : contact.name
-        var r = Reception(channel: channel, burst: burst, sender: sender, talker: talker)
+        var r = Reception(channel: channel, burst: burst, sender: sender, talker: talker, route: route)
+        r.frameMilliseconds = Int(start?.frameMilliseconds ?? 20)
         for (index, frames) in earlyVoice.take(burst) {
             for (offset, frame) in frames.enumerated() { r.jitter.insert(index: index + UInt32(offset), frame: frame) }
         }
@@ -577,6 +612,15 @@ final class PTTEngine {
         guard let finished = rx else { return }
         rx = nil
         processor.forgetBurst(sender: finished.sender, burst: finished.burst)
+        if finished.framesPlayed > 0 {
+            logTransfer(TransferRecord(date: Date(), outgoing: false, channel: displayName(of: finished.channel),
+                                       seconds: Double(finished.framesPlayed * finished.frameMilliseconds) / 1000,
+                                       legs: [.init(peer: self.contact(finished.sender)?.name ?? "?", route: finished.route)]))
+        }
+        // Relayed messages play one after another.
+        if !relayQueue.isEmpty {
+            queue.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.playNextRelayed() }
+        }
         playoutTimer?.cancel()
         playoutTimer = nil
         audio.endPlayback()
@@ -607,8 +651,12 @@ final class PTTEngine {
         let pulled = r.jitter.pull()
         rx = r
         switch pulled {
-        case .frame(let frame): audio.playFrame(frame)
-        case .missing: audio.playFrame(nil)
+        case .frame(let frame):
+            audio.playFrame(frame)
+            rx?.framesPlayed += 1
+        case .missing:
+            audio.playFrame(nil)
+            rx?.framesPlayed += 1
         case .waiting: break
         case .finished: stopReception()
         }
@@ -656,6 +704,10 @@ final class PTTEngine {
         let talker = inbound.channel.kind == .group ? "\(contact.name) · \(inbound.channel.name)" : contact.name
         respondToWake(wake, from: contact)
         pendingWake = (talker, Date().addingTimeInterval(10))
+        // If no direct path appears, the talker leaves the burst in the relay when they release.
+        for delay in [8.0, 20.0, 45.0, 75.0] {
+            queue.asyncAfter(deadline: .now() + delay) { [weak self] in self?.fetchRelay(force: true) }
+        }
         return talker
     }
 
@@ -855,7 +907,8 @@ final class PTTEngine {
         let env = APNsClient.environment(of: .main)
         return Reachability(apnsPTTToken: state.pttToken, apnsDeviceToken: state.deviceToken, apnsEnvironment: env,
                             apnsTopic: Bundle.main.bundleIdentifier, candidates: transport.localCandidates,
-                            prekey: prekeys.signed)
+                            prekey: prekeys.signed,
+                            relayMailbox: relay != nil && state.settings.relayEnabled ? state.relayMailbox : nil)
     }
 
     private func myCard() throws -> ContactCard {
@@ -912,6 +965,164 @@ final class PTTEngine {
         for contact in state.contacts.prefix(32) {
             sendHello(to: contact, replyRequested: true, endpoints: [endpoint])
         }
+    }
+
+    // MARK: - Relay and transfer history
+
+    /// Records how a finished transmission went and leaves it in the relay for anyone it missed.
+    private func finishOutgoing(_ t: Transmission, endPacket: Data?) {
+        var legs: [TransferRecord.Leg] = []
+        var missed: [Contact] = []
+        for member in t.channel.members {
+            guard let contact = self.contact(id: member) else { continue }
+            if t.delivered.contains(contact.senderID), let link = links[contact.senderID] {
+                legs.append(.init(peer: contact.name, route: PTTEngine.route(for: link.endpoint)))
+            } else {
+                missed.append(contact)
+            }
+        }
+        var packets = t.backlog.packets
+        if let endPacket { packets.append(endPacket) }
+        let seconds = Double(t.nextFrameIndex) * Double(audio.captureCodec.frameMilliseconds) / 1000
+        let channelName = displayName(of: t.channel)
+        let relayable = missed.filter { $0.reachability.relayMailbox != nil }
+        guard let relay, state.settings.relayEnabled, !relayable.isEmpty, t.nextFrameIndex > 0,
+              let payload = Relay.encode(packets: packets) else {
+            legs += missed.map { .init(peer: $0.name, route: .failed) }
+            if !legs.isEmpty {
+                logTransfer(TransferRecord(date: Date(), outgoing: true, channel: channelName, seconds: seconds, legs: legs))
+            }
+            return
+        }
+        legs += missed.filter { $0.reachability.relayMailbox == nil }.map { .init(peer: $0.name, route: .failed) }
+        let directLegs = legs
+        Task { [weak self] in
+            var relayedLegs: [TransferRecord.Leg] = []
+            var uploads: [String: Date] = [:]
+            for contact in relayable {
+                guard let mailbox = contact.reachability.relayMailbox else { continue }
+                do {
+                    let name = try await relay.upload(payload: payload, tag: Relay.tag(mailbox: mailbox))
+                    uploads[name] = Date().addingTimeInterval(Relay.lifetime)
+                    relayedLegs.append(.init(peer: contact.name, route: .relay))
+                } catch {
+                    relayedLegs.append(.init(peer: contact.name, route: .failed))
+                }
+            }
+            self?.queue.async {
+                guard let self else { return }
+                self.state.relayUploads.merge(uploads) { a, _ in a }
+                self.logTransfer(TransferRecord(date: Date(), outgoing: true, channel: channelName, seconds: seconds,
+                                                legs: directLegs + relayedLegs))
+            }
+        }
+    }
+
+    /// Looks for relayed messages addressed to us and queues them for playback.
+    func fetchRelay(force: Bool = false) {
+        queue.async { [self] in
+            guard let relay, state.settings.relayEnabled, let mailbox = state.relayMailbox, !relayFetchInFlight else { return }
+            guard force || Date().timeIntervalSince(lastRelayFetch) > 5 else { return }
+            relayFetchInFlight = true
+            lastRelayFetch = Date()
+            let tags = Relay.inboxTags(mailbox: mailbox)
+            Task { [weak self] in
+                let records = (try? await relay.fetch(tags: tags)) ?? []
+                self?.queue.async {
+                    guard let self else { return }
+                    self.relayFetchInFlight = false
+                    for record in records where !self.relayRecordsSeen.contains(record.name) {
+                        self.relayRecordsSeen.insert(record.name)
+                        guard let packets = try? Relay.decode(record.payload) else {
+                            Task { await relay.delete(recordName: record.name) }
+                            continue
+                        }
+                        self.relayQueue.append((record.name, packets))
+                    }
+                    if self.rx == nil && self.tx == nil { self.playNextRelayed() }
+                }
+            }
+        }
+    }
+
+    private func playNextRelayed() {
+        guard rx == nil, tx == nil, !relayQueue.isEmpty else { return }
+        let next = relayQueue.removeFirst()
+        for packet in next.packets { handleDatagram(packet, from: nil, relayed: true) }
+        if let relay { Task { await relay.delete(recordName: next.record) } }
+        // Not playable (e.g. not addressed to this device, or sealed to a deleted prekey): move on.
+        if rx == nil, !relayQueue.isEmpty { playNextRelayed() }
+    }
+
+    private func refreshRelaySubscription() {
+        guard let relay, state.settings.relayEnabled, let mailbox = state.relayMailbox else { return }
+        let tags = Relay.inboxTags(mailbox: mailbox) + [Relay.tag(mailbox: mailbox, at: Date().addingTimeInterval(86400))]
+        guard tags != subscribedTags else { return }
+        subscribedTags = tags
+        Task { await relay.subscribe(tags: tags) }
+    }
+
+    private func purgeExpiredRelayUploads() {
+        guard let relay else { return }
+        let now = Date()
+        let expired = state.relayUploads.filter { $0.value < now }.map(\.key)
+        guard !expired.isEmpty else { return }
+        for name in expired { state.relayUploads[name] = nil }
+        save()
+        Task { for name in expired { await relay.delete(recordName: name) } }
+    }
+
+    private func logTransfer(_ record: TransferRecord) {
+        state.transfers.insert(record, at: 0)
+        if state.transfers.count > 100 { state.transfers.removeLast(state.transfers.count - 100) }
+        save()
+    }
+
+    func clearTransfers() {
+        queue.async { [self] in
+            state.transfers.removeAll()
+            save()
+        }
+    }
+
+    /// Classifies the path a packet took from its remote endpoint.
+    static func route(for endpoint: NWEndpoint?) -> Route {
+        guard let endpoint else { return .internet }
+        switch endpoint {
+        case .service:
+            return .nearby
+        case .hostPort(let host, _):
+            switch host {
+            case .ipv4(let address):
+                let b = [UInt8](address.rawValue)
+                guard b.count == 4 else { return .internet }
+                if b[0] == 100 && (b[1] & 0xC0) == 64 { return .overlay }            // 100.64.0.0/10
+                if b[0] == 10 || (b[0] == 172 && (b[1] & 0xF0) == 16) || (b[0] == 192 && b[1] == 168)
+                    || (b[0] == 169 && b[1] == 254) { return .localNetwork }
+                return .internet
+            case .ipv6(let address):
+                let b = [UInt8](address.rawValue)
+                guard b.count == 16 else { return .internet }
+                if let name = address.interface?.name, name.hasPrefix("awdl") || name.hasPrefix("llw") { return .nearby }
+                if b[0] == 0xFD && b[1] == 0x7A && b[2] == 0x11 && b[3] == 0x5C { return .overlay } // Tailscale ULA
+                if b[0] == 0xFE && (b[1] & 0xC0) == 0x80 { return .localNetwork }     // link-local
+                if (b[0] & 0xFE) == 0xFC { return .localNetwork }                      // ULA
+                return .internet
+            case .name:
+                return .internet
+            @unknown default:
+                return .internet
+            }
+        default:
+            return .internet
+        }
+    }
+
+    private func displayName(of channel: Channel) -> String {
+        guard channel.kind == .direct, let member = channel.members.first, let contact = self.contact(id: member) else {
+            return channel.name
+        }
+        return contact.name
     }
 
     // MARK: - Helpers
@@ -980,6 +1191,8 @@ final class PTTEngine {
         snapshot.pushToTalkAvailable = ptt.isAvailable
         snapshot.wakeAvailable = apns != nil
         snapshot.localIdentity = identity.publicIdentity
+        snapshot.transfers = state.transfers
+        snapshot.relayAvailable = relay != nil
         DispatchQueue.main.async { [weak self] in self?.onSnapshot?(snapshot) }
     }
 

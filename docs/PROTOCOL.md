@@ -40,6 +40,7 @@ tag: u8 | length: u16 | value: length bytes
 | 0x07 | apns_topic | UTF-8 app bundle ID |
 | 0x08 | platform | u8: 1 = iOS, 2 = Android, 3 = other |
 | 0x09 | flags | u8, meaning depends on the message |
+| 0x0A | relay_mailbox | 16 bytes, secret relay mailbox ID (§11) |
 | 0x10 | codec | u8: 1 = Opus, 2 = PCM signed 16-bit little-endian |
 | 0x11 | sample_rate | u32, in Hz |
 | 0x12 | frame_ms | u8, milliseconds of audio per frame |
@@ -117,7 +118,7 @@ A contact card is a TLV payload with these tags, in this order:
 - `timestamp`
 - optionally `apns_ptt_token`, `apns_device_token`, `apns_env`
 - `candidate`s
-- optionally `apns_topic` and `platform`
+- optionally `apns_topic`, `platform` and `relay_mailbox`
 - `card_version`, `sign_pk`, `kx_pk`, `prekey`
 - `card_signature`, which is always last
 
@@ -210,7 +211,7 @@ A receiver drops a packet without responding when any of these hold:
 
 | Type | Name | seq | Plaintext |
 | --- | --- | --- | --- |
-| 0x01 | HELLO | 0 | TLV: name, timestamp, apns_ptt_token?, apns_device_token?, apns_env?, candidate*, apns_topic?, flags. Flags bit 0 = "reply with a HELLO". Direct channels only. |
+| 0x01 | HELLO | 0 | TLV: name, timestamp, apns_ptt_token?, apns_device_token?, apns_env?, candidate*, apns_topic?, flags, relay_mailbox?, prekey?. Flags bit 0 = "reply with a HELLO". Direct channels only. |
 | 0x02 | BURST_START | 0 | TLV: timestamp, codec, sample_rate, frame_ms, signature, ephemeral_pk, envelope* (one per recipient, §6.2) |
 | 0x03 | VOICE | index of the first frame | `count: u8`, then `count` × (`len: u16`, frame bytes) |
 | 0x04 | BURST_END | total frame count | TLV: timestamp, frame_count |
@@ -344,3 +345,33 @@ sender's candidates, and then streams that sender the stored burst packets.
 
 Any byte-level change bumps `version` and the `"ePTT/<n>"` labels. New TLV
 tags are backward-compatible, because unknown tags are ignored.
+
+## 11. Store-and-forward relay
+
+When a recipient never connected during a burst, the talker may leave the
+burst in a **relay**: any shared store both can reach. On iOS this is the
+app's CloudKit public database, which Apple hosts. The relay only ever sees
+sealed packets. Their audio is protected by the burst key, which only
+recipients can unwrap (§6.2).
+
+- **Mailbox.** Each device picks a random 16-byte `relay_mailbox` and shares it
+  in its contact card and HELLOs. It is a secret known only to contacts.
+- **Lookup tag.** Records are filed under a tag that rotates daily, so
+  records cannot be linked to a person or across days:
+
+  ```
+  day = floor(unix_seconds / 86400)
+  tag = lowercase_hex( HMAC-SHA256(relay_mailbox, "ePTT/1 mailbox" || day_u32)[0..16] )
+  ```
+
+  Recipients look up today's and yesterday's tags.
+- **Payload.** `version: u8 = 1`, then each sealed packet of the burst in order
+  (BURST_START first) as `len: u16 | packet`. The talker uploads one record per
+  recipient. The total must stay under 900 KB, which a 60-second burst does.
+- **CloudKit record.** Type `RelayMessage`, with fields `mailbox` (String,
+  queryable), `payload` (Bytes) and `expires` (Date, now + 24 h).
+- **Delivery.** The recipient processes the packets exactly as if they had
+  arrived live, but accepts timestamps up to 24 h old. It plays relayed
+  bursts one after another, oldest first, and then deletes the record. The
+  talker deletes its own records once they expire.
+

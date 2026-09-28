@@ -11,6 +11,7 @@ public enum Tag: UInt8, CaseIterable {
     case apnsTopic = 0x07
     case platform = 0x08
     case flags = 0x09
+    case relayMailbox = 0x0A
     case codec = 0x10
     case sampleRate = 0x11
     case frameMilliseconds = 0x12

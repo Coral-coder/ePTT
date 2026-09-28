@@ -246,3 +246,21 @@ final class VectorTests: XCTestCase {
         }
     }
 }
+
+extension VectorTests {
+    func testRelay() throws {
+        let d = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: XCTUnwrap(
+            Bundle.module.url(forResource: "vectors", withExtension: "json", subdirectory: "Fixtures")))) as? [String: Any])
+        let r = try XCTUnwrap(d["relay"] as? [String: Any])
+        let g = try XCTUnwrap(d["group_burst"] as? [String: Any])
+        let mailbox = try XCTUnwrap(Data(hex: r["mailbox_secret"] as! String))
+        let t = Date(timeIntervalSince1970: TimeInterval(r["unix_seconds"] as! Int))
+        XCTAssertEqual(Relay.tag(mailbox: mailbox, at: t), r["tag"] as? String)
+        XCTAssertEqual(Relay.tag(mailbox: mailbox, at: t.addingTimeInterval(86400)), r["tag_next_day"] as? String)
+        XCTAssertEqual(Relay.inboxTags(mailbox: mailbox, at: t.addingTimeInterval(86400)).last, r["tag"] as? String)
+        let packets = ["start_packet", "voice_packet", "end_packet"].map { Data(hex: g[$0] as! String)! }
+        let payload = try XCTUnwrap(Relay.encode(packets: packets))
+        XCTAssertEqual(payload, Data(hex: r["payload"] as! String))
+        XCTAssertEqual(try Relay.decode(payload), packets)
+    }
+}

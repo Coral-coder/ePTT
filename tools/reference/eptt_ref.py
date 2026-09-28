@@ -36,7 +36,7 @@ GROUP_INVITE, GROUP_LEAVE = 0x10, 0x11
 
 # TLV tags
 T_NAME, T_TIMESTAMP, T_PTT_TOKEN, T_DEVICE_TOKEN, T_APNS_ENV = 0x01, 0x02, 0x03, 0x04, 0x05
-T_CANDIDATE, T_APNS_TOPIC, T_PLATFORM, T_FLAGS = 0x06, 0x07, 0x08, 0x09
+T_CANDIDATE, T_APNS_TOPIC, T_PLATFORM, T_FLAGS, T_RELAY_MAILBOX = 0x06, 0x07, 0x08, 0x09, 0x0A
 T_CODEC, T_SAMPLE_RATE, T_FRAME_MS, T_SIGNATURE, T_FRAME_COUNT, T_TEXT = 0x10, 0x11, 0x12, 0x13, 0x14, 0x15
 T_EPHEMERAL, T_ENVELOPE = 0x16, 0x17
 T_GROUP_ID, T_GROUP_NAME, T_GROUP_KEY, T_GROUP_EPOCH, T_MEMBER_CARD, T_SEALED_INVITE = 0x20, 0x21, 0x22, 0x23, 0x24, 0x25
@@ -300,6 +300,19 @@ def seal_invite(inner: bytes, eph_sk: X25519PrivateKey, message_id: bytes, recip
     return u32(prekey_id) + ChaCha20Poly1305(key).encrypt(bytes(12), inner, aad)
 
 
+# ---------------------------------------------------------------- relay (store and forward)
+
+def mailbox_tag(mailbox_secret: bytes, unix_seconds: int) -> str:
+    """Daily-rotating lookup tag for a relay mailbox (PROTOCOL.md §11)."""
+    import hmac
+    day = unix_seconds // 86400
+    return hmac.new(mailbox_secret, b"ePTT/1 mailbox" + u32(day), hashlib.sha256).digest()[:16].hex()
+
+
+def relay_payload(packets: list[bytes]) -> bytes:
+    return u8(1) + b"".join(u16(len(p)) + p for p in packets)
+
+
 # ---------------------------------------------------------------- STUN (RFC 5389)
 
 STUN_COOKIE = 0x2112A442
@@ -458,6 +471,15 @@ def build_vectors() -> dict:
         "ephemeral_seed": h(invite_eph.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw,
                                                      serialization.NoEncryption())),
         "inner": h(inner), "sealed_inner": h(sealed_inner), "plaintext": h(invite_pt), "packet": h(invite),
+    }
+
+    mailbox = bytes.fromhex("44" * 16)
+    v["relay"] = {
+        "mailbox_secret": h(mailbox),
+        "unix_seconds": 1_790_000_000,
+        "tag": mailbox_tag(mailbox, 1_790_000_000),
+        "tag_next_day": mailbox_tag(mailbox, 1_790_000_000 + 86400),
+        "payload": h(relay_payload([start, voice, end])),
     }
 
     txn = bytes.fromhex("000102030405060708090a0b")

@@ -35,6 +35,13 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    Toggle("iCloud relay fallback", isOn: binding(\.relayEnabled))
+                        .disabled(!model.snapshot.relayAvailable)
+                } footer: {
+                    Text("If someone can't be reached directly, Chirp leaves the encrypted transmission in iCloud for up to 24 hours and deletes it once delivered. Apple only ever sees encrypted data. Requires being signed in to iCloud.")
+                }
+
+                Section {
                     NavigationLink("Push key") { PushKeyView() }
                 } footer: {
                     Text("The push key lets Chirp wake your friends' phones when you key up. Everyone in your group needs the same key; share it in person.")

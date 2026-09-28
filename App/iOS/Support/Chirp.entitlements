@@ -6,5 +6,15 @@
 	<string>$(EPTT_APNS_ENVIRONMENT)</string>
 	<key>com.apple.developer.push-to-talk</key>
 	<true/>
+	<key>com.apple.developer.icloud-container-identifiers</key>
+	<array>
+		<string>iCloud.$(EPTT_BUNDLE_ID)</string>
+	</array>
+	<key>com.apple.developer.icloud-services</key>
+	<array>
+		<string>CloudKit</string>
+	</array>
+	<key>com.apple.developer.icloud-container-environment</key>
+	<string>$(EPTT_ICLOUD_ENVIRONMENT)</string>
 </dict>
 </plist>

@@ -11,6 +11,8 @@ struct Settings: Codable, Equatable {
     /// Extra candidates to advertise, e.g. an overlay-VPN host name ("me.tailnet.ts.net:47474").
     var staticCandidates: [String] = []
     var forwardAudioToWatch = false
+    /// Leave messages in the iCloud relay for people who couldn't be reached directly.
+    var relayEnabled = true
     var selectedChannel: ChannelID?
 
     var parsedStaticCandidates: [Candidate] {
@@ -35,6 +37,53 @@ struct Settings: Codable, Equatable {
     }
 }
 
+/// How a transmission reached (or failed to reach) someone.
+enum Route: String, Codable {
+    case nearby          // peer-to-peer Wi-Fi (AWDL) or Bluetooth
+    case localNetwork    // same Wi-Fi / LAN
+    case overlay         // an overlay VPN address (Tailscale and similar)
+    case internet        // direct over the public internet
+    case relay           // iCloud store-and-forward
+    case failed
+
+    var label: String {
+        switch self {
+        case .nearby: return "Nearby (peer-to-peer)"
+        case .localNetwork: return "Local network"
+        case .overlay: return "Overlay VPN"
+        case .internet: return "Internet (direct)"
+        case .relay: return "iCloud relay"
+        case .failed: return "Not delivered"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .nearby: return "antenna.radiowaves.left.and.right"
+        case .localNetwork: return "wifi"
+        case .overlay: return "network.badge.shield.half.filled"
+        case .internet: return "globe"
+        case .relay: return "icloud"
+        case .failed: return "exclamationmark.triangle"
+        }
+    }
+}
+
+/// One entry of the "Recent transfers" list.
+struct TransferRecord: Codable, Identifiable {
+    struct Leg: Codable, Hashable {
+        var peer: String
+        var route: Route
+    }
+
+    var id = UUID()
+    var date: Date
+    var outgoing: Bool
+    var channel: String
+    var seconds: Double
+    var legs: [Leg]
+}
+
 /// Everything the app persists besides private keys, as one JSON file in Application Support.
 struct PersistedState: Codable {
     var settings = Settings()
@@ -43,6 +92,12 @@ struct PersistedState: Codable {
     /// Push tokens, kept so reachability is known on a cold launch before iOS re-delivers them.
     var pttToken: Data?
     var deviceToken: Data?
+    /// Secret relay mailbox shared with contacts (PROTOCOL.md §11).
+    var relayMailbox: Data?
+    /// Relay records we uploaded, with their expiry, so we can delete them.
+    var relayUploads: [String: Date] = [:]
+    /// Newest first, capped.
+    var transfers: [TransferRecord] = []
 }
 
 enum Store {
@@ -62,5 +117,35 @@ enum Store {
         guard let data = try? JSONEncoder().encode(state) else { return }
         // Readable after first unlock so a push can wake a locked phone and still load contacts.
         try? data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+    }
+}
+
+// Tolerant decoding: fields added in later versions fall back to their defaults instead of
+// making the whole saved state unreadable.
+extension Settings {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = Settings()
+        displayName = try c.decodeIfPresent(String.self, forKey: .displayName) ?? d.displayName
+        alwaysListening = try c.decodeIfPresent(Bool.self, forKey: .alwaysListening) ?? d.alwaysListening
+        stunEnabled = try c.decodeIfPresent(Bool.self, forKey: .stunEnabled) ?? d.stunEnabled
+        staticCandidates = try c.decodeIfPresent([String].self, forKey: .staticCandidates) ?? d.staticCandidates
+        forwardAudioToWatch = try c.decodeIfPresent(Bool.self, forKey: .forwardAudioToWatch) ?? d.forwardAudioToWatch
+        relayEnabled = try c.decodeIfPresent(Bool.self, forKey: .relayEnabled) ?? d.relayEnabled
+        selectedChannel = try c.decodeIfPresent(ChannelID.self, forKey: .selectedChannel)
+    }
+}
+
+extension PersistedState {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        settings = try c.decodeIfPresent(Settings.self, forKey: .settings) ?? Settings()
+        contacts = try c.decodeIfPresent([Contact].self, forKey: .contacts) ?? []
+        channels = try c.decodeIfPresent([Channel].self, forKey: .channels) ?? []
+        pttToken = try c.decodeIfPresent(Data.self, forKey: .pttToken)
+        deviceToken = try c.decodeIfPresent(Data.self, forKey: .deviceToken)
+        relayMailbox = try c.decodeIfPresent(Data.self, forKey: .relayMailbox)
+        relayUploads = try c.decodeIfPresent([String: Date].self, forKey: .relayUploads) ?? [:]
+        transfers = try c.decodeIfPresent([TransferRecord].self, forKey: .transfers) ?? []
     }
 }

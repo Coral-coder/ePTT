@@ -12,6 +12,8 @@ struct RootView: View {
                 .tabItem { Label("Channels", systemImage: "person.3") }
             ContactsView()
                 .tabItem { Label("Contacts", systemImage: "person.crop.circle") }
+            ActivityView()
+                .tabItem { Label("Activity", systemImage: "clock.arrow.circlepath") }
             SettingsView()
                 .tabItem { Label("Settings", systemImage: "gearshape") }
         }

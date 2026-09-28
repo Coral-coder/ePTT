@@ -20,15 +20,19 @@ public struct Reachability: Equatable, Codable {
     public var candidates: [Candidate]
     /// The peer's current session prekey (forward secrecy). Verified before it is stored.
     public var prekey: SignedPrekey?
+    /// Secret relay mailbox (PROTOCOL.md §11).
+    public var relayMailbox: Data?
 
     public init(apnsPTTToken: Data? = nil, apnsDeviceToken: Data? = nil, apnsEnvironment: APNsEnvironment? = nil,
-                apnsTopic: String? = nil, candidates: [Candidate] = [], prekey: SignedPrekey? = nil) {
+                apnsTopic: String? = nil, candidates: [Candidate] = [], prekey: SignedPrekey? = nil,
+                relayMailbox: Data? = nil) {
         self.apnsPTTToken = apnsPTTToken
         self.apnsDeviceToken = apnsDeviceToken
         self.apnsEnvironment = apnsEnvironment
         self.apnsTopic = apnsTopic
         self.candidates = candidates
         self.prekey = prekey
+        self.relayMailbox = relayMailbox
     }
 
     func add(to builder: inout TLVBuilder) {
@@ -38,6 +42,7 @@ public struct Reachability: Equatable, Codable {
         for candidate in candidates { builder.add(.candidate, candidate.encoded) }
         if let topic = apnsTopic { builder.add(.apnsTopic, topic, maxBytes: 255) }
         if let prekey { builder.add(.prekey, prekey.encoded) }
+        if let relayMailbox { builder.add(.relayMailbox, relayMailbox) }
     }
 
     init(fields: TLVFields) throws {
@@ -48,6 +53,7 @@ public struct Reachability: Equatable, Codable {
         // Skip candidates we cannot parse (e.g. a future kind) rather than rejecting the whole message.
         candidates = fields.all(.candidate).compactMap { try? Candidate(encoded: $0) }
         prekey = try fields.first(.prekey).map(SignedPrekey.init(encoded:))
+        relayMailbox = fields.first(.relayMailbox).flatMap { $0.count == 16 ? $0 : nil }
     }
 
     /// Drops a prekey whose signature does not verify against `identity`.
@@ -65,6 +71,7 @@ public struct Reachability: Equatable, Codable {
         apnsTopic = newer.apnsTopic ?? apnsTopic
         if !newer.candidates.isEmpty { candidates = newer.candidates }
         if let incoming = newer.prekey, incoming.id > (prekey?.id ?? 0) { prekey = incoming }
+        relayMailbox = newer.relayMailbox ?? relayMailbox
     }
 }
 
