@@ -162,9 +162,9 @@ in **Safari** on a registered iPhone and tap **Install**.
 
 ## TestFlight from GitHub Actions
 
-`.github/workflows/testflight.yml` archives the app and uploads it to TestFlight
-on every push to `main` that touches the app, and on demand (**Actions →
-TestFlight → Run workflow**). Signing is automatic: an App Store Connect API
+`.github/workflows/testflight.yml` archives the app and uploads it to TestFlight.
+It never runs on a push: start it from **Actions → TestFlight → Run workflow**
+and enter the version to publish (for example `0.2.0`). Signing is automatic: an App Store Connect API
 key lets Xcode create and use the distribution certificate and profiles itself.
 
 1. **The app record.** It must already exist in App Store Connect (it does once
@@ -186,8 +186,8 @@ key lets Xcode create and use the distribution certificate and profiles itself.
    | `APNS_KEY_P8`, `APNS_KEY_ID` | *optional*, bundled only when the repository **variable** `BUNDLE_APNS_KEY` is `true` (live Push to Talk wakes; TestFlight builds are private to your testers) |
 
 Build numbers come from the run number (10011, 10021, …), so they always
-increase and stay above builds uploaded by hand. The marketing version is
-`MARKETING_VERSION` in `project.yml`. Builds show up in TestFlight after Apple
+increase and stay above builds uploaded by hand. The version is the one you
+enter when starting the run. Builds show up in TestFlight after Apple
 finishes processing, usually within 5 to 20 minutes.
 
 ## Export compliance (encryption)

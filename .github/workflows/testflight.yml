@@ -1,4 +1,5 @@
-# Archives NXTPTT and uploads it to TestFlight on every push to main (and on demand).
+# Archives NXTPTT and uploads it to TestFlight. It only runs when started by hand with a
+# version number (Actions → TestFlight → Run workflow), never on a push.
 # Signing is automatic ("cloud signing"): the App Store Connect API key lets Xcode create and
 # use the distribution certificate and profiles, so no certificates or profiles are stored here.
 # Setup: docs/SETUP.md, "TestFlight from GitHub Actions".
@@ -6,14 +7,10 @@ name: TestFlight
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - App/**
-      - Config/**
-      - Packages/**
-      - project.yml
-      - .github/workflows/testflight.yml
+    inputs:
+      version:
+        description: "Version shown in TestFlight, e.g. 0.2.0"
+        required: true
 
 permissions:
   contents: read
@@ -31,6 +28,7 @@ jobs:
       TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      VERSION: ${{ inputs.version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -39,6 +37,9 @@ jobs:
           ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
+          if ! [[ "$VERSION" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]]; then
+            echo "::error::Version must look like 1, 1.2 or 1.2.3 (got '$VERSION')"; exit 1
+          fi
           for name in APPLE_TEAM_ID ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8; do
             if [ -z "${!name}" ]; then echo "::error::Missing secret $name (see docs/SETUP.md)"; exit 1; fi
           done
@@ -62,8 +63,6 @@ jobs:
             echo "DEVELOPMENT_TEAM = $TEAM_ID"
             if [ -n "$EPTT_BUNDLE_ID" ]; then echo "EPTT_BUNDLE_ID = $EPTT_BUNDLE_ID"; fi
             echo "CODE_SIGN_STYLE = Automatic"
-            # Build numbers must keep increasing; this starts well above anything uploaded by hand.
-            echo "CURRENT_PROJECT_VERSION = $((10000 + GITHUB_RUN_NUMBER * 10 + GITHUB_RUN_ATTEMPT))"
           } > Config/Secrets.xcconfig
           # Optional: live Push to Talk wakes in these builds (docs/SETUP.md, section 3).
           if [ "$BUNDLE_APNS_KEY" = "true" ] && [ -n "$APNS_KEY_P8" ]; then
@@ -71,7 +70,8 @@ jobs:
             echo "EPTT_APNS_TEAM_ID = $TEAM_ID" >> Config/Secrets.xcconfig
             echo "EPTT_APNS_KEY_ID = $APNS_KEY_ID" >> Config/Secrets.xcconfig
           fi
-          cat Config/Secrets.xcconfig | grep -v APNS
+          # Build numbers must keep increasing; this starts well above anything uploaded by hand.
+          echo "BUILD_NUMBER=$((10000 + GITHUB_RUN_NUMBER * 10 + GITHUB_RUN_ATTEMPT))" >> "$GITHUB_ENV"
 
       - run: brew install xcodegen && xcodegen generate
 
@@ -84,6 +84,7 @@ jobs:
             -authenticationKeyPath "$ASC_KEY_PATH" \
             -authenticationKeyID "$ASC_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
             archive | tail -60
 
       - name: Upload to TestFlight
@@ -106,7 +107,7 @@ jobs:
             -authenticationKeyPath "$ASC_KEY_PATH" \
             -authenticationKeyID "$ASC_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_ISSUER_ID"
-          echo "Uploaded build $(/usr/libexec/PlistBuddy -c 'Print ApplicationProperties:CFBundleVersion' build/NXTPTT.xcarchive/Info.plist). It appears in TestFlight after Apple finishes processing (usually 5 to 20 minutes)."
+          echo "Uploaded $VERSION ($BUILD_NUMBER). It appears in TestFlight after Apple finishes processing (usually 5 to 20 minutes)."
 
       - name: Remove keys
         if: always()
