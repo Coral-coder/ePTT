@@ -34,6 +34,9 @@ targets:
           fi
     dependencies:
       - package: EPTTCore
+      - target: NXTPTTNotify
+        embed: true
+        codeSign: true
       - target: NXTPTTWatch
         embed: true
         codeSign: true
@@ -84,7 +87,42 @@ targets:
         EPTTAPNsKeyID: $(EPTT_APNS_KEY_ID)
         EPTTAPNsEnvironment: $(EPTT_APNS_ENVIRONMENT)
         EPTTCloudContainer: iCloud.$(EPTT_BUNDLE_ID)
+        # Shared with the notification service extension (App/Shared/RelayInbox.swift).
+        EPTTAppGroup: group.$(EPTT_BUNDLE_ID)
+        EPTTKeychainGroup: $(AppIdentifierPrefix)$(EPTT_BUNDLE_ID).shared
     scheme: {}
+
+  # Plays relayed voice messages as the notification sound while the app is suspended.
+  NXTPTTNotify:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: App/NotificationService
+      - path: App/Shared
+        excludes:
+          - "UI/**"
+          - "Fonts/**"
+    dependencies:
+      - package: EPTTCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(EPTT_BUNDLE_ID).notify
+        PROVISIONING_PROFILE_SPECIFIER: $(EPTT_NOTIFY_PROFILE)
+        CODE_SIGN_ENTITLEMENTS: App/NotificationService/NXTPTTNotify.entitlements
+        TARGETED_DEVICE_FAMILY: "1,2"
+    info:
+      path: App/NotificationService/Info.plist
+      properties:
+        CFBundleDisplayName: NXTPTT
+        ITSAppUsesNonExemptEncryption: false
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.usernotifications.service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
+        EPTTCloudContainer: iCloud.$(EPTT_BUNDLE_ID)
+        EPTTAppGroup: group.$(EPTT_BUNDLE_ID)
+        EPTTKeychainGroup: $(AppIdentifierPrefix)$(EPTT_BUNDLE_ID).shared
 
   NXTPTTWatch:
     type: application

@@ -4,9 +4,6 @@ import EPTTCore
 /// User preferences.
 struct Settings: Codable, Equatable {
     var displayName: String = ""
-    /// Keep the app running in the background with an open audio session, instead of relying
-    /// on PushToTalk wakes. Uses more battery; fine for ad-hoc builds (see docs/ARCHITECTURE.md).
-    var alwaysListening = false
     var stunEnabled = true
     /// Extra candidates to advertise, e.g. an overlay-VPN host name ("me.tailnet.ts.net:47474").
     var staticCandidates: [String] = []
@@ -147,7 +144,6 @@ extension Settings {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let d = Settings()
         displayName = try c.decodeIfPresent(String.self, forKey: .displayName) ?? d.displayName
-        alwaysListening = try c.decodeIfPresent(Bool.self, forKey: .alwaysListening) ?? d.alwaysListening
         stunEnabled = try c.decodeIfPresent(Bool.self, forKey: .stunEnabled) ?? d.stunEnabled
         staticCandidates = try c.decodeIfPresent([String].self, forKey: .staticCandidates) ?? d.staticCandidates
         forwardAudioToWatch = try c.decodeIfPresent(Bool.self, forKey: .forwardAudioToWatch) ?? d.forwardAudioToWatch

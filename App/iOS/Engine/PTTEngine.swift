@@ -90,6 +90,11 @@ final class PTTEngine {
     private var relayQueue: [(record: String, packets: [Data])] = []
     private var relayRecordsSeen: Set<String> = []
     private var relayFetchInFlight = false
+    private var relayRefetchPending = false
+    /// Relay records this process queued for playback itself.
+    private var relayPlayed: Set<String> = []
+    private var isForeground = false
+    private var lastInboxSnapshot: WatchSync?
     private var lastRelayFetch = Date.distantPast
     private var subscribedTags: [String] = []
     private let bundlesPushKey = APNsClient.fromBundle() != nil
@@ -177,6 +182,7 @@ final class PTTEngine {
         if changed {
             PrekeyKeychain.save(prekeys.store)
             if onWatchSync != nil { syncWatch() }
+            syncInbox()
         }
         return changed
     }
@@ -202,15 +208,13 @@ final class PTTEngine {
             applyTransportSettings()
             transport.start()
             startHousekeeping()
-            if state.settings.alwaysListening { startManualAudio() }
+            syncInbox()
             refreshRelaySubscription()
             fetchRelay()
             purgeExpiredRelayUploads()
             publish()
         }
-        if !state.settings.alwaysListening {
-            Task { await ptt.setUp(); queue.async { self.publish() } }
-        }
+        Task { await ptt.setUp(); queue.async { self.publish() } }
     }
 
     /// Called when the app returns to the foreground: sockets may have been torn down.
@@ -307,7 +311,7 @@ final class PTTEngine {
             self?.queue.async {
                 guard let self else { return }
                 self.audioActive = false
-                if !self.state.settings.alwaysListening { self.audio.stop() }
+                self.audio.stop()
             }
         }
         ptt.onIncomingPush = { [weak self] payload in
@@ -334,7 +338,7 @@ final class PTTEngine {
         }
     }
 
-    /// Always-listening mode (or no PushToTalk): run our own audio session so iOS keeps us alive.
+    /// Without PushToTalk (unavailable or not joined yet): run our own audio session for a burst.
     private func startManualAudio() {
         do {
             try AudioEngine.activateSessionManually()
@@ -346,7 +350,7 @@ final class PTTEngine {
         }
     }
 
-    private var usesPushToTalk: Bool { ptt.isAvailable && ptt.isJoined && !state.settings.alwaysListening }
+    private var usesPushToTalk: Bool { ptt.isAvailable && ptt.isJoined }
 
     // MARK: - Talking
 
@@ -455,7 +459,7 @@ final class PTTEngine {
             }
         }
         finishOutgoing(t, endPacket: endPacket)
-        if !usesPushToTalk && rx == nil && !state.settings.alwaysListening {
+        if !usesPushToTalk && rx == nil {
             queue.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 guard let self, self.tx == nil, self.rx == nil else { return }
                 self.audio.stop()
@@ -873,17 +877,6 @@ final class PTTEngine {
             change(&state.settings)
             save()
             applyTransportSettings()
-            if before.alwaysListening != state.settings.alwaysListening {
-                if state.settings.alwaysListening {
-                    ptt.leave()
-                    startManualAudio()
-                } else {
-                    audio.stop()
-                    audioActive = false
-                    try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-                    if ptt.isAvailable { ptt.join() } else { Task { await ptt.setUp() } }
-                }
-            }
             if before.displayName != state.settings.displayName { announceReachability() }
         }
     }
@@ -1074,9 +1067,40 @@ final class PTTEngine {
     }
 
     /// Looks for relayed messages addressed to us and queues them for playback.
+    /// Whether the app is on screen. In the background the notification service extension plays
+    /// relayed messages (as the notification sound); the app must not play them a second time.
+    func setForeground(_ foreground: Bool) {
+        queue.async { [self] in
+            isForeground = foreground
+            if foreground { fetchRelay() }
+        }
+    }
+
+    /// A relay notification arrived while on screen: play the message live unless we already are.
+    func claimRelayed(record: String) {
+        queue.async { [self] in
+            RelayInbox.forget(record: record)
+            if !relayPlayed.contains(record) { relayRecordsSeen.remove(record) }
+            fetchRelay(force: true)
+        }
+    }
+
+    /// Plays a relayed message in full, e.g. when its notification is tapped.
+    func replayRelayed(record: String) {
+        queue.async { [self] in
+            RelayInbox.forget(record: record)
+            relayRecordsSeen.remove(record)
+            fetchRelay(force: true)
+        }
+    }
+
     func fetchRelay(force: Bool = false) {
         queue.async { [self] in
-            guard let relay, state.settings.relayEnabled, let mailbox = state.relayMailbox, !relayFetchInFlight else { return }
+            guard isForeground, let relay, state.settings.relayEnabled, let mailbox = state.relayMailbox else { return }
+            guard !relayFetchInFlight else {
+                if force { relayRefetchPending = true }
+                return
+            }
             guard force || Date().timeIntervalSince(lastRelayFetch) > 5 else { return }
             relayFetchInFlight = true
             lastRelayFetch = Date()
@@ -1086,15 +1110,31 @@ final class PTTEngine {
                 self?.queue.async {
                     guard let self else { return }
                     self.relayFetchInFlight = false
+                    let heard = RelayInbox.heard()
                     for record in records where !self.relayRecordsSeen.contains(record.name) {
                         self.relayRecordsSeen.insert(record.name)
+                        // Already played as a notification sound: just note it in Activity.
+                        if let entry = heard.first(where: { $0.record == record.name }) {
+                            if !entry.logged {
+                                RelayInbox.markLogged(record: record.name)
+                                self.logTransfer(TransferRecord(date: entry.date, outgoing: false, channel: entry.channel,
+                                                                seconds: entry.seconds,
+                                                                legs: [.init(peer: entry.talker, route: .relay)]))
+                            }
+                            continue
+                        }
                         guard let packets = try? Relay.decode(record.payload) else {
                             Task { await relay.delete(recordName: record.name) }
                             continue
                         }
+                        self.relayPlayed.insert(record.name)
                         self.relayQueue.append((record.name, packets))
                     }
                     if self.rx == nil && self.tx == nil { self.playNextRelayed() }
+                    if self.relayRefetchPending {
+                        self.relayRefetchPending = false
+                        self.fetchRelay(force: true)
+                    }
                 }
             }
         }
@@ -1228,6 +1268,20 @@ final class PTTEngine {
         Store.save(state)
         publish()
         syncWatch()
+        syncInbox()
+    }
+
+    /// Shares what the notification service extension needs to open relayed messages (our keys,
+    /// contacts and channels) through the Keychain access group, only when it changed.
+    private func syncInbox() {
+        let snapshot = WatchSync(signingSeed: identity.signingSeed, keyAgreementSeed: identity.keyAgreementSeed,
+                                 prekeys: prekeys.store, displayName: state.settings.displayName,
+                                 contacts: state.contacts, channels: state.channels,
+                                 selectedChannel: state.settings.selectedChannel,
+                                 relayMailbox: state.relayMailbox, pushKey: nil)
+        guard snapshot != lastInboxSnapshot else { return }
+        lastInboxSnapshot = snapshot
+        RelayInbox.saveSnapshot(snapshot)
     }
 
     /// Mirrors what a standalone watch needs, only when it changed.

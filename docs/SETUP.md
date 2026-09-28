@@ -23,10 +23,16 @@ In [Certificates, Identifiers & Profiles](https://developer.apple.com/account/re
    - **iCloud**, with **CloudKit**, and a container named
      `iCloud.com.lightwave.chirp` (that is, `iCloud.` plus your bundle ID). This
      is the relay fallback.
+   - **App Groups**, with a group named `group.com.lightwave.chirp`. The
+     notification extension uses it to hand decoded voice messages to iOS.
 2. Create a second App ID, `com.lightwave.chirp.watchkitapp`, for the watch app.
    Enable **Push Notifications** and **iCloud** (CloudKit), using the *same*
    container as the iPhone app. The standalone watch uses both.
-3. **Keys → +** → enable **Apple Push Notifications service (APNs)**. If the
+3. Create a third App ID, `com.lightwave.chirp.notify`, for the notification
+   service extension. Enable **iCloud** (CloudKit, same container) and **App
+   Groups** (same group). With automatic signing in Xcode, steps 1 to 3 happen
+   for you when you pick your team.
+4. **Keys → +** → enable **Apple Push Notifications service (APNs)**. If the
    portal lets you restrict a key to one environment and topic, restrict it
    to *Production* and your bundle ID. That limits the damage if the key ever
    leaks. Download `AuthKey_XXXXXXXXXX.p8` and note the **Key ID** and your
@@ -64,10 +70,17 @@ iPhone and run. Debug builds use **development** (sandbox) push tokens, while
 ad-hoc builds use **production** tokens. The environment travels with each
 contact card, so mixed groups still work.
 
-## 3. Get the push key onto every phone
+## 3. Background playback, with or without a push key
 
-The push key is what lets your phone wake a friend's locked phone when you key
-up (docs/ARCHITECTURE.md explains why the app holds it and no server does).
+**Without a push key**, a message to a phone that isn't connected goes through
+the iCloud relay. iCloud notifies that phone, and NXTPTT's notification
+extension decodes the message and plays it as the notification sound, with no
+need to open the app. That sound stops after 30 seconds, and it follows the
+ring/silent switch and Focus. Tapping the notification plays the whole message.
+
+**With a push key**, your phone wakes a friend's locked phone into a live Push
+to Talk session when you key up, the full walkie-talkie experience
+(docs/ARCHITECTURE.md explains why the app holds the key and no server does).
 There are two ways to get it onto phones.
 
 **Share it in the app (recommended).** On one phone, open **Settings → Push
@@ -76,10 +89,11 @@ The screen then shows a QR code. Friends scan it from **Contacts → Add**, or
 you send them the link. The key lives in each phone's Keychain and never
 appears in the published app.
 
-**Or bundle it into your own builds.** Put the file at `Config/APNsAuthKey.p8`
-and set `EPTT_APNS_TEAM_ID` and `EPTT_APNS_KEY_ID` in `Secrets.xcconfig`.
-Only do this for builds you don't publish. Anyone who has the IPA can extract
-the key.
+**Or bundle it into your own builds (nobody has to handle it).** Put the file
+at `Config/APNsAuthKey.p8` and set `EPTT_APNS_TEAM_ID` and `EPTT_APNS_KEY_ID`
+in `Secrets.xcconfig`. Every build you archive in Xcode then carries it, and
+the Push key screen isn't needed. Both files are git-ignored. Anyone who has
+the IPA could extract the key, so restrict it to your bundle ID (step 1.4).
 
 What a leaked key allows: sending pushes to NXTPTT users whose push tokens the
 holder knows. Tokens only travel inside encrypted NXTPTT traffic and in contact
@@ -112,6 +126,7 @@ signed IPA and publishes an install page at
    | `P12_PASSWORD` | the `.p12` password |
    | `ADHOC_PROFILE_IOS_BASE64` | `base64 -i Chirp_AdHoc.mobileprovision` |
    | `ADHOC_PROFILE_WATCH_BASE64` | `base64 -i Chirp_Watch_AdHoc.mobileprovision` |
+   | `ADHOC_PROFILE_NOTIFY_BASE64` | `base64 -i Chirp_Notify_AdHoc.mobileprovision` (for `….notify`) |
    | `APPLE_TEAM_ID` | your Team ID |
    | `EPTT_BUNDLE_ID` | for example `com.lightwave.chirp` |
    | `APNS_KEY_P8`, `APNS_KEY_ID` | *optional*: used only when the repository variable `BUNDLE_APNS_KEY` is `true` |

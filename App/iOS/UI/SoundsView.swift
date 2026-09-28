@@ -89,7 +89,7 @@ struct SoundsView: View {
     private func preview(_ tone: Tone) {
         // The synthesizer reads the pitch from here; mirror the setting for previews too.
         ToneSynth.chirpFrequency = settings.deepChirp ? ToneSynth.deepChirpHz : ToneSynth.classicChirpHz
-        // Don't disturb a live talk session (always-listening or PushToTalk already set this up).
+        // Don't disturb a live talk session (PushToTalk already set this up).
         let session = AVAudioSession.sharedInstance()
         if session.category != .playAndRecord {
             try? session.setCategory(.playback, mode: .default, options: [.mixWithOthers])

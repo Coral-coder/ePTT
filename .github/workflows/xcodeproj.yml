@@ -29,7 +29,7 @@ jobs:
       - run: xcodegen generate
       - name: Commit the project if it changed
         run: |
-          git add -A NXTPTT.xcodeproj App/iOS/Support/Info.plist App/Watch/Info.plist
+          git add -A NXTPTT.xcodeproj App/iOS/Support/Info.plist App/Watch/Info.plist App/NotificationService/Info.plist
           if git diff --cached --quiet; then
             echo "NXTPTT.xcodeproj and Info.plists are up to date"
             exit 0

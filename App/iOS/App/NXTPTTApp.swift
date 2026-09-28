@@ -14,6 +14,7 @@ struct NXTPTTApp: App {
                 .onOpenURL { url in AppModel.shared.open(link: url.absoluteString) }
         }
         .onChange(of: scenePhase) { phase in
+            AppModel.shared.engine.setForeground(phase == .active)
             if phase == .active { AppModel.shared.engine.resume() }
         }
     }
@@ -56,8 +57,14 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
     /// In the foreground a relayed message just plays; no banner needed.
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        if CloudRelay.isRelayNotification(notification.request.content.userInfo) {
-            AppModel.shared.engine.fetchRelay(force: true)
+        let userInfo = notification.request.content.userInfo
+        if CloudRelay.isRelayNotification(userInfo) {
+            // The extension may already have turned it into a sound; on screen, play it live instead.
+            if let record = CloudRelay.recordName(inNotification: userInfo) {
+                AppModel.shared.engine.claimRelayed(record: record)
+            } else {
+                AppModel.shared.engine.fetchRelay(force: true)
+            }
             completionHandler([])
         } else {
             completionHandler([.banner, .sound])
@@ -66,7 +73,12 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
-        AppModel.shared.engine.fetchRelay(force: true)
+        // Tapping a voice message plays it in full (a notification sound stops at 30 s).
+        if let record = CloudRelay.recordName(inNotification: response.notification.request.content.userInfo) {
+            AppModel.shared.engine.replayRelayed(record: record)
+        } else {
+            AppModel.shared.engine.fetchRelay(force: true)
+        }
         completionHandler()
     }
 }

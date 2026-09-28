@@ -27,7 +27,7 @@ jobs:
 
       - name: Check secrets
         run: |
-          for name in BUILD_CERTIFICATE_P12_BASE64 P12_PASSWORD ADHOC_PROFILE_IOS_BASE64 ADHOC_PROFILE_WATCH_BASE64 APPLE_TEAM_ID EPTT_BUNDLE_ID; do
+          for name in BUILD_CERTIFICATE_P12_BASE64 P12_PASSWORD ADHOC_PROFILE_IOS_BASE64 ADHOC_PROFILE_WATCH_BASE64 ADHOC_PROFILE_NOTIFY_BASE64 APPLE_TEAM_ID EPTT_BUNDLE_ID; do
             if [ -z "${!name}" ]; then echo "::error::Missing secret $name (see docs/SETUP.md)"; exit 1; fi
           done
         env:
@@ -35,6 +35,7 @@ jobs:
           P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
           ADHOC_PROFILE_IOS_BASE64: ${{ secrets.ADHOC_PROFILE_IOS_BASE64 }}
           ADHOC_PROFILE_WATCH_BASE64: ${{ secrets.ADHOC_PROFILE_WATCH_BASE64 }}
+          ADHOC_PROFILE_NOTIFY_BASE64: ${{ secrets.ADHOC_PROFILE_NOTIFY_BASE64 }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Install signing certificate and profiles
@@ -43,6 +44,7 @@ jobs:
           P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
           IOS_PROFILE: ${{ secrets.ADHOC_PROFILE_IOS_BASE64 }}
           WATCH_PROFILE: ${{ secrets.ADHOC_PROFILE_WATCH_BASE64 }}
+          NOTIFY_PROFILE: ${{ secrets.ADHOC_PROFILE_NOTIFY_BASE64 }}
         run: |
           KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
           KEYCHAIN_PASSWORD="$(uuidgen)"
@@ -56,7 +58,7 @@ jobs:
 
           PROFILES="$HOME/Library/MobileDevice/Provisioning Profiles"
           mkdir -p "$PROFILES"
-          for kind in IOS WATCH; do
+          for kind in IOS WATCH NOTIFY; do
             var="${kind}_PROFILE"
             echo "${!var}" | base64 --decode > "$RUNNER_TEMP/$kind.mobileprovision"
             security cms -D -i "$RUNNER_TEMP/$kind.mobileprovision" > "$RUNNER_TEMP/$kind.plist"
@@ -79,6 +81,7 @@ jobs:
             echo "CODE_SIGN_IDENTITY = Apple Distribution"
             echo "EPTT_IOS_PROFILE = $IOS_PROFILE_NAME"
             echo "EPTT_WATCH_PROFILE = $WATCH_PROFILE_NAME"
+            echo "EPTT_NOTIFY_PROFILE = $NOTIFY_PROFILE_NAME"
             echo "CURRENT_PROJECT_VERSION = $GITHUB_RUN_NUMBER"
           } > Config/Secrets.xcconfig
           # Bundling the APNs key into an IPA that anyone can download from Pages publishes the key.
@@ -111,6 +114,7 @@ jobs:
             <key>provisioningProfiles</key><dict>
               <key>$EPTT_BUNDLE_ID</key><string>$IOS_PROFILE_NAME</string>
               <key>$EPTT_BUNDLE_ID.watchkitapp</key><string>$WATCH_PROFILE_NAME</string>
+              <key>$EPTT_BUNDLE_ID.notify</key><string>$NOTIFY_PROFILE_NAME</string>
             </dict>
             <key>compileBitcode</key><false/>
             <key>thinning</key><string>&lt;none&gt;</string>
