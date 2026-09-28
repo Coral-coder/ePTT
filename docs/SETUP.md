@@ -198,7 +198,7 @@ key lets Xcode create and use the distribution certificate and profiles itself.
    | `ASC_KEY_P8` | the full contents of `AuthKey_XXXXXXXXXX.p8`, including the BEGIN/END lines |
    | `APPLE_TEAM_ID` | your Team ID (Membership details in the developer portal) |
    | `EPTT_BUNDLE_ID` | *optional*, defaults to `com.lightwave.chirp` |
-   | `APNS_KEY_P8`, `APNS_KEY_ID` | *optional*, bundled only when the repository **variable** `BUNDLE_APNS_KEY` is `true` (live Push to Talk wakes; TestFlight builds are private to your testers) |
+   | `APNS_KEY_P8`, `APNS_KEY_ID` | *optional*: the APNs push key (whole `.p8` file, and its Key ID). When both are set, TestFlight builds include it for live Push to Talk wakes. The run log says "Push key: bundled" |
 
 Builds show up in TestFlight after Apple
 finishes processing, usually within 5 to 20 minutes.

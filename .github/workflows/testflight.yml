@@ -129,18 +129,26 @@ jobs:
           EPTT_BUNDLE_ID: ${{ secrets.EPTT_BUNDLE_ID }}
           APNS_KEY_P8: ${{ secrets.APNS_KEY_P8 }}
           APNS_KEY_ID: ${{ secrets.APNS_KEY_ID }}
-          BUNDLE_APNS_KEY: ${{ vars.BUNDLE_APNS_KEY }}
         run: |
           {
             echo "DEVELOPMENT_TEAM = $TEAM_ID"
             if [ -n "$EPTT_BUNDLE_ID" ]; then echo "EPTT_BUNDLE_ID = $EPTT_BUNDLE_ID"; fi
             echo "CODE_SIGN_STYLE = Automatic"
           } > Config/Secrets.xcconfig
-          # Optional: live Push to Talk wakes in these builds (docs/SETUP.md, section 3).
-          if [ "$BUNDLE_APNS_KEY" = "true" ] && [ -n "$APNS_KEY_P8" ]; then
+          # The push key gives live Push to Talk wakes (docs/SETUP.md, section 3). TestFlight builds
+          # only reach your testers, so it is bundled whenever both secrets are present.
+          if [ -n "$APNS_KEY_P8" ] && [ -n "$APNS_KEY_ID" ]; then
+            if ! printf '%s' "$APNS_KEY_P8" | grep -q "BEGIN PRIVATE KEY"; then
+              echo "::error::APNS_KEY_P8 must be the whole .p8 file, including the BEGIN/END PRIVATE KEY lines"; exit 1
+            fi
             printf '%s\n' "$APNS_KEY_P8" > Config/APNsAuthKey.p8
             echo "EPTT_APNS_TEAM_ID = $TEAM_ID" >> Config/Secrets.xcconfig
             echo "EPTT_APNS_KEY_ID = $APNS_KEY_ID" >> Config/Secrets.xcconfig
+            echo "Push key: bundled (live Push to Talk wakes)"
+          elif [ -n "$APNS_KEY_P8$APNS_KEY_ID" ]; then
+            echo "::warning::Push key NOT bundled: need both APNS_KEY_P8 and APNS_KEY_ID (only one is set)"
+          else
+            echo "::warning::Push key NOT bundled: no APNS_KEY_P8 / APNS_KEY_ID secrets"
           fi
 
       # App Store Connect only accepts builds made with the iOS 26 SDK (Xcode 26) or later.
