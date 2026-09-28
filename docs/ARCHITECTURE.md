@@ -215,25 +215,29 @@ The **Activity** tab shows which route each transmission took.
 
 ## Apple Watch
 
-The PushToTalk framework does not exist on watchOS, and a third-party watch
-app cannot keep sockets open in the background. So v1 treats the watch as a
-**remote control and microphone** for the phone:
+The PushToTalk framework does not exist on watchOS, so the watch works in two
+modes and switches between them automatically.
 
-- The watch app shows channels, a large hold-to-talk button and who is
-  talking, and plays a haptic on incoming traffic.
-- While you hold the button, the watch records 16 kHz PCM and streams it to
-  the phone over WatchConnectivity. The phone encodes and transmits it.
-- Incoming audio plays on the phone or its connected headset by default. An
-  option forwards it to the watch speaker while the watch app is open.
+**iPhone in range: remote.** The watch is a hold-to-talk button and
+microphone for the phone. It streams 16 kHz PCM over WatchConnectivity, and
+the phone does the live networking. The watch shows who is talking, plays a
+haptic, and can optionally play received audio.
 
-Limitations:
-
-- The watch can only key up while the iPhone app is running. A watch message
-  wakes the phone app in the background, but iOS may refuse to begin a
-  PushToTalk transmission from the background. In that case, open the phone
-  app once, or use always-listening mode.
-- A standalone cellular-watch mode (watchOS VoIP with CallKit) is on the
-  roadmap.
+**iPhone out of range: standalone.** This needs a cellular watch or known
+Wi-Fi.
+- **Shared identity:** the iPhone mirrors its identity, prekeys, contacts,
+  groups, relay mailbox and push key to the paired watch over WatchConnectivity,
+  which the OS encrypts between a user's own paired devices. The watch stores
+  them in its Keychain. Friends need to do nothing: the watch *is* you.
+- **Sending:** the watch records, seals the burst exactly as the phone would
+  (fresh burst key, envelopes to every member's prekey), leaves it in the
+  iCloud relay for each member, and sends a push to wake their phones.
+- **Receiving:** an iCloud notification tells the watch a message is waiting.
+  It fetches the burst, opens it, decodes it and plays it.
+- **Store-and-forward:** it isn't live. Recipients hear the message a few
+  seconds after you release. Without Opus on the watch, transmissions are
+  capped at 25 s to fit the relay's size limit.
+- **Opt out:** turn off **Settings → Standalone watch** on the iPhone.
 
 ## Android and Wear OS (future)
 

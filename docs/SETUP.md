@@ -24,7 +24,8 @@ In [Certificates, Identifiers & Profiles](https://developer.apple.com/account/re
      `iCloud.com.yourname.eptt` (that is, `iCloud.` plus your bundle ID). This
      is the relay fallback.
 2. Create a second App ID, `com.yourname.eptt.watchkitapp`, for the watch app.
-   It needs no capabilities.
+   Enable **Push Notifications** and **iCloud** (CloudKit), using the *same*
+   container as the iPhone app. The standalone watch uses both.
 3. **Keys → +** → enable **Apple Push Notifications service (APNs)**. If the
    portal lets you restrict a key to one environment and topic, restrict it
    to *Production* and your bundle ID. That limits the damage if the key ever

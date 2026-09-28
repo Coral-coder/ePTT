@@ -4,19 +4,32 @@ Chirp is the app's name; the repository is still called ePTT.
 
 Nextel-style push-to-talk for iPhone and Apple Watch, with **no server**.
 
+- **Pair by QR code.** Each device makes its own cryptographic identity, and
+  contact QR codes carry signed public keys.
 - **Direct calls and talk groups**, end-to-end encrypted (X25519, Ed25519,
   ChaCha20-Poly1305).
-- **Peer-to-peer audio.** Audio goes directly between phones: nearby over
-  AWDL, over the same Wi-Fi, over the internet via IPv6 or STUN, or through
-  your own overlay VPN.
-- **Background receive** through Apple's Push to Talk framework. The
-  talker's phone wakes listeners by sending the push to Apple directly. An
-  optional *always-listening* mode skips pushes entirely.
-- **Nextel feel:** a talk-permit chirp, a busy bonk, call alerts, scanning
-  of several groups, and a 60-second transmit timeout.
-- **Apple Watch** works as a hold-to-talk remote and microphone.
+- **Fresh keys for every transmission, with forward secrecy.** Signed
+  prekeys rotate daily and old ones are deleted, so recorded traffic stays
+  unreadable later. Also authenticated encryption and replay protection.
+- **Picks the best route automatically:**
+  - nearby over Bluetooth or peer-to-peer Wi-Fi, with no network at all
+  - the same Wi-Fi
+  - direct over the internet, via IPv6 or STUN hole punching
+  - your overlay VPN
+  - an **encrypted iCloud relay** as a fallback
+- **Activity tab** showing which route each transmission took.
+- **Background receive** through Apple's Push to Talk framework. The talker's
+  phone wakes listeners by sending the push to Apple directly, and iCloud
+  notifications cover relayed messages.
+- **Nextel feel:** a talk-permit chirp, a busy bonk, call alerts, scanning of
+  several groups, and a 60-second transmit timeout.
+- **iPhone, iPad and Apple Watch.** The watch works as a remote when the phone
+  is near, and standalone through the relay when it isn't.
 - **Open wire protocol** with test vectors, ready for an Android and Wear OS
   port.
+
+No server of your own, and no subscription: everything runs on the phones
+plus Apple's infrastructure (push notifications and iCloud).
 
 | Doc | What's in it |
 | --- | --- |
