@@ -1016,6 +1016,17 @@ final class PTTEngine {
         guard let relay, state.settings.relayEnabled, !relayable.isEmpty, t.nextFrameIndex > 0,
               let payload = Relay.encode(packets: packets) else {
             legs += missed.map { .init(peer: $0.name, route: .failed) }
+            if let first = missed.first, t.nextFrameIndex > 0 {
+                let why: String
+                if relay == nil {
+                    why = "iCloud relay unavailable (sign in to iCloud)"
+                } else if !state.settings.relayEnabled {
+                    why = "iCloud relay is off in Settings"
+                } else {
+                    why = "they haven't shared a relay mailbox yet; have them open the app"
+                }
+                emit(.message("Couldn't reach \(first.name): \(why)"))
+            }
             if !legs.isEmpty {
                 logTransfer(TransferRecord(date: Date(), outgoing: true, channel: channelName, seconds: seconds, legs: legs))
             }
@@ -1034,6 +1045,8 @@ final class PTTEngine {
                     relayedLegs.append(.init(peer: contact.name, route: .relay))
                 } catch {
                     relayedLegs.append(.init(peer: contact.name, route: .failed))
+                    log.error("Relay upload failed: \(String(describing: error), privacy: .public)")
+                    self?.emit(.message("iCloud relay failed: \(error.localizedDescription)"))
                 }
             }
             self?.queue.async {
