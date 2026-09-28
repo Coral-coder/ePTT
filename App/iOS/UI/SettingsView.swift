@@ -19,7 +19,7 @@ struct SettingsView: View {
                 Section {
                     Toggle("Always listening", isOn: binding(\.alwaysListening))
                 } footer: {
-                    Text("Keeps the app running with an open audio session, so it hears peers without push wake-ups. Uses noticeably more battery and shows the microphone indicator. With it off, iOS wakes ePTT through Apple's Push to Talk service when someone keys up.")
+                    Text("Keeps the app running with an open audio session, so it hears peers without push wake-ups. Uses noticeably more battery and shows the microphone indicator. With it off, iOS wakes Chirp through Apple's Push to Talk service when someone keys up.")
                 }
 
                 Section {
@@ -37,7 +37,7 @@ struct SettingsView: View {
                 Section {
                     NavigationLink("Push key") { PushKeyView() }
                 } footer: {
-                    Text("The push key lets ePTT wake your friends' phones when you key up. Everyone in your group needs the same key; share it in person.")
+                    Text("The push key lets Chirp wake your friends' phones when you key up. Everyone in your group needs the same key; share it in person.")
                 }
 
                 Section("Apple Watch") {
@@ -87,7 +87,7 @@ struct PushKeyView: View {
             Section {
                 LabeledContent("Status", value: model.snapshot.wakeAvailable ? "Installed" : "Not installed")
             } footer: {
-                Text("Anyone holding this key can send push notifications to ePTT users whose push tokens they know. It cannot decrypt or fake audio. Only share it with people you trust, and revoke it in the Apple developer portal if it leaks.")
+                Text("Anyone holding this key can send push notifications to Chirp users whose push tokens they know. It cannot decrypt or fake audio. Only share it with people you trust, and revoke it in the Apple developer portal if it leaks.")
             }
 
             if let shareURI, let image = QRCode.image(for: shareURI) {

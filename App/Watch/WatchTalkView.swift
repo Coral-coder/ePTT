@@ -45,7 +45,7 @@ struct WatchTalkView: View {
         case .receiving: return model.talker
         case .transmitting: return "Talking"
         case .busy: return "Busy"
-        case .offline: return "Open ePTT on iPhone"
+        case .offline: return "Open Chirp on iPhone"
         case .idle: return "Hold to talk"
         }
     }

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<title>Install ePTT</title>
+<title>Install Chirp</title>
 <style>
   :root { color-scheme: light dark; --accent: #f28c28; }
   body { font: 17px/1.5 -apple-system, system-ui, sans-serif; max-width: 34rem; margin: 0 auto; padding: 3rem 1.25rem; }
@@ -16,7 +16,7 @@
 </style>
 </head>
 <body>
-<h1>ePTT</h1>
+<h1>Chirp</h1>
 <p class="version">Version @VERSION@</p>
 <p>Serverless, end-to-end encrypted push-to-talk for iPhone and Apple Watch.</p>
 <a class="install" href="itms-services://?action=download-manifest&amp;url=@BASE@/manifest.plist">Install on this iPhone</a>

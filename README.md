@@ -1,4 +1,6 @@
-# ePTT
+# Chirp
+
+Chirp is the app's name; the repository is still called ePTT.
 
 Nextel-style push-to-talk for iPhone and Apple Watch, with **no server**.
 
@@ -39,7 +41,7 @@ project.yml          XcodeGen project definition
 ```sh
 brew install xcodegen
 cp Config/Secrets.example.xcconfig Config/Secrets.xcconfig   # set your team and bundle ID
-xcodegen && open ePTT.xcodeproj
+xcodegen && open Chirp.xcodeproj
 ```
 
 Core tests run anywhere Swift runs: `swift test --package-path Packages/EPTTCore`.

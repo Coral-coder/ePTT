@@ -83,7 +83,7 @@ final class AppModel: ObservableObject {
             try engine.addContact(uri: uri.trimmingCharacters(in: .whitespacesAndNewlines))
             banner = "Contact added"
         } catch {
-            banner = "That isn't a valid ePTT contact code"
+            banner = "That isn't a valid Chirp contact code"
         }
     }
 

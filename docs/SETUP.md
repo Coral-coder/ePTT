@@ -1,6 +1,6 @@
-# Setting up ePTT
+# Setting up Chirp
 
-ePTT has no server, so setup is all on the Apple side: a developer account, a
+Chirp has no server, so setup is all on the Apple side: a developer account, a
 push key, and, for ad-hoc distribution, a list of registered devices.
 
 ## What you need
@@ -33,7 +33,7 @@ In [Certificates, Identifiers & Profiles](https://developer.apple.com/account/re
 ```sh
 cp Config/Secrets.example.xcconfig Config/Secrets.xcconfig   # then edit it
 xcodegen
-open ePTT.xcodeproj
+open Chirp.xcodeproj
 ```
 
 In `Secrets.xcconfig`, set `DEVELOPMENT_TEAM` and `EPTT_BUNDLE_ID`. Pick your
@@ -58,8 +58,8 @@ and set `EPTT_APNS_TEAM_ID` and `EPTT_APNS_KEY_ID` in `Secrets.xcconfig`.
 Only do this for builds you don't publish. Anyone who has the IPA can extract
 the key.
 
-What a leaked key allows: sending pushes to ePTT users whose push tokens the
-holder knows. Tokens only travel inside encrypted ePTT traffic and in contact
+What a leaked key allows: sending pushes to Chirp users whose push tokens the
+holder knows. Tokens only travel inside encrypted Chirp traffic and in contact
 QR codes. A leaked key cannot decrypt or forge audio. If it leaks, revoke the
 key in the portal and share a new one.
 
@@ -87,8 +87,8 @@ signed IPA and publishes an install page at
    | --- | --- |
    | `BUILD_CERTIFICATE_P12_BASE64` | `base64 -i dist.p12` |
    | `P12_PASSWORD` | the `.p12` password |
-   | `ADHOC_PROFILE_IOS_BASE64` | `base64 -i ePTT_AdHoc.mobileprovision` |
-   | `ADHOC_PROFILE_WATCH_BASE64` | `base64 -i ePTT_Watch_AdHoc.mobileprovision` |
+   | `ADHOC_PROFILE_IOS_BASE64` | `base64 -i Chirp_AdHoc.mobileprovision` |
+   | `ADHOC_PROFILE_WATCH_BASE64` | `base64 -i Chirp_Watch_AdHoc.mobileprovision` |
    | `APPLE_TEAM_ID` | your Team ID |
    | `EPTT_BUNDLE_ID` | for example `com.yourname.eptt` |
    | `APNS_KEY_P8`, `APNS_KEY_ID` | *optional*: used only when the repository variable `BUNDLE_APNS_KEY` is `true` |
@@ -129,4 +129,4 @@ in **Safari** on a registered iPhone and tap **Install**.
 | "Couldn't connect to …" after a wake | Both phones are behind strict NAT with no IPv6. Add an overlay address (Tailscale or similar) in Settings → Network. |
 | Friend never wakes up | They have no push key installed, their token is stale (they should open the app once), or their build's push environment doesn't match. |
 | Works only when both apps are open | No push key on the talker's phone. See section 3. |
-| Watch says "Open ePTT on iPhone" | The phone app hasn't been launched since the phone rebooted. |
+| Watch says "Open Chirp on iPhone" | The phone app hasn't been launched since the phone rebooted. |

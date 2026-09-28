@@ -16,7 +16,7 @@ public enum STUN {
         return out
     }
 
-    /// True if the datagram looks like STUN (so the transport can route it away from ePTT packets).
+    /// True if the datagram looks like STUN (so the transport can route it away from Chirp packets).
     public static func isSTUN(_ data: Data) -> Bool {
         guard data.count >= 20 else { return false }
         let b = [UInt8](data.prefix(8))

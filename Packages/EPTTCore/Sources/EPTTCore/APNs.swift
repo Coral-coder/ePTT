@@ -66,7 +66,7 @@ public struct APNsRequest: Equatable {
         self.headers = headers
     }
 
-    /// Pulls the ePTT packet back out of a received push payload.
+    /// Pulls the Chirp packet back out of a received push payload.
     public static func packet(fromPayload payload: [AnyHashable: Any]) -> Data? {
         (payload["eptt"] as? String).flatMap { Data(base64URLEncoded: $0) }
     }

@@ -1,4 +1,4 @@
-# ePTT Wire Protocol, version 1
+# Chirp Wire Protocol, version 1
 
 This is the normative spec. Any implementation (iOS, Android, desktop) that
 follows it interoperates. `tools/reference/eptt_ref.py` is an executable
@@ -8,6 +8,8 @@ holds the test vectors every implementation must reproduce.
 Conventions: integers are big-endian. `||` is concatenation. `HKDF` is
 HKDF-SHA256 (RFC 5869). `AEAD` is ChaCha20-Poly1305 (RFC 8439). ASCII string
 literals such as `"ePTT/1 direct"` are their UTF-8 bytes with no terminator.
+The labels keep the project's original name, ePTT. They are part of the wire
+format and do not follow the app's display name.
 `b64url` is base64url without padding.
 
 ## 1. TLV encoding

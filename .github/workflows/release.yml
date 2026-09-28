@@ -95,8 +95,8 @@ jobs:
       - name: Archive
         run: |
           set -o pipefail
-          xcodebuild -project ePTT.xcodeproj -scheme ePTT -configuration Release \
-            -destination 'generic/platform=iOS' -archivePath build/ePTT.xcarchive archive | tail -40
+          xcodebuild -project Chirp.xcodeproj -scheme Chirp -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath build/Chirp.xcarchive archive | tail -40
 
       - name: Export ad-hoc IPA
         run: |
@@ -116,7 +116,7 @@ jobs:
             <key>thinning</key><string>&lt;none&gt;</string>
           </dict></plist>
           PLIST
-          xcodebuild -exportArchive -archivePath build/ePTT.xcarchive \
+          xcodebuild -exportArchive -archivePath build/Chirp.xcarchive \
             -exportOptionsPlist build/ExportOptions.plist -exportPath build/export
           ls -la build/export
 
@@ -125,9 +125,9 @@ jobs:
           OWNER="${GITHUB_REPOSITORY_OWNER,,}"
           REPO="${GITHUB_REPOSITORY#*/}"
           BASE="https://$OWNER.github.io/$REPO"
-          VERSION="$(/usr/libexec/PlistBuddy -c 'Print ApplicationProperties:CFBundleShortVersionString' build/ePTT.xcarchive/Info.plist)"
+          VERSION="$(/usr/libexec/PlistBuddy -c 'Print ApplicationProperties:CFBundleShortVersionString' build/Chirp.xcarchive/Info.plist)"
           mkdir -p site
-          cp build/export/*.ipa site/ePTT.ipa
+          cp build/export/*.ipa site/Chirp.ipa
           sed -e "s|@BASE@|$BASE|g" -e "s|@BUNDLE_ID@|$EPTT_BUNDLE_ID|g" -e "s|@VERSION@|$VERSION|g" \
             tools/release/manifest.plist.template > site/manifest.plist
           sed -e "s|@BASE@|$BASE|g" -e "s|@VERSION@|$VERSION ($GITHUB_RUN_NUMBER)|g" \
@@ -142,7 +142,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" site/ePTT.ipa --title "ePTT $GITHUB_REF_NAME" --notes "Ad-hoc build. Install from the Pages site on a registered device." || gh release upload "$GITHUB_REF_NAME" site/ePTT.ipa --clobber
+        run: gh release create "$GITHUB_REF_NAME" site/Chirp.ipa --title "Chirp $GITHUB_REF_NAME" --notes "Ad-hoc build. Install from the Pages site on a registered device." || gh release upload "$GITHUB_REF_NAME" site/Chirp.ipa --clobber
 
   deploy:
     needs: build

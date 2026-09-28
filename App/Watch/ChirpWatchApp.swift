@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct ePTTWatchApp: App {
+struct ChirpWatchApp: App {
     @StateObject private var model = WatchModel()
 
     var body: some Scene {

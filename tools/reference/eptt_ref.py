@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Executable reference for the ePTT v1 wire protocol (docs/PROTOCOL.md).
+"""Executable reference for the Chirp v1 wire protocol (docs/PROTOCOL.md).
 
 Run it directly to regenerate the shared test vectors:
 

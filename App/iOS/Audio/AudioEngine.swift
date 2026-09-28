@@ -26,7 +26,7 @@ final class AudioEngine {
 
     // MARK: Private state (touched only on `queue` unless noted)
 
-    private let queue = DispatchQueue(label: "ePTT.audio", qos: .userInteractive)
+    private let queue = DispatchQueue(label: "Chirp.audio", qos: .userInteractive)
     private let queueKey = DispatchSpecificKey<UInt8>()
 
     private let engine = AVAudioEngine()
@@ -125,7 +125,7 @@ final class AudioEngine {
                     try engine.inputNode.setVoiceProcessingEnabled(true)
                 }
             } catch {
-                NSLog("ePTT audio: voice processing unavailable: \(error)")
+                NSLog("Chirp audio: voice processing unavailable: \(error)")
             }
         }
 
@@ -164,7 +164,7 @@ final class AudioEngine {
         }
         micConverter = StreamingConverter(from: inputFormat, to: encoder.pcmFormat)
         guard micConverter != nil else {
-            NSLog("ePTT audio: cannot convert mic format \(inputFormat) to \(encoder.pcmFormat)")
+            NSLog("Chirp audio: cannot convert mic format \(inputFormat) to \(encoder.pcmFormat)")
             return
         }
         input.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
@@ -186,7 +186,7 @@ final class AudioEngine {
         do {
             try startLocked()
         } catch {
-            NSLog("ePTT audio: restart after configuration change failed: \(error)")
+            NSLog("Chirp audio: restart after configuration change failed: \(error)")
         }
     }
 
@@ -284,7 +284,7 @@ final class AudioEngine {
         queue.async {
             guard let decoder = VoiceCodecFactory.makeDecoder(codec: codec, sampleRate: sampleRate,
                                                               frameMilliseconds: frameMilliseconds) else {
-                NSLog("ePTT audio: no decoder for \(codec) @ \(sampleRate) Hz")
+                NSLog("Chirp audio: no decoder for \(codec) @ \(sampleRate) Hz")
                 self.decoder = nil
                 self.watchConverter = nil
                 return

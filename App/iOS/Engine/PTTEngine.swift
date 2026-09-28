@@ -195,7 +195,7 @@ final class PTTEngine {
         ptt.onJoined = { [weak self] in
             guard let self else { return }
             self.queue.async {
-                self.ptt.setDescriptorName(self.selectedChannel?.name ?? "ePTT")
+                self.ptt.setDescriptorName(self.selectedChannel?.name ?? "Chirp")
                 self.ptt.setServiceStatus(.ready)
                 self.publish()
             }
@@ -725,7 +725,7 @@ final class PTTEngine {
     func select(_ channel: ChannelID) {
         queue.async { [self] in
             state.settings.selectedChannel = channel
-            ptt.setDescriptorName(self.channel(channel)?.name ?? "ePTT")
+            ptt.setDescriptorName(self.channel(channel)?.name ?? "Chirp")
             save()
         }
     }
