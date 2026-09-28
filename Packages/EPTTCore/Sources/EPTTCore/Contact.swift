@@ -8,6 +8,8 @@ public struct Contact: Identifiable, Equatable, Codable {
     /// Timestamp of the newest card or HELLO applied, so stale updates are ignored.
     public var updatedAt: UInt64
     public var platform: Platform?
+    /// The newest signed card, forwarded verbatim in group invites.
+    public var cardData: Data
 
     public var id: IdentityID { identity.id }
     public var senderID: SenderID { identity.senderID }
@@ -18,6 +20,7 @@ public struct Contact: Identifiable, Equatable, Codable {
         reachability = card.reachability
         updatedAt = card.timestamp
         platform = card.platform
+        cardData = card.encoded
     }
 
     /// Applies a newer card for the same identity. Returns false if it is not newer or not ours.
@@ -28,6 +31,7 @@ public struct Contact: Identifiable, Equatable, Codable {
         reachability.merge(card.reachability)
         updatedAt = card.timestamp
         platform = card.platform ?? platform
+        cardData = card.encoded
         return true
     }
 

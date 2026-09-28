@@ -1,0 +1,4 @@
+#include "Base.xcconfig"
+// Builds run from Xcode get development (sandbox) push tokens.
+EPTT_APNS_ENVIRONMENT = development
+#include? "Secrets.xcconfig"
