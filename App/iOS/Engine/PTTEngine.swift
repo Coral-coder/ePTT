@@ -543,9 +543,27 @@ final class PTTEngine {
             guard let packet = try? builder.seal(.callAlert, plaintext: alert.encoded, keys: channel.keys) else { return }
             if isLinked(contact.senderID) {
                 send(packet, to: [contact.senderID])
-            } else {
-                sendToCandidates(packet, contact.reachability.candidates)
-                emit(.message("\(contact.name) may be offline; the alert was sent to their last known address"))
+                emit(.message("Call alert sent to \(contact.name)"))
+                return
+            }
+            // Not connected: try their last known address, and leave it in the relay, where iCloud
+            // alerts their phone even when NXTPTT is suspended.
+            sendToCandidates(packet, contact.reachability.candidates)
+            guard let relay, state.settings.relayEnabled, let mailbox = contact.reachability.relayMailbox,
+                  let payload = Relay.encode(packets: [packet]) else {
+                emit(.message("\(contact.name) isn't connected and the iCloud relay isn't available, so the alert may not arrive"))
+                return
+            }
+            Task { [weak self] in
+                do {
+                    let name = try await relay.upload(payload: payload, tag: Relay.tag(mailbox: mailbox))
+                    self?.queue.async {
+                        self?.state.relayUploads[name] = Date().addingTimeInterval(Relay.lifetime)
+                        self?.emit(.message("Call alert sent to \(contact.name) via iCloud relay"))
+                    }
+                } catch {
+                    self?.emit(.message("Call alert to \(contact.name) failed: \(error.localizedDescription)"))
+                }
             }
         }
     }

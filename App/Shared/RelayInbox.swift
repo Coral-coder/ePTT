@@ -200,6 +200,47 @@ enum RelayInbox {
         return Message(talker: talker, channel: channelName, seconds: seconds, buffers: buffers, format: decoder.pcmFormat)
     }
 
+    /// A relayed call alert (a page, not audio): who sent it and any text. Nil if the payload
+    /// isn't a call alert for us.
+    static func callAlert(in payload: Data, with sync: WatchSync) -> (name: String, text: String?)? {
+        guard let local = try? LocalIdentity(signingSeed: sync.signingSeed, keyAgreementSeed: sync.keyAgreementSeed),
+              let packets = try? Relay.decode(payload) else { return nil }
+        let prekeys = sync.prekeys
+        var processor = PacketProcessor(local: local, agreement: local.keyAgreement(prekeys: { prekeys }))
+        for packet in packets {
+            guard let inbound = try? processor.process(
+                packet, maxAge: Relay.lifetime,
+                channelLookup: { id in sync.channels.first { $0.id == id } },
+                memberLookup: { id in sync.contacts.first { $0.senderID == id }?.identity }),
+                  case .callAlert(let alert) = inbound.message else { continue }
+            let name = sync.contacts.first { $0.senderID == inbound.header.senderID }?.name ?? alert.name
+            return (name, alert.text)
+        }
+        return nil
+    }
+
+    /// The four-beep call alert as a notification sound. Returns the file name.
+    static func writeCallAlertSound() -> String? {
+        guard let dir = soundsDirectory, let format = AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1)
+        else { return nil }
+        let file = "call-alert.caf"
+        let url = dir.appendingPathComponent(file)
+        if FileManager.default.fileExists(atPath: url.path) { return file }
+        let settings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 16_000, AVNumberOfChannelsKey: 1,
+            AVLinearPCMBitDepthKey: 16, AVLinearPCMIsFloatKey: false, AVLinearPCMIsBigEndianKey: false,
+        ]
+        do {
+            let output = try AVAudioFile(forWriting: url, settings: settings, commonFormat: format.commonFormat,
+                                         interleaved: format.isInterleaved)
+            try output.write(from: ToneSynth.buffer(for: .callAlert, format: format))
+        } catch {
+            try? FileManager.default.removeItem(at: url)
+            return nil
+        }
+        return file
+    }
+
     /// Writes up to `maxSoundSeconds` of the message as a 16-bit CAF in the shared Sounds
     /// folder, where iOS can play it as a notification sound. Returns the file name.
     static func writeSound(_ message: Message, name: String) -> String? {

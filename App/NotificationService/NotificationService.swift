@@ -33,8 +33,19 @@ final class NotificationService: UNNotificationServiceExtension {
         // Main actor: iOS calls serviceExtensionTimeWillExpire on the main thread too.
         work = Task { @MainActor [weak self] in
             defer { self?.deliver() }
-            guard let payload = try? await relay.fetch(recordName: record),
-                  let message = RelayInbox.open(payload, with: sync) else { return }
+            guard let payload = try? await relay.fetch(recordName: record) else { return }
+            // A call alert: the Nextel page, four beeps.
+            if let alert = RelayInbox.callAlert(in: payload, with: sync) {
+                content.title = "Call alert"
+                content.body = "\(alert.name) is trying to reach you" + (alert.text.map { ": \($0)" } ?? "")
+                if let sound = RelayInbox.writeCallAlertSound() {
+                    content.sound = UNNotificationSound(named: UNNotificationSoundName(sound))
+                }
+                RelayInbox.markHeard(.init(record: record, talker: alert.name, channel: alert.name, seconds: 0,
+                                           sound: "call-alert.caf", date: Date(), logged: true))
+                return
+            }
+            guard let message = RelayInbox.open(payload, with: sync) else { return }
             RelayInbox.purgeOldSounds()
             guard let sound = RelayInbox.writeSound(message, name: record) else { return }
             content.title = message.talker
