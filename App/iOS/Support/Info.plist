@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>NXTPTT</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>app.eptt.links</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>eptt</string>
+			</array>
+		</dict>
+	</array>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>EPTTAPNsEnvironment</key>
+	<string>$(EPTT_APNS_ENVIRONMENT)</string>
+	<key>EPTTAPNsKeyID</key>
+	<string>$(EPTT_APNS_KEY_ID)</string>
+	<key>EPTTAPNsTeamID</key>
+	<string>$(EPTT_APNS_TEAM_ID)</string>
+	<key>EPTTCloudContainer</key>
+	<string>iCloud.$(EPTT_BUNDLE_ID)</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>NXTPTT uses Bluetooth to talk to nearby phones when there is no network.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_eptt._udp</string>
+		<string>_chirp-ptt._tcp</string>
+		<string>_chirp-ptt._udp</string>
+	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>NXTPTT uses the camera to scan contact codes.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>NXTPTT talks directly to nearby devices on your network, with no server in between.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>NXTPTT uses the microphone while you hold the talk button.</string>
+	<key>UIAppFonts</key>
+	<array>
+		<string>Michroma-Regular.ttf</string>
+		<string>Exo2-Medium.ttf</string>
+		<string>Exo2-SemiBold.ttf</string>
+		<string>Exo2-Bold.ttf</string>
+		<string>Hind-Regular.ttf</string>
+		<string>Hind-Medium.ttf</string>
+		<string>Hind-SemiBold.ttf</string>
+	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+		<string>push-to-talk</string>
+		<string>remote-notification</string>
+	</array>
+	<key>UILaunchScreen</key>
+	<dict/>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+</dict>
+</plist>
