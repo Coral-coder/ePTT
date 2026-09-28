@@ -14,7 +14,7 @@ settings:
     SWIFT_VERSION: "5.0"
     # Set by the TestFlight workflow after each upload (see .github/workflows/testflight.yml).
     MARKETING_VERSION: "0.1.3"
-    CURRENT_PROJECT_VERSION: "6"
+    CURRENT_PROJECT_VERSION: "7"
 packages:
   EPTTCore:
     path: Packages/EPTTCore
