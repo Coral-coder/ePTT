@@ -63,6 +63,18 @@ enum Route: String, Codable {
         }
     }
 
+    /// Short form for status lines: "WI-FI", "BLUETOOTH / PEER-TO-PEER", …
+    var shortLabel: String {
+        switch self {
+        case .nearby: return "Nearby"
+        case .localNetwork: return "Wi-Fi"
+        case .overlay: return "VPN"
+        case .internet: return "Internet"
+        case .relay: return "iCloud relay"
+        case .failed: return "Failed"
+        }
+    }
+
     var symbol: String {
         switch self {
         case .nearby: return "antenna.radiowaves.left.and.right"
@@ -80,6 +92,8 @@ struct TransferRecord: Codable, Identifiable {
     struct Leg: Codable, Hashable {
         var peer: String
         var route: Route
+        /// Why a failed leg failed, in plain words.
+        var reason: String? = nil
     }
 
     var id = UUID()

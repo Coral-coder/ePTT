@@ -132,6 +132,33 @@ final class AppModel: ObservableObject {
         case .joinedGroup(let name): banner = "Joined talk group \(name)"
         case .unreachable(let name): banner = "Couldn't connect to \(name)"
         case .message(let text): banner = text
+        case .delivery(let legs): banner = Self.deliverySummary(legs)
         }
+    }
+
+    /// One line per transmission: "Delivered to Sam · Wi-Fi", "Sent to Sam via iCloud relay",
+    /// or "Not delivered to Sam: <reason>".
+    static func deliverySummary(_ legs: [TransferRecord.Leg]) -> String? {
+        guard !legs.isEmpty else { return nil }
+        if let failed = legs.first(where: { $0.route == .failed }) {
+            let others = legs.filter { $0.route == .failed }.count - 1
+            let who = others > 0 ? "\(failed.peer) and \(others) more" : failed.peer
+            return "Not delivered to \(who)" + (failed.reason.map { ": \($0)" } ?? "")
+        }
+        if legs.count == 1, let leg = legs.first {
+            return leg.route == .relay ? "Sent to \(leg.peer) via iCloud relay"
+                                       : "Delivered to \(leg.peer) · \(leg.route.shortLabel)"
+        }
+        let relayed = legs.filter { $0.route == .relay }.count
+        return relayed > 0 ? "Delivered to \(legs.count) (\(relayed) via iCloud relay)" : "Delivered to all \(legs.count)"
+    }
+
+    /// "Connected · Wi-Fi" when a live path to the channel exists, otherwise what will happen instead.
+    func connectionStatus(_ channel: Channel) -> String {
+        if let route = channel.members.lazy.compactMap({ self.snapshot.peerRoutes[$0] }).first {
+            return "Connected · \(route.shortLabel)"
+        }
+        if snapshot.relayAvailable && snapshot.settings.relayEnabled { return "Not connected · will use iCloud relay" }
+        return "Not connected"
     }
 }

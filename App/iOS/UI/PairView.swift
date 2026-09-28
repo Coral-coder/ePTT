@@ -152,7 +152,7 @@ struct ContactRow: View {
             InitialsRing(name: contact.name, size: 40, lit: online)
             VStack(alignment: .leading, spacing: 2) {
                 Text(contact.name).font(NX.label(16, .bold)).foregroundStyle(NX.text)
-                Text(online ? "On the grid" : (contact.isWakeable ? "Wakes by push" : "Offline"))
+                Text(model.snapshot.peerRoutes[contact.id].map { "Connected · \($0.shortLabel)" } ?? (contact.isWakeable ? "Not connected · wakes by push" : "Not connected"))
                     .font(NX.body(13))
                     .foregroundStyle(NX.textDim)
             }
