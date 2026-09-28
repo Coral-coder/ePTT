@@ -16,7 +16,7 @@ struct PairView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
                         ScreenTitle(text: "Pair")
-                        Text("Hold your codes up to each other. Your identity key is inside; no server, no directory.")
+                        Text("Both of you scan each other's code: a phone only accepts voice from people it has scanned. Your identity key is inside; no server, no directory.")
                             .font(NX.body(15))
                             .foregroundStyle(Color(hex: 0xAEEEF8))
 

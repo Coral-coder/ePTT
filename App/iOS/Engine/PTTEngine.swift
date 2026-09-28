@@ -230,6 +230,9 @@ final class PTTEngine {
     private func housekeeping() {
         let now = Date()
         apply(floor.tick(now: now))
+        // Links go stale silently (nothing arrives), so re-check who is online on every tick;
+        // otherwise the UI keeps showing a peer "on the grid" after the path has died.
+        publishIfOnlineChanged()
 
         if var t = tx {
             if now.timeIntervalSince(t.lastStartResend) >= 0.5 {
