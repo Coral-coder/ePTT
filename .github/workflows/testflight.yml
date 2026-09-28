@@ -25,6 +25,8 @@ concurrency:
 jobs:
   upload:
     runs-on: macos-15
+    # The App Store Connect secrets live in this GitHub environment (Settings → Environments).
+    environment: Coral
     env:
       TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}

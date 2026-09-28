@@ -174,7 +174,7 @@ key lets Xcode create and use the distribution certificate and profiles itself.
    automatic signing to create certificates and profiles). Download the `.p8`
    (only possible once) and note the **Key ID** and the **Issuer ID** shown
    above the key list.
-3. **Repository secrets** (Settings → Secrets and variables → Actions):
+3. **Secrets**, in the `Coral` environment (Settings → Environments → Coral), or as repository secrets. The workflow runs in that environment, so it sees both:
 
    | Secret | Value |
    | --- | --- |
