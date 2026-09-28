@@ -74,6 +74,15 @@ struct SettingsView: View {
                 Section("Status") {
                     LabeledContent("Push to Talk", value: model.snapshot.pushToTalkAvailable ? "Ready" : "Unavailable")
                     LabeledContent("Background wake", value: model.snapshot.wakeAvailable ? "Enabled" : "No push key installed")
+                    LabeledContent("Can be woken", value: model.snapshot.hasPushToken ? "Yes (token shared with contacts)" : "No Push to Talk token yet")
+                    LabeledContent("Contacts you can wake", value: {
+                        let contacts = model.snapshot.contacts
+                        return "\(contacts.filter(\.isWakeable).count) of \(contacts.count)"
+                    }())
+                    LabeledContent("Last wake sent", value: model.snapshot.lastWakeSent ?? "None yet")
+                    LabeledContent("Last wake received", value: model.snapshot.lastWakeReceived.map {
+                        $0.formatted(.relative(presentation: .named))
+                    } ?? "None yet")
                     LabeledContent("Voice message alerts", value: model.snapshot.relayAlerts)
                     LabeledContent("Notifications", value: notificationStatus)
                     LabeledContent("Last iCloud alert", value: model.snapshot.lastRelayAlert.map {

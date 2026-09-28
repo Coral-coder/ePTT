@@ -27,6 +27,10 @@ struct EngineSnapshot {
     var transfers: [TransferRecord] = []
     var relayAvailable = false
     var relayAlerts = ""
+    var lastWakeSent: String?
+    /// Whether PushToTalk gave us a token that others can wake us with.
+    var hasPushToken = false
+    var lastWakeReceived: Date?
     var lastRelayAlert: Date?
     /// How the transmission being received reached us.
     var receivingRoute: Route?
@@ -489,12 +493,41 @@ final class PTTEngine {
         tx?.woken.insert(contact.senderID)
         // Their last known addresses may still work; a HELLO costs nothing.
         sendHello(to: contact, replyRequested: true, endpoints: [], candidates: contact.reachability.candidates)
-        guard let apns, contact.isWakeable else { return }
+        guard let apns else {
+            noteWake(contact, "not sent: this build has no push key")
+            return
+        }
+        guard contact.isWakeable else {
+            noteWake(contact, "not sent: no push token from them yet (have them open NXTPTT once while you're connected)")
+            return
+        }
         let wake = Wake(name: state.settings.displayName, timestamp: currentTimestamp(),
                         candidates: transport.localCandidates)
-        if let packet = try? builder.seal(.wake, plaintext: wake.encoded, keys: t.channel.keys, messageID: t.burst) {
-            apns.sendWake(packet, to: contact)
+        guard let packet = try? builder.seal(.wake, plaintext: wake.encoded, keys: t.channel.keys, messageID: t.burst) else { return }
+        noteWake(contact, "sending…")
+        apns.sendWake(packet, to: contact) { [weak self] failure in
+            self?.queue.async {
+                guard let self else { return }
+                if let failure {
+                    self.noteWake(contact, "failed: \(failure)")
+                    self.emit(.message("Couldn't wake \(contact.name): \(failure)"))
+                } else {
+                    self.noteWake(contact, "accepted by Apple")
+                }
+            }
         }
+    }
+
+    /// What happened to the last wake we tried to send, per contact (Settings › Status, and the
+    /// reason on a failed Activity entry).
+    private var wakeOutcomes: [SenderID: String] = [:]
+    private var lastWakeSent: String?
+    private var lastWakeReceived: Date?
+
+    private func noteWake(_ contact: Contact, _ outcome: String) {
+        wakeOutcomes[contact.senderID] = outcome
+        lastWakeSent = "\(contact.name): \(outcome)"
+        publish()
     }
 
     // MARK: - Call alert
@@ -752,6 +785,7 @@ final class PTTEngine {
             return nil
         }
         let talker = inbound.channel.kind == .group ? "\(contact.name) · \(inbound.channel.name)" : contact.name
+        lastWakeReceived = Date()
         respondToWake(wake, from: contact)
         pendingWake = (talker, Date().addingTimeInterval(10))
         // If no direct path appears, the talker leaves the burst in the relay when they release.
@@ -1043,7 +1077,8 @@ final class PTTEngine {
             } else {
                 reason = nil
             }
-            if let reason {
+            if var reason {
+                if let wake = wakeOutcomes[contact.senderID] { reason += "; wake \(wake)" }
                 legs.append(.init(peer: contact.name, route: .failed, reason: reason))
             } else if let mailbox = contact.reachability.relayMailbox {
                 relayable.append((contact, mailbox))
@@ -1375,6 +1410,9 @@ final class PTTEngine {
         snapshot.relayAvailable = relay != nil
         snapshot.relayAlerts = relay == nil ? "iCloud unavailable" : (state.settings.relayEnabled ? relayAlerts : "Relay off")
         snapshot.lastRelayAlert = lastRelayAlert
+        snapshot.lastWakeSent = lastWakeSent
+        snapshot.hasPushToken = state.pttToken != nil
+        snapshot.lastWakeReceived = lastWakeReceived
         DispatchQueue.main.async { [weak self] in self?.onSnapshot?(snapshot) }
     }
 

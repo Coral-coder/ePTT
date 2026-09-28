@@ -61,10 +61,14 @@ final class APNsClient {
         session = URLSession(configuration: config)
     }
 
-    /// Wakes a PushToTalk listener with a sealed WAKE packet.
-    func sendWake(_ packet: Data, to contact: Contact) {
-        guard let token = contact.reachability.apnsPTTToken else { return }
-        send(.pushToTalk, packet: packet, token: token, contact: contact)
+    /// Wakes a PushToTalk listener with a sealed WAKE packet. `completion` gets nil when Apple
+    /// accepted the push, otherwise the reason it didn't (called on a background queue).
+    func sendWake(_ packet: Data, to contact: Contact, completion: ((String?) -> Void)? = nil) {
+        guard let token = contact.reachability.apnsPTTToken else {
+            completion?("no push token for them")
+            return
+        }
+        send(.pushToTalk, packet: packet, token: token, contact: contact, completion: completion)
     }
 
     /// Delivers a HELLO to a (foreground) talker as a silent background push.
@@ -73,8 +77,12 @@ final class APNsClient {
         send(.background, packet: packet, token: token, contact: contact)
     }
 
-    private func send(_ kind: APNsRequest.Kind, packet: Data, token: Data, contact: Contact) {
-        guard let providerToken = providerToken() else { return }
+    private func send(_ kind: APNsRequest.Kind, packet: Data, token: Data, contact: Contact,
+                      completion: ((String?) -> Void)? = nil) {
+        guard let providerToken = providerToken() else {
+            completion?("the push key couldn't sign a request")
+            return
+        }
         let request = APNsRequest(
             kind: kind,
             deviceToken: token,
@@ -92,9 +100,15 @@ final class APNsClient {
         session.dataTask(with: urlRequest) { [log] data, response, error in
             if let error {
                 log.error("APNs \(String(describing: kind), privacy: .public) to \(name, privacy: .private) failed: \(error.localizedDescription, privacy: .public)")
+                completion?("couldn't reach Apple: \(error.localizedDescription)")
             } else if let http = response as? HTTPURLResponse, http.statusCode != 200 {
-                let reason = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-                log.error("APNs \(String(describing: kind), privacy: .public) rejected (\(http.statusCode)): \(reason, privacy: .public)")
+                let body = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                log.error("APNs \(String(describing: kind), privacy: .public) rejected (\(http.statusCode)): \(body, privacy: .public)")
+                // APNs answers {"reason":"BadDeviceToken"} and the like.
+                let reason = (data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }?["reason"] as? String) ?? body
+                completion?("Apple rejected it (\(http.statusCode) \(reason))")
+            } else {
+                completion?(nil)
             }
         }.resume()
     }
