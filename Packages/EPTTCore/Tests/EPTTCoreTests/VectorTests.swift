@@ -1,4 +1,9 @@
 import XCTest
+#if canImport(CryptoKit)
+import CryptoKit
+#else
+import Crypto
+#endif
 @testable import EPTTCore
 
 /// Checks EPTTCore against vectors produced by tools/reference/eptt_ref.py, the executable spec.
@@ -81,12 +86,17 @@ final class VectorTests: XCTestCase {
     func testContactCard() throws {
         let d = try dict("card_alice")
         let alice = try identity("alice")
+        let prekey = try SignedPrekey(encoded: try hex("prekey", in: d))
+        XCTAssertEqual(prekey.id, 7)
+        XCTAssertTrue(prekey.isValid(for: alice.publicIdentity))
+        XCTAssertFalse(prekey.isValid(for: try identity("bob").publicIdentity))
         let reach = Reachability(
             apnsPTTToken: try hex("apns_ptt_token", in: d),
             apnsDeviceToken: try hex("apns_device_token", in: d),
             apnsEnvironment: .development,
             apnsTopic: d["apns_topic"] as? String,
-            candidates: try XCTUnwrap(d["candidates"] as? [String]).map { try Candidate(encoded: Data(hex: $0)!) }
+            candidates: try XCTUnwrap(d["candidates"] as? [String]).map { try Candidate(encoded: Data(hex: $0)!) },
+            prekey: prekey
         )
         let timestamp = UInt64(try XCTUnwrap(d["timestamp"] as? Int))
         let unsigned = ContactCard.unsignedBytes(identity: alice.publicIdentity, name: "Alice", timestamp: timestamp,
@@ -137,35 +147,89 @@ final class VectorTests: XCTestCase {
 
     func testGroupBurstPackets() throws {
         let d = try dict("group_burst")
-        let carol = try identity("carol")
+        let carol = try identity("carol"), alice = try identity("alice"), bob = try identity("bob")
         let keys = try ChannelKeys(channelID: ChannelID(bytes: try hex("group_id", in: d)),
                                    epoch: UInt16(d["epoch"] as! Int), key: try hex("group_key", in: d))
         let burst = try MessageID(bytes: try hex("burst_id", in: d))
+        let burstKey = try hex("burst_key", in: d)
         let timestamp = UInt64(d["timestamp"] as! Int)
 
-        XCTAssertEqual(BurstStart.signatureInput(channelID: keys.channelID, senderID: carol.senderID,
-                                                 burstID: burst, timestamp: timestamp),
+        // Envelopes are deterministic given the ephemeral key.
+        let alicePrekeySeed = try hex("prekey_seed", in: try dict("card_alice"))
+        let alicePrekey = try SignedPrekey(encoded: try hex("prekey", in: try dict("card_alice")))
+        let ephemeral = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: try hex("ephemeral_seed", in: d))
+        let keying = try BurstKeying.makeEnvelopes(
+            burstKey: burstKey, ephemeral: ephemeral, channelID: keys.channelID, burstID: burst,
+            targets: [SealTarget(identity: alice.publicIdentity, prekey: alicePrekey),
+                      SealTarget(identity: bob.publicIdentity, prekey: nil)])
+        XCTAssertEqual(keying.ephemeralPublicKey, try hex("ephemeral_pk", in: d))
+        XCTAssertEqual(keying.envelopes, [try hex("envelope_alice", in: d), try hex("envelope_bob", in: d)])
+        XCTAssertEqual(BurstStart.signatureInput(channelID: keys.channelID, senderID: carol.senderID, burstID: burst,
+                                                 timestamp: timestamp, ephemeralPublicKey: keying.ephemeralPublicKey,
+                                                 envelopes: keying.envelopes),
                        try hex("signature_input", in: d))
+
+        // Each recipient opens its own envelope: alice via her prekey, bob via his static key.
+        var alicePrekeys = PrekeyStore()
+        alicePrekeys.install(id: 7, seed: alicePrekeySeed)
+        let aliceAgreement = alice.keyAgreement(prekeys: { alicePrekeys })
+        XCTAssertEqual(try BurstKeying.open(envelopes: keying.envelopes, ephemeralPublicKey: keying.ephemeralPublicKey,
+                                            channelID: keys.channelID, burstID: burst, recipient: alice.senderID,
+                                            agreement: aliceAgreement), burstKey)
+        XCTAssertEqual(try BurstKeying.open(envelopes: keying.envelopes, ephemeralPublicKey: keying.ephemeralPublicKey,
+                                            channelID: keys.channelID, burstID: burst, recipient: bob.senderID,
+                                            agreement: bob.keyAgreement(prekeys: { PrekeyStore() })), burstKey)
 
         let startPacket = try hex("start_packet", in: d)
         let startHeader = try PacketHeader(packet: startPacket)
         let start = try BurstStart(decoding: try PacketCrypto.open(startPacket, header: startHeader, keys: keys))
         XCTAssertTrue(start.verify(sender: carol.publicIdentity, channelID: keys.channelID, burstID: burst))
-        XCTAssertFalse(start.verify(sender: try identity("bob").publicIdentity, channelID: keys.channelID, burstID: burst))
+        XCTAssertFalse(start.verify(sender: bob.publicIdentity, channelID: keys.channelID, burstID: burst))
         XCTAssertEqual(start.encoded, try hex("start_plaintext", in: d))
         XCTAssertEqual(try PacketCrypto.seal(start.encoded, header: startHeader, keys: keys), startPacket)
 
+        XCTAssertEqual(BurstKeying.messageKey(burstKey: burstKey, burstID: burst, senderID: carol.senderID,
+                                              epoch: keys.epoch), try hex("burst_message_key", in: d))
         let builder = PacketBuilder(local: carol)
         let frames = try XCTUnwrap(d["voice_frames"] as? [String]).map { Data(hex: $0)! }
-        let voice = try builder.seal(.voice, plaintext: VoiceBody.encode(frames), keys: keys, messageID: burst,
-                                     seq: UInt32(d["voice_seq"] as! Int))
+        let voice = try builder.sealBurst(.voice, plaintext: VoiceBody.encode(frames), keys: keys, burstID: burst,
+                                          burstKey: burstKey, seq: UInt32(d["voice_seq"] as! Int))
         XCTAssertEqual(voice, try hex("voice_packet", in: d))
         XCTAssertEqual(try VoiceBody.decode(try hex("voice_plaintext", in: d)), frames)
 
         let end = BurstEnd(timestamp: timestamp + 900, frameCount: 9)
-        XCTAssertEqual(try builder.seal(.burstEnd, plaintext: end.encoded, keys: keys, messageID: burst,
-                                        seq: UInt32(d["end_seq"] as! Int)),
+        XCTAssertEqual(try builder.sealBurst(.burstEnd, plaintext: end.encoded, keys: keys, burstID: burst,
+                                             burstKey: burstKey, seq: UInt32(d["end_seq"] as! Int)),
                        try hex("end_packet", in: d))
+    }
+
+    func testSealedGroupInvite() throws {
+        let d = try dict("group_invite")
+        let g = try dict("group_burst")
+        let alice = try identity("alice"), bob = try identity("bob")
+        let direct = try dict("direct_alice_bob")
+        let keys = try ChannelKeys(channelID: ChannelID(bytes: try hex("channel_id", in: direct)), epoch: 0,
+                                   key: try hex("channel_key", in: direct))
+        let messageID = try MessageID(bytes: try hex("message_id", in: d))
+        let card = try ContactCard(encoded: try hex("card", in: try dict("card_alice")))
+        let invite = GroupInvite(
+            timestamp: UInt64(g["timestamp"] as! Int), name: "Crew",
+            keys: try ChannelKeys(channelID: ChannelID(bytes: try hex("group_id", in: g)),
+                                  epoch: UInt16(g["epoch"] as! Int), key: try hex("group_key", in: g)),
+            memberCards: [card])
+        XCTAssertEqual(invite.innerEncoded, try hex("inner", in: d))
+        let ephemeral = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: try hex("ephemeral_seed", in: d))
+        let plaintext = try invite.sealed(for: SealTarget(identity: bob.publicIdentity, prekey: nil),
+                                          messageID: messageID, ephemeral: ephemeral)
+        XCTAssertEqual(plaintext, try hex("plaintext", in: d))
+        XCTAssertEqual(try PacketBuilder(local: alice).seal(.groupInvite, plaintext: plaintext, keys: keys,
+                                                           messageID: messageID),
+                       try hex("packet", in: d))
+        XCTAssertEqual(try GroupInvite(decoding: plaintext, messageID: messageID, recipient: bob.senderID,
+                                       agreement: bob.keyAgreement(prekeys: { PrekeyStore() })), invite)
+        // Only the invitee can open it.
+        XCTAssertThrowsError(try GroupInvite(decoding: plaintext, messageID: messageID, recipient: alice.senderID,
+                                             agreement: alice.keyAgreement(prekeys: { PrekeyStore() })))
     }
 
     func testSTUN() throws {

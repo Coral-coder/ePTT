@@ -46,14 +46,18 @@ tag: u8 | length: u16 | value: length bytes
 | 0x13 | signature | 64 bytes, Ed25519 |
 | 0x14 | frame_count | u32 |
 | 0x15 | text | UTF-8, at most 256 bytes |
+| 0x16 | ephemeral_pk | 32 bytes, X25519 public key used once |
+| 0x17 | envelope | 60 bytes, a wrapped burst key (§6.2), repeatable |
 | 0x20 | group_id | 16 bytes |
 | 0x21 | group_name | UTF-8, at most 64 bytes |
 | 0x22 | group_key | 32 bytes |
 | 0x23 | group_epoch | u16 |
 | 0x24 | member_card | a complete contact card (§4), repeatable |
+| 0x25 | sealed_invite | `prekey_id: u32` then AEAD ciphertext (§6.3) |
 | 0x40 | card_version | u8, currently 1 |
 | 0x41 | sign_pk | 32 bytes, Ed25519 public key |
 | 0x42 | kx_pk | 32 bytes, X25519 public key |
+| 0x43 | prekey | 100 bytes, signed session prekey (§3.1) |
 | 0x4F | card_signature | 64 bytes, Ed25519 |
 
 ## 2. Candidates
@@ -87,6 +91,24 @@ are the two `sign_pk` values in bytewise order. For `i` in 0..5, group `i` is
 `h[5i..5i+5]` read as a big-endian u40, modulo 100000, zero-padded to 5
 digits. Display the 6 groups separated by spaces.
 
+### 3.1 Session prekeys (forward secrecy)
+
+Each device also holds rotating X25519 **session prekeys**:
+
+```
+prekey = prekey_id: u32 | prekey_pk: 32 | Ed25519(sign_sk, "ePTT/1 prekey" || prekey_id_u32 || prekey_pk)
+```
+
+- `prekey_id` starts at 1 and increases by one at each rotation. 0 is
+  reserved and means "no prekey: use kx_pk".
+- A device creates a new prekey every 24 h and advertises only the newest one,
+  in its contact card and in every HELLO.
+- It **deletes** a prekey's private key 7 days after replacing it. Anything
+  sealed to that prekey becomes permanently unreadable, even to someone who
+  later steals every key on the device. That is the forward-secrecy window.
+- A receiver verifies the signature with the peer's pinned `sign_pk` and keeps
+  the prekey with the highest `prekey_id`.
+
 ## 4. Contact card
 
 A contact card is a TLV payload with these tags, in this order:
@@ -96,7 +118,7 @@ A contact card is a TLV payload with these tags, in this order:
 - optionally `apns_ptt_token`, `apns_device_token`, `apns_env`
 - `candidate`s
 - optionally `apns_topic` and `platform`
-- `card_version`, `sign_pk`, `kx_pk`
+- `card_version`, `sign_pk`, `kx_pk`, `prekey`
 - `card_signature`, which is always last
 
 `card_signature = Ed25519(sign_sk, every card byte before the card_signature
@@ -158,6 +180,19 @@ aad     = header bytes 0..40
 body    = AEAD-Encrypt(msg_key, nonce, plaintext, aad)
 ```
 
+**Which key seals which packet.** BURST_START and every non-burst message
+are sealed with `msg_key` from the channel key, as above. VOICE and BURST_END
+are sealed the same way, except that the key comes from the burst's own
+random key (§6.2):
+
+```
+burst_msg_key = HKDF(ikm=burst_key, salt=burst_id,
+                     info="ePTT/1 burst-msg" || sender_id || epoch_u16, L=32)
+```
+
+Channel keys therefore authenticate who belongs to a channel, while audio is
+protected by keys that are thrown away after each burst.
+
 A (key, nonce) pair must never protect two different plaintexts. A sender
 never reuses a `message_id` with different content. Retransmissions resend the
 **exact same sealed bytes**. A packet is never re-sealed with a different
@@ -176,30 +211,65 @@ A receiver drops a packet without responding when any of these hold:
 | Type | Name | seq | Plaintext |
 | --- | --- | --- | --- |
 | 0x01 | HELLO | 0 | TLV: name, timestamp, apns_ptt_token?, apns_device_token?, apns_env?, candidate*, apns_topic?, flags. Flags bit 0 = "reply with a HELLO". Direct channels only. |
-| 0x02 | BURST_START | 0 | TLV: timestamp, codec, sample_rate, frame_ms, signature |
+| 0x02 | BURST_START | 0 | TLV: timestamp, codec, sample_rate, frame_ms, signature, ephemeral_pk, envelope* (one per recipient, §6.2) |
 | 0x03 | VOICE | index of the first frame | `count: u8`, then `count` × (`len: u16`, frame bytes) |
 | 0x04 | BURST_END | total frame count | TLV: timestamp, frame_count |
 | 0x05 | CALL_ALERT | 0 | TLV: name, timestamp, text? |
 | 0x06 | WAKE | 0 | TLV: name, timestamp, candidate*. `message_id` = the burst ID being woken for. |
-| 0x10 | GROUP_INVITE | 0 | TLV: timestamp, group_id, group_name, group_key, group_epoch, member_card*. Direct channels only. |
+| 0x10 | GROUP_INVITE | 0 | TLV: timestamp, ephemeral_pk, sealed_invite. The sealed contents are TLV: group_id, group_name, group_key, group_epoch, member_card* (§6.3). Direct channels only. |
 | 0x11 | GROUP_LEAVE | 0 | TLV: timestamp, group_id. Direct channels only. |
 
 BURST_START signature:
 
 ```
-Ed25519(sign_sk, "ePTT/1 burst" || channel_id || sender_id || burst_id || timestamp_u64)
+Ed25519(sign_sk, "ePTT/1 burst" || channel_id || sender_id || burst_id || timestamp_u64
+                 || ephemeral_pk || SHA-256(envelope_1 || envelope_2 || …))
 ```
+
+The envelopes are hashed in the order they appear.
 
 Receivers verify it with the sender's pinned `sign_pk`.
 
-### 6.2 Replay protection
+### 6.2 Burst keys
+
+For every burst the talker draws a random 32-byte `burst_key` and a fresh
+X25519 key pair `(eph_sk, ephemeral_pk)`. For each recipient R (every other
+channel member), it creates an envelope:
+
+```
+target   = R's newest prekey_pk, with its prekey_id
+           (or R's kx_pk with prekey_id = 0 if no prekey is known)
+wrap_key = HKDF(ikm=X25519(eph_sk, target), salt=burst_id,
+                info="ePTT/1 wrap" || channel_id || R.sender_id || prekey_id_u32, L=32)
+aad      = R.sender_id || prekey_id_u32
+envelope = aad || AEAD-Encrypt(wrap_key, 0x00 × 12, burst_key, aad)       60 bytes
+```
+
+`eph_sk` is erased once the envelopes are built, and `burst_key` is erased
+when the burst ends. The receiver finds the envelope that carries its own
+`sender_id`, recomputes `wrap_key` with the matching private key, and opens it.
+If it no longer has that private key, the burst cannot be read.
+
+### 6.3 Sealed group invites
+
+A GROUP_INVITE's inner TLV (the group key and member cards) is sealed once
+more, to the invitee's prekey:
+
+```
+key           = HKDF(ikm=X25519(eph_sk, target), salt=message_id,
+                     info="ePTT/1 invite" || R.sender_id || prekey_id_u32, L=32)
+sealed_invite = prekey_id_u32 || AEAD-Encrypt(key, 0x00 × 12, inner, R.sender_id || prekey_id_u32)
+```
+
+### 6.4 Replay protection
 
 - HELLO, BURST_START, CALL_ALERT, WAKE and GROUP_* packets with a
   `timestamp` more than 120 s from the local clock are dropped.
 - Receivers remember `(sender_id, message_id, type)` for 300 s and drop
   duplicates. Retransmitted BURST_START and BURST_END packets are therefore
   idempotent.
-- VOICE is accepted only for a burst whose BURST_START has been verified.
+- VOICE and BURST_END are accepted only for a burst whose BURST_START has
+  been verified and whose envelope was opened.
   VOICE that arrives before its BURST_START may be held for up to 1 s.
   Frame indexes already played are dropped.
 

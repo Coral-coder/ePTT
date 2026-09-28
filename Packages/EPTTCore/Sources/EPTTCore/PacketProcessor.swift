@@ -30,9 +30,15 @@ public enum InboundError: Error, Equatable {
     case replay
     case badSignature
     case wrongChannelKind
+    /// VOICE/BURST_END for a burst whose BURST_START we have not opened (yet). Callers may retry
+    /// the packet after the start arrives.
+    case unknownBurst
+    /// A BURST_START that carries no envelope we can open (not addressed to us, or sealed to a
+    /// prekey we have already deleted).
+    case notARecipient
 }
 
-/// Remembers recently seen control messages to drop replays (PROTOCOL.md §6.2).
+/// Remembers recently seen control messages to drop replays (PROTOCOL.md §6.4).
 public struct ReplayGuard {
     public static let window: TimeInterval = 300
     public static let maxClockSkew: TimeInterval = 120
@@ -69,16 +75,37 @@ public struct ReplayGuard {
 /// Parses, authenticates and validates raw datagrams against the local state.
 public struct PacketProcessor {
     public let local: LocalIdentity
+    private let agreement: LocalKeyAgreement
     private var replay = ReplayGuard()
 
-    public init(local: LocalIdentity) { self.local = local }
+    private struct BurstRef: Hashable {
+        let sender: SenderID
+        let burst: MessageID
+    }
+    /// Keys of recently opened bursts, oldest first.
+    private var burstKeys: [BurstRef: Data] = [:]
+    private var burstOrder: [BurstRef] = []
+    private static let maxBurstKeys = 64
+
+    /// - Parameter agreement: X25519 with our static key (prekey 0) or a held prekey.
+    public init(local: LocalIdentity, agreement: LocalKeyAgreement? = nil) {
+        self.local = local
+        let identity = local
+        self.agreement = agreement ?? { id, publicKey in
+            guard id == 0 else { throw DecodingError.invalid("no prekeys configured") }
+            return try identity.sharedSecret(withPublicKey: publicKey)
+        }
+    }
 
     /// - Parameters:
+    ///   - maxAge: how old a timestamp may be. Live traffic uses the default; relayed
+    ///     (store-and-forward) bursts pass a longer window.
     ///   - channelLookup: returns the channel for an ID, if we are in it.
     ///   - memberLookup: returns a known peer's identity for a sender ID.
     public mutating func process(
         _ packet: Data,
         now: Date = Date(),
+        maxAge: TimeInterval = ReplayGuard.maxClockSkew,
         channelLookup: (ChannelID) -> Channel?,
         memberLookup: (SenderID) -> PublicIdentity?
     ) throws -> InboundPacket {
@@ -89,8 +116,21 @@ public struct PacketProcessor {
         guard let sender = memberLookup(header.senderID), channel.members.contains(sender.id) else {
             throw InboundError.notAMember
         }
-        guard let plaintext = try? PacketCrypto.open(packet, header: header, keys: keys) else {
-            throw InboundError.authenticationFailed
+
+        let plaintext: Data
+        if PacketCrypto.usesBurstKey(header.type) {
+            guard let burstKey = burstKeys[BurstRef(sender: header.senderID, burst: header.messageID)] else {
+                throw InboundError.unknownBurst
+            }
+            guard let opened = try? PacketCrypto.open(packet, header: header, burstKey: burstKey) else {
+                throw InboundError.authenticationFailed
+            }
+            plaintext = opened
+        } else {
+            guard let opened = try? PacketCrypto.open(packet, header: header, keys: keys) else {
+                throw InboundError.authenticationFailed
+            }
+            plaintext = opened
         }
 
         let message: InboundMessage
@@ -108,17 +148,49 @@ public struct PacketProcessor {
         }
 
         if let timestamp = message.timestamp {
-            guard ReplayGuard.isFresh(timestamp, now: now) else { throw InboundError.staleTimestamp }
+            let delta = Double(timestamp) / 1000 - now.timeIntervalSince1970
+            guard delta <= ReplayGuard.maxClockSkew, -delta <= max(maxAge, ReplayGuard.maxClockSkew) else {
+                throw InboundError.staleTimestamp
+            }
         }
-        if case .burstStart(let start) = message,
-           !start.verify(sender: sender, channelID: channel.id, burstID: header.messageID) {
+        if case .hello(let hello) = message, let prekey = hello.reachability.prekey, !prekey.isValid(for: sender) {
             throw InboundError.badSignature
+        }
+        if case .burstStart(let start) = message {
+            guard start.verify(sender: sender, channelID: channel.id, burstID: header.messageID) else {
+                throw InboundError.badSignature
+            }
+            let ref = BurstRef(sender: header.senderID, burst: header.messageID)
+            if burstKeys[ref] == nil {
+                guard let key = try? BurstKeying.open(envelopes: start.envelopes,
+                                                      ephemeralPublicKey: start.ephemeralPublicKey,
+                                                      channelID: channel.id, burstID: header.messageID,
+                                                      recipient: local.senderID, agreement: agreement) else {
+                    throw InboundError.notARecipient
+                }
+                remember(ref, key)
+            }
         }
         if message.isReplayTracked,
            !replay.accept(sender: header.senderID, message: header.messageID, type: header.type, now: now) {
             throw InboundError.replay
         }
         return InboundPacket(header: header, channel: channel, sender: sender, message: message)
+    }
+
+    /// Forgets a finished burst's key (forward secrecy: keys should not outlive their use).
+    public mutating func forgetBurst(sender: SenderID, burst: MessageID) {
+        let ref = BurstRef(sender: sender, burst: burst)
+        burstKeys[ref] = nil
+        burstOrder.removeAll { $0 == ref }
+    }
+
+    private mutating func remember(_ ref: BurstRef, _ key: Data) {
+        burstKeys[ref] = key
+        burstOrder.append(ref)
+        while burstOrder.count > PacketProcessor.maxBurstKeys {
+            burstKeys[burstOrder.removeFirst()] = nil
+        }
     }
 
     private func decode(header: PacketHeader, plaintext: Data) throws -> InboundMessage {
@@ -129,7 +201,9 @@ public struct PacketProcessor {
         case .burstEnd: return .burstEnd(try BurstEnd(decoding: plaintext))
         case .callAlert: return .callAlert(try CallAlert(decoding: plaintext))
         case .wake: return .wake(try Wake(decoding: plaintext))
-        case .groupInvite: return .groupInvite(try GroupInvite(decoding: plaintext))
+        case .groupInvite:
+            return .groupInvite(try GroupInvite(decoding: plaintext, messageID: header.messageID,
+                                                recipient: local.senderID, agreement: agreement))
         case .groupLeave: return .groupLeave(try GroupLeave(decoding: plaintext))
         }
     }
@@ -165,8 +239,40 @@ public struct PacketBuilder {
 
     public func seal(_ type: PacketType, plaintext: Data, keys: ChannelKeys,
                      messageID: MessageID = .random(), seq: UInt32 = 0) throws -> Data {
-        let header = PacketHeader(type: type, epoch: keys.epoch, channelID: keys.channelID,
-                                  senderID: local.senderID, messageID: messageID, seq: seq)
-        return try PacketCrypto.seal(plaintext, header: header, keys: keys)
+        precondition(!PacketCrypto.usesBurstKey(type), "VOICE/BURST_END must use sealBurst")
+        return try PacketCrypto.seal(plaintext, header: header(type, keys: keys, messageID: messageID, seq: seq), keys: keys)
+    }
+
+    /// VOICE and BURST_END: sealed under the burst key (forward secrecy).
+    public func sealBurst(_ type: PacketType, plaintext: Data, keys: ChannelKeys, burstID: MessageID,
+                          burstKey: Data, seq: UInt32) throws -> Data {
+        precondition(PacketCrypto.usesBurstKey(type))
+        return try PacketCrypto.seal(plaintext, header: header(type, keys: keys, messageID: burstID, seq: seq),
+                                     burstKey: burstKey)
+    }
+
+    private func header(_ type: PacketType, keys: ChannelKeys, messageID: MessageID, seq: UInt32) -> PacketHeader {
+        PacketHeader(type: type, epoch: keys.epoch, channelID: keys.channelID,
+                     senderID: local.senderID, messageID: messageID, seq: seq)
+    }
+}
+
+/// Everything needed to talk on a channel for one burst: the random burst key and the signed
+/// BURST_START that carries it to each recipient.
+public struct OutgoingBurst {
+    public let burstID: MessageID
+    public let burstKey: Data
+    public let start: BurstStart
+
+    public init(identity: LocalIdentity, channelID: ChannelID, burstID: MessageID = .random(), timestamp: UInt64,
+                targets: [SealTarget], codec: VoiceCodecID, sampleRate: UInt32, frameMilliseconds: UInt8) throws {
+        let burstKey = Data.random(count: 32)
+        let keying = try BurstKeying.makeEnvelopes(burstKey: burstKey, channelID: channelID, burstID: burstID,
+                                                   targets: targets)
+        self.burstID = burstID
+        self.burstKey = burstKey
+        start = try BurstStart.signed(by: identity, channelID: channelID, burstID: burstID, timestamp: timestamp,
+                                      ephemeralPublicKey: keying.ephemeralPublicKey, envelopes: keying.envelopes,
+                                      codec: codec, sampleRate: sampleRate, frameMilliseconds: frameMilliseconds)
     }
 }

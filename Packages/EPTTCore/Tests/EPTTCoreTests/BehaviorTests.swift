@@ -176,16 +176,89 @@ final class ProcessorTests: XCTestCase {
         let bobCard = try ContactCard(signing: bob, name: "Bob", timestamp: 1, reachability: .init())
         let invite = GroupInvite(timestamp: currentTimestamp(), name: "Crew", keys: .newGroup(),
                                  memberCards: [aliceCard, bobCard])
-        XCTAssertEqual(try GroupInvite(decoding: invite.encoded), invite)
+        let messageID = MessageID.random()
+        var prekeys = PrekeyStore()
+        prekeys.rotateIfNeeded()
+        let target = SealTarget(identity: bob.publicIdentity, prekey: try prekeys.current(signedBy: bob))
+        let sealed = try invite.sealed(for: target, messageID: messageID)
+        XCTAssertEqual(try GroupInvite(decoding: sealed, messageID: messageID, recipient: bob.senderID,
+                                       agreement: bob.keyAgreement(prekeys: { prekeys })), invite)
     }
 
-    func testBurstStartSignature() throws {
+    func testBurstStartSignatureCoversEnvelopes() throws {
         let channel = ChannelID.random()
-        let burst = MessageID.random()
-        let start = try BurstStart.signed(by: alice, channelID: channel, burstID: burst, timestamp: currentTimestamp())
-        XCTAssertTrue(start.verify(sender: alice.publicIdentity, channelID: channel, burstID: burst))
+        let outgoing = try OutgoingBurst(identity: alice, channelID: channel, timestamp: currentTimestamp(),
+                                         targets: [SealTarget(identity: bob.publicIdentity, prekey: nil)],
+                                         codec: .opus, sampleRate: 48_000, frameMilliseconds: 20)
+        let start = outgoing.start
+        XCTAssertTrue(start.verify(sender: alice.publicIdentity, channelID: channel, burstID: outgoing.burstID))
         XCTAssertFalse(start.verify(sender: alice.publicIdentity, channelID: channel, burstID: .random()))
+        var tampered = start
+        tampered.envelopes[0][20] ^= 1
+        XCTAssertFalse(tampered.verify(sender: alice.publicIdentity, channelID: channel, burstID: outgoing.burstID))
         XCTAssertEqual(try BurstStart(decoding: start.encoded), start)
+    }
+}
+
+/// End to end: a burst sealed to bob's prekey plays, and becomes unreadable once bob deletes it.
+final class ForwardSecrecyTests: XCTestCase {
+    let alice = LocalIdentity.generate()
+    let bob = LocalIdentity.generate()
+
+    func testBurstRoundTripAndPrekeyDeletion() throws {
+        var bobPrekeys = PrekeyStore()
+        let t0 = Date()
+        XCTAssertTrue(bobPrekeys.rotateIfNeeded(now: t0))
+        let bobPrekey = try XCTUnwrap(try bobPrekeys.current(signedBy: bob))
+        XCTAssertTrue(bobPrekey.isValid(for: bob.publicIdentity))
+
+        let bobCard = try ContactCard(signing: bob, name: "Bob", timestamp: 1,
+                                      reachability: Reachability(prekey: bobPrekey))
+        XCTAssertEqual(bobCard.reachability.prekey, bobPrekey)
+        let aliceCard = try ContactCard(signing: alice, name: "Alice", timestamp: 1, reachability: .init())
+        let aliceView = try Channel.direct(local: alice, peer: bobCard)
+        let bobView = try Channel.direct(local: bob, peer: aliceCard)
+
+        let outgoing = try OutgoingBurst(identity: alice, channelID: aliceView.id, timestamp: currentTimestamp(),
+                                         targets: [SealTarget(identity: bob.publicIdentity, prekey: bobPrekey)],
+                                         codec: .opus, sampleRate: 48_000, frameMilliseconds: 20)
+        let builder = PacketBuilder(local: alice)
+        let startPacket = try builder.seal(.burstStart, plaintext: outgoing.start.encoded, keys: aliceView.keys,
+                                           messageID: outgoing.burstID)
+        let voicePacket = try builder.sealBurst(.voice, plaintext: VoiceBody.encode([Data([1, 2])]),
+                                                keys: aliceView.keys, burstID: outgoing.burstID,
+                                                burstKey: outgoing.burstKey, seq: 0)
+
+        func process(_ packet: Data, _ processor: inout PacketProcessor, now: Date = Date()) throws -> InboundPacket {
+            try processor.process(packet, now: now, channelLookup: { $0 == bobView.id ? bobView : nil },
+                                  memberLookup: { $0 == self.alice.senderID ? self.alice.publicIdentity : nil })
+        }
+
+        var storeNow = bobPrekeys
+        var processor = PacketProcessor(local: bob, agreement: bob.keyAgreement(prekeys: { storeNow }))
+        // Voice before start is refused until the start is opened.
+        XCTAssertThrowsError(try process(voicePacket, &processor)) { XCTAssertEqual($0 as? InboundError, .unknownBurst) }
+        _ = try process(startPacket, &processor)
+        XCTAssertEqual(try process(voicePacket, &processor).message, .voice(firstFrameIndex: 0, frames: [Data([1, 2])]))
+
+        // Nine days and two rotations later, the prekey is gone and a recording of the burst is useless.
+        let later = t0.addingTimeInterval(9 * 24 * 3600)
+        storeNow.rotateIfNeeded(now: t0.addingTimeInterval(25 * 3600))
+        storeNow.rotateIfNeeded(now: later)
+        XCTAssertThrowsError(try storeNow.agreement(id: bobPrekey.id, with: outgoing.start.ephemeralPublicKey))
+        var fresh = PacketProcessor(local: bob, agreement: bob.keyAgreement(prekeys: { storeNow }))
+        XCTAssertThrowsError(try process(startPacket, &fresh, now: Date())) {
+            XCTAssertEqual($0 as? InboundError, .notARecipient)
+        }
+    }
+
+    func testPrekeyRotationSchedule() {
+        var store = PrekeyStore()
+        let t0 = Date()
+        XCTAssertTrue(store.rotateIfNeeded(now: t0))
+        XCTAssertFalse(store.rotateIfNeeded(now: t0.addingTimeInterval(3600)))
+        XCTAssertTrue(store.rotateIfNeeded(now: t0.addingTimeInterval(25 * 3600)))
+        XCTAssertEqual(store.currentID, 2)
     }
 }
 

@@ -96,11 +96,12 @@ public struct LocalIdentity {
 
     /// Raw X25519 output with a peer. Throws on the all-zero (degenerate) result.
     public func sharedSecret(with peer: PublicIdentity) throws -> Data {
-        let peerKey = try Curve25519.KeyAgreement.PublicKey(rawRepresentation: peer.keyAgreementPublicKey)
-        let secret = try keyAgreementKey.sharedSecretFromKeyAgreement(with: peerKey)
-        let raw = secret.withUnsafeBytes { Data($0) }
-        guard raw.contains(where: { $0 != 0 }) else { throw DecodingError.invalid("degenerate shared secret") }
-        return raw
+        try sharedSecret(withPublicKey: peer.keyAgreementPublicKey)
+    }
+
+    /// Raw X25519 output between our static key and any X25519 public key (e.g. an ephemeral one).
+    public func sharedSecret(withPublicKey publicKey: Data) throws -> Data {
+        try Primitives.x25519(privateKey: keyAgreementKey, publicKey: publicKey)
     }
 }
 

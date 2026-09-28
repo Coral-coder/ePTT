@@ -93,19 +93,39 @@ public enum PacketCrypto {
     /// Seals a plaintext into a complete packet. The header's epoch and channel must match `keys`.
     public static func seal(_ plaintext: Data, header: PacketHeader, keys: ChannelKeys) throws -> Data {
         precondition(header.channelID == keys.channelID && header.epoch == keys.epoch, "header/keys mismatch")
-        let aad = header.encoded
-        let key = messageKey(channelKey: keys.key, messageID: header.messageID, senderID: header.senderID,
-                             epoch: header.epoch)
-        let sealed = try Primitives.aeadSeal(key: key, nonce: header.nonce, plaintext: plaintext, aad: aad)
-        return aad + sealed
+        return try seal(plaintext, header: header, messageKey: messageKey(
+            channelKey: keys.key, messageID: header.messageID, senderID: header.senderID, epoch: header.epoch))
     }
 
     /// Opens a packet whose header was already parsed. Throws if authentication fails.
     public static func open(_ packet: Data, header: PacketHeader, keys: ChannelKeys) throws -> Data {
+        try open(packet, header: header, messageKey: messageKey(
+            channelKey: keys.key, messageID: header.messageID, senderID: header.senderID, epoch: header.epoch))
+    }
+
+    /// VOICE and BURST_END are sealed under the burst's own key (PROTOCOL.md §6).
+    public static func seal(_ plaintext: Data, header: PacketHeader, burstKey: Data) throws -> Data {
+        try seal(plaintext, header: header, messageKey: BurstKeying.messageKey(
+            burstKey: burstKey, burstID: header.messageID, senderID: header.senderID, epoch: header.epoch))
+    }
+
+    public static func open(_ packet: Data, header: PacketHeader, burstKey: Data) throws -> Data {
+        try open(packet, header: header, messageKey: BurstKeying.messageKey(
+            burstKey: burstKey, burstID: header.messageID, senderID: header.senderID, epoch: header.epoch))
+    }
+
+    static func seal(_ plaintext: Data, header: PacketHeader, messageKey: Data) throws -> Data {
+        let aad = header.encoded
+        let sealed = try Primitives.aeadSeal(key: messageKey, nonce: header.nonce, plaintext: plaintext, aad: aad)
+        return aad + sealed
+    }
+
+    static func open(_ packet: Data, header: PacketHeader, messageKey: Data) throws -> Data {
         let aad = Data(packet.prefix(PacketHeader.length))
-        let key = messageKey(channelKey: keys.key, messageID: header.messageID, senderID: header.senderID,
-                             epoch: header.epoch)
-        return try Primitives.aeadOpen(key: key, nonce: header.nonce,
+        return try Primitives.aeadOpen(key: messageKey, nonce: header.nonce,
                                        ciphertextAndTag: Data(packet.dropFirst(PacketHeader.length)), aad: aad)
     }
+
+    /// Whether this packet type is sealed under a burst key rather than the channel key.
+    static func usesBurstKey(_ type: PacketType) -> Bool { type == .voice || type == .burstEnd }
 }

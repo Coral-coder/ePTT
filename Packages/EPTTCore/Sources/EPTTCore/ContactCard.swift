@@ -18,14 +18,17 @@ public struct Reachability: Equatable, Codable {
     public var apnsEnvironment: APNsEnvironment?
     public var apnsTopic: String?
     public var candidates: [Candidate]
+    /// The peer's current session prekey (forward secrecy). Verified before it is stored.
+    public var prekey: SignedPrekey?
 
     public init(apnsPTTToken: Data? = nil, apnsDeviceToken: Data? = nil, apnsEnvironment: APNsEnvironment? = nil,
-                apnsTopic: String? = nil, candidates: [Candidate] = []) {
+                apnsTopic: String? = nil, candidates: [Candidate] = [], prekey: SignedPrekey? = nil) {
         self.apnsPTTToken = apnsPTTToken
         self.apnsDeviceToken = apnsDeviceToken
         self.apnsEnvironment = apnsEnvironment
         self.apnsTopic = apnsTopic
         self.candidates = candidates
+        self.prekey = prekey
     }
 
     func add(to builder: inout TLVBuilder) {
@@ -34,6 +37,7 @@ public struct Reachability: Equatable, Codable {
         if let env = apnsEnvironment { builder.add(.apnsEnvironment, integer: env.rawValue) }
         for candidate in candidates { builder.add(.candidate, candidate.encoded) }
         if let topic = apnsTopic { builder.add(.apnsTopic, topic, maxBytes: 255) }
+        if let prekey { builder.add(.prekey, prekey.encoded) }
     }
 
     init(fields: TLVFields) throws {
@@ -43,6 +47,14 @@ public struct Reachability: Equatable, Codable {
         apnsTopic = fields.string(.apnsTopic)
         // Skip candidates we cannot parse (e.g. a future kind) rather than rejecting the whole message.
         candidates = fields.all(.candidate).compactMap { try? Candidate(encoded: $0) }
+        prekey = try fields.first(.prekey).map(SignedPrekey.init(encoded:))
+    }
+
+    /// Drops a prekey whose signature does not verify against `identity`.
+    mutating func discardInvalidPrekey(for identity: PublicIdentity) -> Bool {
+        guard let prekey, !prekey.isValid(for: identity) else { return true }
+        self.prekey = nil
+        return false
     }
 
     /// Merges newer information, keeping known tokens when the update omits them.
@@ -52,6 +64,7 @@ public struct Reachability: Equatable, Codable {
         apnsEnvironment = newer.apnsEnvironment ?? apnsEnvironment
         apnsTopic = newer.apnsTopic ?? apnsTopic
         if !newer.candidates.isEmpty { candidates = newer.candidates }
+        if let incoming = newer.prekey, incoming.id > (prekey?.id ?? 0) { prekey = incoming }
     }
 }
 
@@ -109,10 +122,12 @@ public struct ContactCard: Equatable {
         guard identity.isValidSignature(last.value, for: signed) else {
             throw DecodingError.invalid("card signature")
         }
+        var reachability = try Reachability(fields: fields)
+        guard reachability.discardInvalidPrekey(for: identity) else { throw DecodingError.invalid("prekey signature") }
         self.identity = identity
         self.name = fields.string(.name) ?? ""
         self.timestamp = try fields.requireUInt(.timestamp)
-        self.reachability = try Reachability(fields: fields)
+        self.reachability = reachability
         self.platform = try fields.uint(.platform, as: UInt8.self).flatMap(Platform.init(rawValue:))
         self.encoded = Data(encoded)
     }

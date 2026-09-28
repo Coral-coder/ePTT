@@ -1,4 +1,9 @@
 import Foundation
+#if canImport(CryptoKit)
+import CryptoKit
+#else
+import Crypto
+#endif
 
 /// Milliseconds since the Unix epoch.
 public func currentTimestamp(_ date: Date = Date()) -> UInt64 {
@@ -46,45 +51,57 @@ public enum VoiceCodecID: UInt8, Codable {
     case pcm16 = 2
 }
 
-/// BURST_START (0x02): opens a signed transmission.
+/// BURST_START (0x02): opens a signed transmission and carries its per-recipient key envelopes.
 public struct BurstStart: Equatable {
     public var timestamp: UInt64
     public var codec: VoiceCodecID
     public var sampleRate: UInt32
     public var frameMilliseconds: UInt8
     public var signature: Data
+    /// One-time X25519 public key for this burst's envelopes.
+    public var ephemeralPublicKey: Data
+    /// The burst key wrapped for each recipient (PROTOCOL.md §6.2).
+    public var envelopes: [Data]
 
-    public init(timestamp: UInt64, codec: VoiceCodecID, sampleRate: UInt32, frameMilliseconds: UInt8, signature: Data) {
+    public init(timestamp: UInt64, codec: VoiceCodecID, sampleRate: UInt32, frameMilliseconds: UInt8, signature: Data,
+                ephemeralPublicKey: Data, envelopes: [Data]) {
         self.timestamp = timestamp
         self.codec = codec
         self.sampleRate = sampleRate
         self.frameMilliseconds = frameMilliseconds
         self.signature = signature
+        self.ephemeralPublicKey = ephemeralPublicKey
+        self.envelopes = envelopes
     }
 
     public static func signatureInput(channelID: ChannelID, senderID: SenderID, burstID: MessageID,
-                                      timestamp: UInt64) -> Data {
+                                      timestamp: UInt64, ephemeralPublicKey: Data, envelopes: [Data]) -> Data {
         var d = Primitives.label("ePTT/1 burst")
         d.append(channelID.bytes)
         d.append(senderID.bytes)
         d.append(burstID.bytes)
         d.appendBE(timestamp)
+        d.append(ephemeralPublicKey)
+        d.append(Primitives.sha256(envelopes.reduce(Data(), +)))
         return d
     }
 
     /// Builds and signs a BURST_START for the local identity.
     public static func signed(by identity: LocalIdentity, channelID: ChannelID, burstID: MessageID, timestamp: UInt64,
-                              codec: VoiceCodecID = .opus, sampleRate: UInt32 = 16_000,
+                              ephemeralPublicKey: Data, envelopes: [Data],
+                              codec: VoiceCodecID = .opus, sampleRate: UInt32 = 48_000,
                               frameMilliseconds: UInt8 = 20) throws -> BurstStart {
         let input = signatureInput(channelID: channelID, senderID: identity.senderID, burstID: burstID,
-                                   timestamp: timestamp)
+                                   timestamp: timestamp, ephemeralPublicKey: ephemeralPublicKey, envelopes: envelopes)
         return BurstStart(timestamp: timestamp, codec: codec, sampleRate: sampleRate,
-                          frameMilliseconds: frameMilliseconds, signature: try identity.sign(input))
+                          frameMilliseconds: frameMilliseconds, signature: try identity.sign(input),
+                          ephemeralPublicKey: ephemeralPublicKey, envelopes: envelopes)
     }
 
     public func verify(sender: PublicIdentity, channelID: ChannelID, burstID: MessageID) -> Bool {
         sender.isValidSignature(signature, for: BurstStart.signatureInput(
-            channelID: channelID, senderID: sender.senderID, burstID: burstID, timestamp: timestamp))
+            channelID: channelID, senderID: sender.senderID, burstID: burstID, timestamp: timestamp,
+            ephemeralPublicKey: ephemeralPublicKey, envelopes: envelopes))
     }
 
     public var encoded: Data {
@@ -94,6 +111,8 @@ public struct BurstStart: Equatable {
         b.add(.sampleRate, integer: sampleRate)
         b.add(.frameMilliseconds, integer: frameMilliseconds)
         b.add(.signature, signature)
+        b.add(.ephemeralKey, ephemeralPublicKey)
+        for envelope in envelopes { b.add(.envelope, envelope) }
         return b.encoded
     }
 
@@ -107,6 +126,9 @@ public struct BurstStart: Equatable {
         sampleRate = try f.requireUInt(.sampleRate)
         frameMilliseconds = try f.requireUInt(.frameMilliseconds)
         signature = try f.require(.signature)
+        ephemeralPublicKey = try f.require(.ephemeralKey)
+        envelopes = f.all(.envelope)
+        guard ephemeralPublicKey.count == 32, !envelopes.isEmpty else { throw DecodingError.invalid("burst keying") }
     }
 }
 
@@ -215,7 +237,8 @@ public struct Wake: Equatable {
     }
 }
 
-/// GROUP_INVITE (0x10): delivers a talk group's keys and member cards over a direct channel.
+/// GROUP_INVITE (0x10): delivers a talk group's keys and member cards over a direct channel,
+/// sealed a second time to the invitee's prekey (PROTOCOL.md §6.3).
 public struct GroupInvite: Equatable {
     public var timestamp: UInt64
     public var name: String
@@ -230,9 +253,8 @@ public struct GroupInvite: Equatable {
         self.memberCards = memberCards
     }
 
-    public var encoded: Data {
+    var innerEncoded: Data {
         var b = TLVBuilder()
-        b.add(.timestamp, integer: timestamp)
         b.add(.groupID, keys.channelID.bytes)
         b.add(.groupName, name)
         b.add(.groupKey, keys.key)
@@ -241,9 +263,26 @@ public struct GroupInvite: Equatable {
         return b.encoded
     }
 
-    public init(decoding data: Data) throws {
-        let f = try TLVFields(data)
-        timestamp = try f.requireUInt(.timestamp)
+    /// The packet plaintext for one invitee. `messageID` must be the packet's message ID.
+    public func sealed(for target: SealTarget, messageID: MessageID) throws -> Data {
+        try sealed(for: target, messageID: messageID, ephemeral: .init())
+    }
+
+    func sealed(for target: SealTarget, messageID: MessageID, ephemeral: Curve25519.KeyAgreement.PrivateKey) throws -> Data {
+        var b = TLVBuilder()
+        b.add(.timestamp, integer: timestamp)
+        b.add(.ephemeralKey, ephemeral.publicKey.rawRepresentation)
+        b.add(.sealedInvite, try InviteSealing.seal(innerEncoded, ephemeral: ephemeral, messageID: messageID, target: target))
+        return b.encoded
+    }
+
+    public init(decoding data: Data, messageID: MessageID, recipient: SenderID, agreement: LocalKeyAgreement) throws {
+        let outer = try TLVFields(data)
+        timestamp = try outer.requireUInt(.timestamp)
+        let inner = try InviteSealing.open(try outer.require(.sealedInvite),
+                                           ephemeralPublicKey: try outer.require(.ephemeralKey),
+                                           messageID: messageID, recipient: recipient, agreement: agreement)
+        let f = try TLVFields(inner)
         name = f.string(.groupName) ?? "Talk group"
         keys = try ChannelKeys(channelID: try ChannelID(bytes: try f.require(.groupID)),
                                epoch: try f.requireUInt(.groupEpoch), key: try f.require(.groupKey))

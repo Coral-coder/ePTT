@@ -38,8 +38,9 @@ GROUP_INVITE, GROUP_LEAVE = 0x10, 0x11
 T_NAME, T_TIMESTAMP, T_PTT_TOKEN, T_DEVICE_TOKEN, T_APNS_ENV = 0x01, 0x02, 0x03, 0x04, 0x05
 T_CANDIDATE, T_APNS_TOPIC, T_PLATFORM, T_FLAGS = 0x06, 0x07, 0x08, 0x09
 T_CODEC, T_SAMPLE_RATE, T_FRAME_MS, T_SIGNATURE, T_FRAME_COUNT, T_TEXT = 0x10, 0x11, 0x12, 0x13, 0x14, 0x15
-T_GROUP_ID, T_GROUP_NAME, T_GROUP_KEY, T_GROUP_EPOCH, T_MEMBER_CARD = 0x20, 0x21, 0x22, 0x23, 0x24
-T_CARD_VERSION, T_SIGN_PK, T_KX_PK, T_CARD_SIGNATURE = 0x40, 0x41, 0x42, 0x4F
+T_EPHEMERAL, T_ENVELOPE = 0x16, 0x17
+T_GROUP_ID, T_GROUP_NAME, T_GROUP_KEY, T_GROUP_EPOCH, T_MEMBER_CARD, T_SEALED_INVITE = 0x20, 0x21, 0x22, 0x23, 0x24, 0x25
+T_CARD_VERSION, T_SIGN_PK, T_KX_PK, T_PREKEY, T_CARD_SIGNATURE = 0x40, 0x41, 0x42, 0x43, 0x4F
 
 
 # ---------------------------------------------------------------- primitives
@@ -162,9 +163,12 @@ def direct_channel(me: Identity, peer_kx_pk: bytes, peer_identity_id: bytes) -> 
 
 # ---------------------------------------------------------------- contact card
 
-def card_unsigned(ident: Identity, name: str, timestamp: int, extra: list[tuple[int, bytes]]) -> bytes:
+def card_unsigned(ident: Identity, name: str, timestamp: int, extra: list[tuple[int, bytes]],
+                  prekey: bytes | None = None) -> bytes:
     records = [(T_NAME, name.encode()), (T_TIMESTAMP, u64(timestamp))] + extra + [
         (T_CARD_VERSION, u8(1)), (T_SIGN_PK, ident.sign_pk), (T_KX_PK, ident.kx_pk)]
+    if prekey is not None:
+        records.append((T_PREKEY, prekey))
     return tlv_encode(records)
 
 
@@ -225,8 +229,75 @@ def voice_body(frames: list[bytes]) -> bytes:
     return u8(len(frames)) + b"".join(u16(len(f)) + f for f in frames)
 
 
-def burst_signature_input(channel_id: bytes, sender_id: bytes, burst_id: bytes, timestamp: int) -> bytes:
-    return b"ePTT/1 burst" + channel_id + sender_id + burst_id + u64(timestamp)
+def burst_signature_input(channel_id: bytes, sender_id: bytes, burst_id: bytes, timestamp: int,
+                          ephemeral_pk: bytes, envelopes: list[bytes]) -> bytes:
+    return (b"ePTT/1 burst" + channel_id + sender_id + burst_id + u64(timestamp) + ephemeral_pk
+            + sha256(b"".join(envelopes)))
+
+
+# ---------------------------------------------------------------- forward secrecy
+
+def x25519_pub(sk: X25519PrivateKey) -> bytes:
+    return sk.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+
+
+def signed_prekey(ident: Identity, prekey_id: int, prekey_sk: X25519PrivateKey) -> bytes:
+    """id u32 || prekey public (32) || Ed25519 signature (64)."""
+    pub = x25519_pub(prekey_sk)
+    sig = ident.sign_sk.sign(b"ePTT/1 prekey" + u32(prekey_id) + pub)
+    return u32(prekey_id) + pub + sig
+
+
+def verify_prekey(sign_pk: bytes, value: bytes) -> tuple[int, bytes]:
+    if len(value) != 100:
+        raise ValueError("prekey length")
+    prekey_id, pub, sig = struct.unpack(">I", value[:4])[0], value[4:36], value[36:]
+    Ed25519PublicKey.from_public_bytes(sign_pk).verify(sig, b"ePTT/1 prekey" + value[:36])
+    return prekey_id, pub
+
+
+def dh(sk: X25519PrivateKey, pk: bytes) -> bytes:
+    out = sk.exchange(X25519PublicKey.from_public_bytes(pk))
+    if out == bytes(32):
+        raise ValueError("degenerate X25519 output")
+    return out
+
+
+def wrap_burst_key(burst_key: bytes, eph_sk: X25519PrivateKey, channel_id: bytes, burst_id: bytes,
+                   recipient_sender_id: bytes, prekey_id: int, recipient_pk: bytes) -> bytes:
+    """Envelope: recipient sender_id (8) || prekey_id u32 || AEAD(wrap_key, 0^12, burst_key).
+
+    `recipient_pk` is the recipient's prekey, or their static kx_pk when prekey_id is 0."""
+    info = b"ePTT/1 wrap" + channel_id + recipient_sender_id + u32(prekey_id)
+    wrap_key = hkdf(dh(eph_sk, recipient_pk), burst_id, info)
+    aad = recipient_sender_id + u32(prekey_id)
+    return aad + ChaCha20Poly1305(wrap_key).encrypt(bytes(12), burst_key, aad)
+
+
+def unwrap_burst_key(envelope: bytes, recipient_sk: X25519PrivateKey, eph_pk: bytes, channel_id: bytes,
+                     burst_id: bytes) -> bytes:
+    aad = envelope[:12]
+    info = b"ePTT/1 wrap" + channel_id + envelope[:8] + envelope[8:12]
+    wrap_key = hkdf(dh(recipient_sk, eph_pk), burst_id, info)
+    return ChaCha20Poly1305(wrap_key).decrypt(bytes(12), envelope[12:], aad)
+
+
+def burst_message_key(burst_key: bytes, burst_id: bytes, sender_id: bytes, epoch: int) -> bytes:
+    return hkdf(burst_key, burst_id, b"ePTT/1 burst-msg" + sender_id + u16(epoch))
+
+
+def seal_with_key(msg_key: bytes, ptype: int, epoch: int, channel_id: bytes, sender_id: bytes,
+                  message_id: bytes, seq: int, plaintext: bytes) -> bytes:
+    hdr = header(ptype, epoch, channel_id, sender_id, message_id, seq)
+    return hdr + ChaCha20Poly1305(msg_key).encrypt(nonce(ptype, seq), plaintext, hdr)
+
+
+def seal_invite(inner: bytes, eph_sk: X25519PrivateKey, message_id: bytes, recipient_sender_id: bytes,
+                prekey_id: int, recipient_pk: bytes) -> bytes:
+    """Value of the sealed_invite TLV: prekey_id u32 || AEAD(invite_key, 0^12, inner)."""
+    key = hkdf(dh(eph_sk, recipient_pk), message_id, b"ePTT/1 invite" + recipient_sender_id + u32(prekey_id))
+    aad = recipient_sender_id + u32(prekey_id)
+    return u32(prekey_id) + ChaCha20Poly1305(key).encrypt(bytes(12), inner, aad)
 
 
 # ---------------------------------------------------------------- STUN (RFC 5389)
@@ -306,7 +377,10 @@ def build_vectors() -> dict:
     extra = [(T_PTT_TOKEN, ptt_token), (T_DEVICE_TOKEN, dev_token), (T_APNS_ENV, u8(0)),
              (T_CANDIDATE, candidate_ipv4("192.0.2.10", 40000)), (T_CANDIDATE, candidate_ipv6("2001:db8::1", 40001)),
              (T_APNS_TOPIC, b"com.example.eptt"), (T_PLATFORM, u8(1))]
-    unsigned = card_unsigned(alice, "Alice", ts, extra)
+    alice_prekey_sk = X25519PrivateKey.from_private_bytes(bytes(range(0xC0, 0xE0)))
+    alice_prekey = signed_prekey(alice, 7, alice_prekey_sk)
+    assert verify_prekey(alice.sign_pk, alice_prekey) == (7, x25519_pub(alice_prekey_sk))
+    unsigned = card_unsigned(alice, "Alice", ts, extra, prekey=alice_prekey)
     card = card_sign(alice, unsigned)
     card_verify(card)
     v["card_alice"] = {
@@ -314,6 +388,9 @@ def build_vectors() -> dict:
         "apns_env": 0, "apns_topic": "com.example.eptt", "platform": 1,
         "candidates": [h(candidate_ipv4("192.0.2.10", 40000)), h(candidate_ipv6("2001:db8::1", 40001))],
         "unsigned": h(unsigned), "card": h(card), "uri": "eptt://contact/" + b64url(card),
+        "prekey_seed": h(alice_prekey_sk.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw,
+                                                        serialization.NoEncryption())),
+        "prekey_id": 7, "prekey": h(alice_prekey),
     }
 
     # HELLO alice -> bob on their direct channel.
@@ -329,28 +406,58 @@ def build_vectors() -> dict:
         "nonce": h(nonce(HELLO, 0)), "plaintext": h(hello_pt), "packet": h(hello),
     }
 
-    # Group burst by carol: BURST_START, one VOICE, BURST_END.
+    # Group burst by carol to alice (who has a prekey) and bob (no prekey known: static fallback).
     group_id = bytes.fromhex("11" * 16)
     group_key = bytes.fromhex("22" * 32)
     epoch = 3
     burst_id = bytes.fromhex("f0e1d2c3b4a59687")
-    sig_input = burst_signature_input(group_id, carol.sender_id, burst_id, ts)
+    burst_key = bytes.fromhex("33" * 32)
+    eph_sk = X25519PrivateKey.from_private_bytes(bytes(range(0xE0, 0x100)))
+    eph_pk = x25519_pub(eph_sk)
+    env_alice = wrap_burst_key(burst_key, eph_sk, group_id, burst_id, alice.sender_id, 7, x25519_pub(alice_prekey_sk))
+    env_bob = wrap_burst_key(burst_key, eph_sk, group_id, burst_id, bob.sender_id, 0, bob.kx_pk)
+    assert unwrap_burst_key(env_alice, alice_prekey_sk, eph_pk, group_id, burst_id) == burst_key
+    assert unwrap_burst_key(env_bob, bob.kx_sk, eph_pk, group_id, burst_id) == burst_key
+    envelopes = [env_alice, env_bob]
+    sig_input = burst_signature_input(group_id, carol.sender_id, burst_id, ts, eph_pk, envelopes)
     sig = carol.sign_sk.sign(sig_input)
     start_pt = tlv_encode([(T_TIMESTAMP, u64(ts)), (T_CODEC, u8(1)), (T_SAMPLE_RATE, u32(16000)),
-                           (T_FRAME_MS, u8(20)), (T_SIGNATURE, sig)])
+                           (T_FRAME_MS, u8(20)), (T_SIGNATURE, sig), (T_EPHEMERAL, eph_pk),
+                           (T_ENVELOPE, env_alice), (T_ENVELOPE, env_bob)])
     start = seal(group_key, BURST_START, epoch, group_id, carol.sender_id, burst_id, 0, start_pt)
+    bkey = burst_message_key(burst_key, burst_id, carol.sender_id, epoch)
     frames = [b"\x01\x02\x03", b"\x04", b"\x05\x06"]
     voice_pt = voice_body(frames)
-    voice = seal(group_key, VOICE, epoch, group_id, carol.sender_id, burst_id, 6, voice_pt)
+    voice = seal_with_key(bkey, VOICE, epoch, group_id, carol.sender_id, burst_id, 6, voice_pt)
     end_pt = tlv_encode([(T_TIMESTAMP, u64(ts + 900)), (T_FRAME_COUNT, u32(9))])
-    end = seal(group_key, BURST_END, epoch, group_id, carol.sender_id, burst_id, 9, end_pt)
+    end = seal_with_key(bkey, BURST_END, epoch, group_id, carol.sender_id, burst_id, 9, end_pt)
     v["group_burst"] = {
         "group_id": h(group_id), "group_key": h(group_key), "epoch": epoch, "sender_id": h(carol.sender_id),
-        "burst_id": h(burst_id), "timestamp": ts,
+        "burst_id": h(burst_id), "timestamp": ts, "burst_key": h(burst_key),
+        "ephemeral_seed": h(eph_sk.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw,
+                                                 serialization.NoEncryption())),
+        "ephemeral_pk": h(eph_pk), "envelope_alice": h(env_alice), "envelope_bob": h(env_bob),
+        "burst_message_key": h(bkey),
         "signature_input": h(sig_input), "signature": h(sig),
         "start_plaintext": h(start_pt), "start_packet": h(start),
         "voice_seq": 6, "voice_frames": [h(f) for f in frames], "voice_plaintext": h(voice_pt), "voice_packet": h(voice),
         "end_seq": 9, "end_plaintext": h(end_pt), "end_packet": h(end),
+    }
+
+    # GROUP_INVITE alice -> bob... sealed to bob's static key (prekey_id 0) inside their direct channel.
+    invite_mid = bytes.fromhex("0a0b0c0d0e0f1011")
+    invite_eph = X25519PrivateKey.from_private_bytes(bytes(range(0x10, 0x30)))
+    inner = tlv_encode([(T_GROUP_ID, group_id), (T_GROUP_NAME, b"Crew"), (T_GROUP_KEY, group_key),
+                        (T_GROUP_EPOCH, u16(epoch)), (T_MEMBER_CARD, card)])
+    sealed_inner = seal_invite(inner, invite_eph, invite_mid, bob.sender_id, 0, bob.kx_pk)
+    invite_pt = tlv_encode([(T_TIMESTAMP, u64(ts)), (T_EPHEMERAL, x25519_pub(invite_eph)),
+                            (T_SEALED_INVITE, sealed_inner)])
+    invite = seal(key_ab, GROUP_INVITE, 0, cid_ab, alice.sender_id, invite_mid, 0, invite_pt)
+    v["group_invite"] = {
+        "message_id": h(invite_mid),
+        "ephemeral_seed": h(invite_eph.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw,
+                                                     serialization.NoEncryption())),
+        "inner": h(inner), "sealed_inner": h(sealed_inner), "plaintext": h(invite_pt), "packet": h(invite),
     }
 
     txn = bytes.fromhex("000102030405060708090a0b")

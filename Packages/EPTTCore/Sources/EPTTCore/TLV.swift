@@ -17,14 +17,18 @@ public enum Tag: UInt8, CaseIterable {
     case signature = 0x13
     case frameCount = 0x14
     case text = 0x15
+    case ephemeralKey = 0x16
+    case envelope = 0x17
     case groupID = 0x20
     case groupName = 0x21
     case groupKey = 0x22
     case groupEpoch = 0x23
     case memberCard = 0x24
+    case sealedInvite = 0x25
     case cardVersion = 0x40
     case signPublicKey = 0x41
     case kxPublicKey = 0x42
+    case prekey = 0x43
     case cardSignature = 0x4F
 }
 
