@@ -51,11 +51,17 @@ project.yml          XcodeGen project definition
 
 ## Build
 
-```sh
-brew install xcodegen
-cp Config/Secrets.example.xcconfig Config/Secrets.xcconfig   # set your team and bundle ID
-xcodegen && open Chirp.xcodeproj
-```
+Open **`Chirp.xcodeproj`** in Xcode 16 or later. Then:
+
+1. Select the **Chirp** target, open *Signing & Capabilities* and pick your
+   team. Do the same for **ChirpWatch**.
+2. To make that permanent, and to set your own bundle ID, copy
+   `Config/Secrets.example.xcconfig` to `Config/Secrets.xcconfig` and fill it in.
+3. Choose your iPhone and press **Run**.
+
+The project is generated from `project.yml` by CI and committed. Edit
+`project.yml`, not the `.xcodeproj`. To regenerate it locally, run
+`brew install xcodegen && xcodegen`.
 
 Core tests run anywhere Swift runs: `swift test --package-path Packages/EPTTCore`.
 The protocol vectors are checked with

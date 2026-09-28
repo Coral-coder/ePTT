@@ -1,7 +1,6 @@
-# Xcode
-*.xcodeproj/
-*.xcworkspace/
+# Xcode (Chirp.xcodeproj is committed, generated from project.yml by CI)
 xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
 DerivedData/
 build/
 *.ipa
