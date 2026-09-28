@@ -37,8 +37,12 @@
 	<string>$(EPTT_APNS_KEY_ID)</string>
 	<key>EPTTAPNsTeamID</key>
 	<string>$(EPTT_APNS_TEAM_ID)</string>
+	<key>EPTTAppGroup</key>
+	<string>group.$(EPTT_BUNDLE_ID)</string>
 	<key>EPTTCloudContainer</key>
 	<string>iCloud.$(EPTT_BUNDLE_ID)</string>
+	<key>EPTTKeychainGroup</key>
+	<string>$(AppIdentifierPrefix)$(EPTT_BUNDLE_ID).shared</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>NSBluetoothAlwaysUsageDescription</key>
