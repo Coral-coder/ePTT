@@ -70,6 +70,7 @@
 		E9E7BE59DBD99423581C6B98 /* Michroma-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 491106D4D4A4C379330E7D8F /* Michroma-Regular.ttf */; };
 		EEBC7C8EDA04AB18260304FE /* UDPTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26DDD1D519B9A057A89F92C3 /* UDPTransport.swift */; };
 		F0B4EE11E20B998AF99A23FD /* PairView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36E3EB4EF56C3AF302C8490C /* PairView.swift */; };
+		F706519E51350819E0E1C93D /* TalkIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BD4C6CC622AA8FF584FA6C0 /* TalkIntents.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -134,6 +135,7 @@
 		8AD1870F39C6EC6AC9973449 /* Exo2-SemiBold.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Exo2-SemiBold.ttf"; sourceTree = "<group>"; };
 		90A31E58691124529D39C377 /* SoundsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundsView.swift; sourceTree = "<group>"; };
 		9395F106355F1105B629D685 /* WatchEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchEngine.swift; sourceTree = "<group>"; };
+		9BD4C6CC622AA8FF584FA6C0 /* TalkIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TalkIntents.swift; sourceTree = "<group>"; };
 		A1F6736A86DBDC21FCC5FD41 /* Keychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keychain.swift; sourceTree = "<group>"; };
 		A7B9B9B9BCD490C371E11C42 /* CloudRelay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudRelay.swift; sourceTree = "<group>"; };
 		A9092E4E0C328FCD11AE8CDD /* Exo2-Medium.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Exo2-Medium.ttf"; sourceTree = "<group>"; };
@@ -226,6 +228,7 @@
 			children = (
 				350380534669517534DB1AB8 /* AppModel.swift */,
 				0617089A27EAF20045AA25FA /* NXTPTTApp.swift */,
+				9BD4C6CC622AA8FF584FA6C0 /* TalkIntents.swift */,
 				1C624C4BED3D02359B4639ED /* WatchBridge.swift */,
 			);
 			path = App;
@@ -516,6 +519,7 @@
 				21BCC0DB5EE25D477D3D1664 /* SoundLibrary.swift in Sources */,
 				CC8FD19B5343AB6096B3D7A4 /* SoundsView.swift in Sources */,
 				8F6A494B7199A7DB7C423022 /* Store.swift in Sources */,
+				F706519E51350819E0E1C93D /* TalkIntents.swift in Sources */,
 				8207A5A01E11117F4AF282EC /* TalkOrb.swift in Sources */,
 				E1728BBD1DA81A82ECBCE19F /* TalkView.swift in Sources */,
 				4AC2847B0A9BFCAEBB5773DB /* Theme.swift in Sources */,
