@@ -340,7 +340,7 @@ final class PTTEngine {
             audio.play(.talkPermit)
             audio.startCapture()
         } else if rx != nil {
-            audio.play(.talkPermit)
+            playIncomingTone()
         }
     }
 
@@ -644,7 +644,7 @@ final class PTTEngine {
             ptt.setActiveRemoteParticipant(talker)   // iOS then activates audio → audioDidActivate
         } else {
             if !audioActive { startManualAudio() }
-            audio.play(.talkPermit)
+            playIncomingTone()
         }
         startPlayout()
         publish()
@@ -677,6 +677,14 @@ final class PTTEngine {
         publish()
     }
 
+    /// Voice waits (buffering) until the receive tone has finished.
+    private var playoutHold = Date.distantPast
+
+    private func playIncomingTone() {
+        audio.play(.incoming)
+        playoutHold = Date().addingTimeInterval(ToneSynth.duration(of: .incoming))
+    }
+
     private func startPlayout() {
         playoutTimer?.cancel()
         let timer = DispatchSource.makeTimerSource(queue: queue)
@@ -689,7 +697,7 @@ final class PTTEngine {
     private func playoutTick() {
         // Until iOS hands us the audio session, keep buffering: the listener hears the burst
         // time-shifted rather than clipped.
-        guard audioActive, var r = rx else { return }
+        guard audioActive, Date() >= playoutHold, var r = rx else { return }
         let pulled = r.jitter.pull()
         rx = r
         switch pulled {

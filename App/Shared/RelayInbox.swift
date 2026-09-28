@@ -209,6 +209,8 @@ enum RelayInbox {
                                          commonFormat: message.format.commonFormat,
                                          interleaved: message.format.isInterleaved)
             let limit = AVAudioFramePosition(maxSoundSeconds * message.format.sampleRate)
+            // The Nextel receive tone first, then the voice.
+            try output.write(from: ToneSynth.buffer(for: .incoming, format: message.format))
             for buffer in message.buffers where output.length < limit {
                 try output.write(from: buffer)
             }

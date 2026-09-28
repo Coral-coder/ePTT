@@ -3,13 +3,15 @@ import AVFoundation
 /// The Nextel sounds. They are synthesized at run time from the published specification of the
 /// iDEN chirp, so no recordings ship with the app. Users can import their own (SoundLibrary).
 enum Tone: String, CaseIterable, Identifiable {
-    /// The chirp: played when you get the floor and when an incoming call starts.
+    /// The chirp: played when you get the floor.
     case talkPermit
+    /// Receive tone: a quick double beep just before an incoming transmission plays.
+    case incoming
     /// Optional "roger beep" when the other side releases. Nextel had none, so it's off by default.
     case endOfTransmission
     /// The "bonk": someone else has the channel, or you were cut off.
     case busy
-    /// Call alert: a run of chirps, like a Nextel page.
+    /// Call alert: four longer beeps, like a Nextel page.
     case callAlert
 
     var id: String { rawValue }
@@ -17,6 +19,7 @@ enum Tone: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .talkPermit: return "Chirp"
+        case .incoming: return "Incoming beep"
         case .endOfTransmission: return "Roger beep"
         case .busy: return "Bonk"
         case .callAlert: return "Call alert"
@@ -83,6 +86,8 @@ enum ToneSynth {
         switch tone {
         case .talkPermit:
             chirp(into: &synth)
+        case .incoming:
+            incomingBeep(into: &synth)
         case .endOfTransmission:
             // A single short blip at the chirp pitch.
             synth.tone(frequency: chirpFrequency, milliseconds: 40, fadeInMs: 2, fadeOutMs: 2)
@@ -92,15 +97,28 @@ enum ToneSynth {
             synth.tone(frequency: 400, milliseconds: 260, fadeInMs: 2, fadeOutMs: 30,
                        decayPerSecond: 7, secondHarmonic: 0.3)
         case .callAlert:
-            // A Nextel page: the chirp, over and over.
+            // A Nextel page: four longer beeps.
             for i in 0..<4 {
-                chirp(into: &synth)
-                if i < 3 { synth.silence(milliseconds: 180) }
+                synth.tone(frequency: chirpFrequency, milliseconds: 220, fadeInMs: 4, fadeOutMs: 6)
+                if i < 3 { synth.silence(milliseconds: 160) }
             }
         }
         // A short tail of silence so the last sample is never cut abruptly.
         synth.silence(milliseconds: 10)
         return synth.samples
+    }
+
+    /// The receive tone: two short beeps, then a breath before the voice.
+    private static func incomingBeep(into synth: inout Synth) {
+        synth.tone(frequency: chirpFrequency, milliseconds: 55, fadeInMs: 2, fadeOutMs: 3)
+        synth.silence(milliseconds: 55)
+        synth.tone(frequency: chirpFrequency, milliseconds: 55, fadeInMs: 2, fadeOutMs: 3)
+        synth.silence(milliseconds: 90)
+    }
+
+    /// How long the built-in `tone` lasts.
+    static func duration(of tone: Tone) -> TimeInterval {
+        Double(render(tone, sampleRate: 8_000).count) / 8_000
     }
 
     /// The iDEN chirp: a tone played 24 ms on, 24 off, 24 on, 24 off, 48 on.
