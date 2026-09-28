@@ -2,6 +2,9 @@
 EPTT_BUNDLE_ID = app.eptt.ptt
 DEVELOPMENT_TEAM =
 CODE_SIGN_STYLE = Automatic
+// Set by the release workflow for manual (ad-hoc) signing; empty means automatic.
+EPTT_IOS_PROFILE =
+EPTT_WATCH_PROFILE =
 // Only needed to bundle an APNs key into the app (see docs/SETUP.md). Leave empty otherwise.
 EPTT_APNS_TEAM_ID =
 EPTT_APNS_KEY_ID =

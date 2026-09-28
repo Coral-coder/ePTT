@@ -203,8 +203,10 @@ Receivers verify it with the sender's pinned `sign_pk`.
 
 ## 7. Bursts and floor control
 
-- A burst sends 16 kHz mono Opus with 20 ms frames, 3 frames per VOICE
-  packet. `burst_id` is 8 random bytes.
+- A burst sends mono audio in 20 ms frames, 3 frames per VOICE packet.
+  `burst_id` is 8 random bytes. Opus at 48 kHz is recommended; PCM16 at
+  16 kHz is the fallback. Receivers must honour the codec, sample rate and
+  frame length announced in BURST_START.
 - The talker sends BURST_START, then re-sends the same sealed BURST_START
   every 500 ms during the burst. BURST_END is sent 3 times, 40 ms apart.
 - The talker keeps every sealed packet of the current burst. When a peer

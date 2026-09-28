@@ -19,7 +19,7 @@ receive in the background:
 | Approach | How it works | Cost |
 | --- | --- | --- |
 | **PushToTalk framework + direct APNs** (default) | The talker's phone sends an Apple Push Notification (`pushtotalk` type) straight to Apple, addressed to each listener. iOS wakes the listener's app, which connects back to the talker and plays the audio. | The APNs signing key (`.p8`) ships inside the app, so every copy of the app can sign pushes. See "APNs key" below. |
-| **Always-listening mode** (opt-in) | The app keeps an audio session open so iOS never suspends it, and holds live connections to peers. | Noticeable battery drain. Apple's App Store review usually rejects it. Fine for TestFlight or ad-hoc builds. |
+| **Always-listening mode** (opt-in) | The app keeps an audio session open so iOS never suspends it, and holds live connections to peers. | Noticeable battery drain, and the microphone indicator stays on. App Store review would likely reject it, but ad-hoc builds skip review. |
 
 Apple's servers (APNs) are infrastructure we use, not a server we run. That
 is the "serverless" line this design holds.
@@ -27,22 +27,40 @@ is the "serverless" line this design holds.
 ### APNs key
 
 APNs needs a JWT signed with an Apple Developer `.p8` key. Normally only a
-server holds that key. Here every install carries it (bundled at build time,
-never committed; see [SETUP.md](SETUP.md)). What an attacker who extracts it
-can and cannot do:
+server holds that key. Here every phone in your group holds it. It gets there
+in one of two ways:
+
+- **Shared in the app (default).** One person enters the key once, and the app
+  shows it as a QR code or link that friends scan. The key lives in each
+  phone's Keychain and is **never inside the published IPA**. This matters for
+  ad-hoc distribution from a public GitHub Pages site, where anyone can
+  download the IPA.
+- **Bundled at build time.** This is opt-in, for private builds only
+  ([SETUP.md](SETUP.md)).
+
+What someone who obtains the key can and cannot do:
 
 - **Can:** send pushes to ePTT users whose push tokens they know, which could
-  wake their phones. Push tokens are only exchanged inside encrypted ePTT
-  traffic, so the attacker would first need a token.
+  wake their phones. Tokens travel only inside encrypted ePTT traffic and in
+  contact QR codes.
 - **Cannot:** read or inject audio. Every wake payload and voice frame is
   encrypted and authenticated with channel keys the attacker does not have.
-  A forged wake fails to decrypt and the app tells iOS to drop it.
-- **Mitigation:** revoke and reissue the key in the developer portal, then
-  ship a new build.
+  A forged wake fails to decrypt, and the app clears it straight away.
+- **Mitigation:** restrict the key to the Production environment and the
+  app's topic, if the developer portal offers that. If the key leaks, revoke
+  it and share a new one.
 
-For a private app shared through TestFlight among people you know, this is a
-reasonable trade. If that changes, the `PushWaker` protocol lets you swap in
-a tiny relay (such as a Cloudflare Worker) without touching anything else.
+If this trade stops being acceptable, the wake path is isolated in
+`APNsClient`, so a tiny relay (for example a Cloudflare Worker) can replace it
+without touching anything else.
+
+## Distribution
+
+The target is **ad-hoc distribution from GitHub Pages**. A GitHub Actions
+workflow signs an ad-hoc IPA and publishes an `itms-services` install page.
+Only devices whose UDIDs are registered in the Apple Developer account can
+install it, up to 100 iPhones per year. Because this path skips App Store
+review, the battery-hungry **always-listening** mode is a legitimate option.
 
 ## System overview
 
@@ -124,8 +142,8 @@ groups works.
 2. **Wake.** For each listener not heard from in the last 20 s, the app
    sends a `pushtotalk` APNs push holding an encrypted **WAKE** packet (talker
    name, burst ID, the talker's network candidates).
-3. **Stream.** The mic is encoded as 16 kHz mono Opus in 20 ms frames, three
-   frames per packet (60 ms). Each packet is encrypted and sent over UDP to
+3. **Stream.** The mic is encoded as mono Opus in 20 ms frames, three frames
+   per packet (60 ms). Each packet is encrypted and sent over UDP to
    every connected listener.
 4. **Late joiners.** The talker keeps every frame of the current burst.
    When a woken listener connects mid-burst, it first gets the backlog, then
@@ -171,9 +189,11 @@ overlay endpoint is the escape hatch.
 
 - The PushToTalk framework owns the audio session: the app starts and stops
   `AVAudioEngine` only in the `didActivate` and `didDeactivate` callbacks.
-- Opus through `AVAudioConverter` (`kAudioFormatOpus`), 16 kHz mono, 20 ms
-  frames, about 16–24 kbps. It is behind the `VoiceCodec` protocol, so
-  libopus can replace it if needed.
+- Opus through `AVAudioConverter` (`kAudioFormatOpus`): mono, 20 ms frames,
+  about 24 kbps. The encoder runs at 48 kHz, and BURST_START announces the
+  rate, so receivers follow whatever the sender uses. If a device has no Opus
+  encoder, the app falls back to 16 kHz PCM. The codec sits behind the
+  `VoiceEncoder`/`VoiceDecoder` protocols, so libopus can replace it.
 - `JitterBuffer` targets a playout delay of about 80 ms. It reorders frames,
   drops duplicates and signals gaps for packet-loss concealment (silence in
   v1).
@@ -193,8 +213,14 @@ app cannot keep sockets open in the background. So v1 treats the watch as a
 - Incoming audio plays on the phone or its connected headset by default. An
   option forwards it to the watch speaker while the watch app is open.
 
-A standalone cellular-watch mode (watchOS VoIP with CallKit) is on the
-roadmap.
+Limitations:
+
+- The watch can only key up while the iPhone app is running. A watch message
+  wakes the phone app in the background, but iOS may refuse to begin a
+  PushToTalk transmission from the background. In that case, open the phone
+  app once, or use always-listening mode.
+- A standalone cellular-watch mode (watchOS VoIP with CallKit) is on the
+  roadmap.
 
 ## Android and Wear OS (future)
 
@@ -228,7 +254,7 @@ roadmap.
 
 1. **v0.1 (this PR):** core protocol and crypto with vectors; iOS app with
    direct channels and talk groups, nearby, LAN and IPv6/STUN transport, and
-   PushToTalk with direct APNs wake; watch remote.
+   PushToTalk with direct APNs wake; watch remote; ad-hoc release pipeline.
 2. **v0.2:** group rekey on member removal, safety-number UI, ephemeral
    session keys (forward secrecy), Opus packet-loss concealment.
 3. **v0.3:** optional public-relay rendezvous (Nostr) for peers whose
