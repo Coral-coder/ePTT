@@ -7,6 +7,7 @@ struct SettingsView: View {
     @State private var name = ""
     @State private var staticCandidates = ""
     @State private var notificationStatus = "…"
+    @FocusState private var nameFocused: Bool
 
     private var settings: Settings { model.snapshot.settings }
 
@@ -15,7 +16,10 @@ struct SettingsView: View {
             Form {
                 Section("You") {
                     TextField("Display name", text: $name)
-                        .onSubmit { model.engine.updateSettings { [name] in $0.displayName = name } }
+                        .textInputAutocapitalization(.words)
+                        .focused($nameFocused)
+                        .onSubmit(saveName)
+                        .onChange(of: nameFocused) { focused in if !focused { saveName() } }
                 }
                 .nxRows()
 
@@ -106,6 +110,7 @@ struct SettingsView: View {
                 default: notificationStatus = "Not asked yet"
                 }
             }
+            .onDisappear { if name != settings.displayName { saveName() } }
             .onAppear {
                 name = settings.displayName
                 staticCandidates = settings.staticCandidates.joined(separator: ", ")
@@ -118,6 +123,11 @@ struct SettingsView: View {
             get: { settings[keyPath: keyPath] },
             set: { value in model.engine.updateSettings { $0[keyPath: keyPath] = value } }
         )
+    }
+
+    /// Saves the name when editing ends (Return, or tapping elsewhere). Empty names are ignored.
+    private func saveName() {
+        if !model.setDisplayName(name) { name = settings.displayName }
     }
 
     private func saveStaticCandidates() {

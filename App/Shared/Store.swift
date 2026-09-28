@@ -4,6 +4,8 @@ import EPTTCore
 /// User preferences.
 struct Settings: Codable, Equatable {
     var displayName: String = ""
+    /// Whether the user chose `displayName` (onboarding or Settings). Until then onboarding shows.
+    var nameConfirmed = false
     var stunEnabled = true
     /// Extra candidates to advertise, e.g. an overlay-VPN host name ("me.tailnet.ts.net:47474").
     var staticCandidates: [String] = []
@@ -125,9 +127,16 @@ enum Store {
     }
 
     static func load() -> PersistedState {
-        guard let data = try? Data(contentsOf: url),
-              let state = try? JSONDecoder().decode(PersistedState.self, from: data) else { return PersistedState() }
-        return state
+        guard let data = try? Data(contentsOf: url) else { return PersistedState() }
+        do {
+            return try JSONDecoder().decode(PersistedState.self, from: data)
+        } catch {
+            // Keep the unreadable file rather than overwriting it with an empty state.
+            let backup = url.deletingLastPathComponent().appendingPathComponent("eptt-state.unreadable.json")
+            try? FileManager.default.removeItem(at: backup)
+            try? FileManager.default.copyItem(at: url, to: backup)
+            return PersistedState()
+        }
     }
 
     static func save(_ state: PersistedState) {
@@ -143,7 +152,8 @@ extension Settings {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let d = Settings()
-        displayName = try c.decodeIfPresent(String.self, forKey: .displayName) ?? d.displayName
+        displayName = (try? c.decodeIfPresent(String.self, forKey: .displayName)) ?? d.displayName
+        nameConfirmed = (try? c.decodeIfPresent(Bool.self, forKey: .nameConfirmed)) ?? d.nameConfirmed
         stunEnabled = try c.decodeIfPresent(Bool.self, forKey: .stunEnabled) ?? d.stunEnabled
         staticCandidates = try c.decodeIfPresent([String].self, forKey: .staticCandidates) ?? d.staticCandidates
         forwardAudioToWatch = try c.decodeIfPresent(Bool.self, forKey: .forwardAudioToWatch) ?? d.forwardAudioToWatch
@@ -158,13 +168,36 @@ extension Settings {
 extension PersistedState {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        settings = try c.decodeIfPresent(Settings.self, forKey: .settings) ?? Settings()
-        contacts = try c.decodeIfPresent([Contact].self, forKey: .contacts) ?? []
-        channels = try c.decodeIfPresent([Channel].self, forKey: .channels) ?? []
-        pttToken = try c.decodeIfPresent(Data.self, forKey: .pttToken)
-        deviceToken = try c.decodeIfPresent(Data.self, forKey: .deviceToken)
-        relayMailbox = try c.decodeIfPresent(Data.self, forKey: .relayMailbox)
-        relayUploads = try c.decodeIfPresent([String: Date].self, forKey: .relayUploads) ?? [:]
-        transfers = try c.decodeIfPresent([TransferRecord].self, forKey: .transfers) ?? []
+        // Field by field, and element by element for lists: one unreadable entry must never cost
+        // the user their contacts or name.
+        settings = (try? c.decodeIfPresent(Settings.self, forKey: .settings)) ?? Settings()
+        contacts = (try? c.decodeIfPresent(Lossy<Contact>.self, forKey: .contacts))?.items ?? []
+        channels = (try? c.decodeIfPresent(Lossy<Channel>.self, forKey: .channels))?.items ?? []
+        pttToken = try? c.decodeIfPresent(Data.self, forKey: .pttToken)
+        deviceToken = try? c.decodeIfPresent(Data.self, forKey: .deviceToken)
+        relayMailbox = try? c.decodeIfPresent(Data.self, forKey: .relayMailbox)
+        relayUploads = (try? c.decodeIfPresent([String: Date].self, forKey: .relayUploads)) ?? [:]
+        transfers = (try? c.decodeIfPresent(Lossy<TransferRecord>.self, forKey: .transfers))?.items ?? []
+    }
+}
+
+/// Decodes an array, skipping elements that don't decode instead of failing the whole array.
+private struct Lossy<Element: Decodable>: Decodable {
+    var items: [Element] = []
+
+    /// Consumes one element of any shape, so the loop always moves on.
+    private struct Skip: Decodable {
+        init(from decoder: Decoder) throws {}
+    }
+
+    init(from decoder: Decoder) throws {
+        var container = try decoder.unkeyedContainer()
+        while !container.isAtEnd {
+            if let item = try? container.decode(Element.self) {
+                items.append(item)
+            } else {
+                _ = try? container.decode(Skip.self)
+            }
+        }
     }
 }

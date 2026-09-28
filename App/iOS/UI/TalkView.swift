@@ -18,6 +18,9 @@ struct RootView: View {
             NeonTabBar(selection: $model.tab)
         }
         .overlay(alignment: .top) { BannerView() }
+        .fullScreenCover(isPresented: Binding(get: { model.needsOnboarding }, set: { _ in })) {
+            OnboardingView()
+        }
         .preferredColorScheme(.dark)
         .tint(NX.cyan)
     }

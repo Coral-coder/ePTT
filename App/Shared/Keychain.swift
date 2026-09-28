@@ -139,3 +139,38 @@ enum PrekeyKeychain {
         SecItemAdd(item as CFDictionary, nil)
     }
 }
+
+/// A copy of the display name the user chose, so it survives anything that resets the app's
+/// saved state (a failed migration, an offload and reinstall). Not secret; the Keychain is just
+/// the one store iOS keeps across all of those.
+enum NameKeychain {
+    private static let service = "app.eptt.profile"
+    private static let account = "display-name-v1"
+
+    static func load() -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var result: AnyObject?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let data = result as? Data, let name = String(data: data, encoding: .utf8), !name.isEmpty else { return nil }
+        return name
+    }
+
+    static func save(_ name: String) {
+        let base: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        SecItemDelete(base as CFDictionary)
+        var item = base
+        item[kSecValueData as String] = Data(name.utf8)
+        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        SecItemAdd(item as CFDictionary, nil)
+    }
+}

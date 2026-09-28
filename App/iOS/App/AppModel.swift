@@ -76,6 +76,24 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // MARK: - Profile
+
+    /// Onboarding shows until the user has chosen a name.
+    /// (Only once the engine has published its saved state, so it never flashes up at launch.)
+    var needsOnboarding: Bool { snapshot.localIdentity != nil && !snapshot.settings.nameConfirmed }
+
+    /// Sets the name everyone sees when you talk. Returns false for an empty name.
+    @discardableResult
+    func setDisplayName(_ raw: String) -> Bool {
+        let name = String(raw.trimmingCharacters(in: .whitespacesAndNewlines).prefix(32))
+        guard !name.isEmpty else { return false }
+        engine.updateSettings {
+            $0.displayName = name
+            $0.nameConfirmed = true
+        }
+        return true
+    }
+
     // MARK: - Derived data
 
     var selectedChannel: Channel? {

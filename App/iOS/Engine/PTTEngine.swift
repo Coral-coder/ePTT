@@ -170,8 +170,15 @@ final class PTTEngine {
         floor = FloorControl(localSender: identity.senderID)
         transport = UDPTransport(queue: queue)
         nearby = NearbyTransport(queue: queue)
-        if state.settings.displayName.isEmpty {
-            state.settings.displayName = UIDevice.current.name
+        // The name the user chose is also kept in the Keychain, so nothing can reset it.
+        if let saved = NameKeychain.load() {
+            if state.settings.displayName != saved || !state.settings.nameConfirmed {
+                state.settings.displayName = saved
+                state.settings.nameConfirmed = true
+                Store.save(state)
+            }
+        } else if state.settings.nameConfirmed, !state.settings.displayName.isEmpty {
+            NameKeychain.save(state.settings.displayName)
         }
         if state.relayMailbox == nil {
             state.relayMailbox = .random(count: 16)
@@ -949,7 +956,12 @@ final class PTTEngine {
             change(&state.settings)
             save()
             applyTransportSettings()
-            if before.displayName != state.settings.displayName { announceReachability() }
+            if before.displayName != state.settings.displayName || before.nameConfirmed != state.settings.nameConfirmed {
+                if state.settings.nameConfirmed, !state.settings.displayName.isEmpty {
+                    NameKeychain.save(state.settings.displayName)
+                }
+                announceReachability()
+            }
         }
     }
 
