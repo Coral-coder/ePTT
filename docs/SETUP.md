@@ -160,6 +160,36 @@ in **Safari** on a registered iPhone and tap **Install**.
 5. Create talk groups on the **Channels** tab. Members receive the key
    automatically over their private channels.
 
+## TestFlight from GitHub Actions
+
+`.github/workflows/testflight.yml` archives the app and uploads it to TestFlight
+on every push to `main` that touches the app, and on demand (**Actions →
+TestFlight → Run workflow**). Signing is automatic: an App Store Connect API
+key lets Xcode create and use the distribution certificate and profiles itself.
+
+1. **The app record.** It must already exist in App Store Connect (it does once
+   you have uploaded a build by hand).
+2. **API key.** In App Store Connect, **Users and Access → Integrations → App
+   Store Connect API → Team Keys → +**. Give it the **Admin** role (needed for
+   automatic signing to create certificates and profiles). Download the `.p8`
+   (only possible once) and note the **Key ID** and the **Issuer ID** shown
+   above the key list.
+3. **Repository secrets** (Settings → Secrets and variables → Actions):
+
+   | Secret | Value |
+   | --- | --- |
+   | `ASC_KEY_ID` | the API key's Key ID |
+   | `ASC_ISSUER_ID` | the Issuer ID |
+   | `ASC_KEY_P8` | the full contents of `AuthKey_XXXXXXXXXX.p8`, including the BEGIN/END lines |
+   | `APPLE_TEAM_ID` | your Team ID (Membership details in the developer portal) |
+   | `EPTT_BUNDLE_ID` | *optional*, defaults to `com.lightwave.chirp` |
+   | `APNS_KEY_P8`, `APNS_KEY_ID` | *optional*, bundled only when the repository **variable** `BUNDLE_APNS_KEY` is `true` (live Push to Talk wakes; TestFlight builds are private to your testers) |
+
+Build numbers come from the run number (10011, 10021, …), so they always
+increase and stay above builds uploaded by hand. The marketing version is
+`MARKETING_VERSION` in `project.yml`. Builds show up in TestFlight after Apple
+finishes processing, usually within 5 to 20 minutes.
+
 ## Export compliance (encryption)
 
 Both apps set `ITSAppUsesNonExemptEncryption` to `NO`, so App Store Connect and

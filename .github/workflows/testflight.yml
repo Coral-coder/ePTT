@@ -1,0 +1,111 @@
+# Archives NXTPTT and uploads it to TestFlight on every push to main (and on demand).
+# Signing is automatic ("cloud signing"): the App Store Connect API key lets Xcode create and
+# use the distribution certificate and profiles, so no certificates or profiles are stored here.
+# Setup: docs/SETUP.md, "TestFlight from GitHub Actions".
+name: TestFlight
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - App/**
+      - Config/**
+      - Packages/**
+      - project.yml
+      - .github/workflows/testflight.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: testflight
+  cancel-in-progress: true
+
+jobs:
+  upload:
+    runs-on: macos-15
+    env:
+      TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check secrets
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for name in APPLE_TEAM_ID ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8; do
+            if [ -z "${!name}" ]; then echo "::error::Missing secret $name (see docs/SETUP.md)"; exit 1; fi
+          done
+
+      - name: Install the App Store Connect API key
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/asc"
+          printf '%s\n' "$ASC_KEY_P8" > "$RUNNER_TEMP/asc/AuthKey_$ASC_KEY_ID.p8"
+          echo "ASC_KEY_PATH=$RUNNER_TEMP/asc/AuthKey_$ASC_KEY_ID.p8" >> "$GITHUB_ENV"
+
+      - name: Write build configuration
+        env:
+          EPTT_BUNDLE_ID: ${{ secrets.EPTT_BUNDLE_ID }}
+          APNS_KEY_P8: ${{ secrets.APNS_KEY_P8 }}
+          APNS_KEY_ID: ${{ secrets.APNS_KEY_ID }}
+          BUNDLE_APNS_KEY: ${{ vars.BUNDLE_APNS_KEY }}
+        run: |
+          {
+            echo "DEVELOPMENT_TEAM = $TEAM_ID"
+            if [ -n "$EPTT_BUNDLE_ID" ]; then echo "EPTT_BUNDLE_ID = $EPTT_BUNDLE_ID"; fi
+            echo "CODE_SIGN_STYLE = Automatic"
+            # Build numbers must keep increasing; this starts well above anything uploaded by hand.
+            echo "CURRENT_PROJECT_VERSION = $((10000 + GITHUB_RUN_NUMBER * 10 + GITHUB_RUN_ATTEMPT))"
+          } > Config/Secrets.xcconfig
+          # Optional: live Push to Talk wakes in these builds (docs/SETUP.md, section 3).
+          if [ "$BUNDLE_APNS_KEY" = "true" ] && [ -n "$APNS_KEY_P8" ]; then
+            printf '%s\n' "$APNS_KEY_P8" > Config/APNsAuthKey.p8
+            echo "EPTT_APNS_TEAM_ID = $TEAM_ID" >> Config/Secrets.xcconfig
+            echo "EPTT_APNS_KEY_ID = $APNS_KEY_ID" >> Config/Secrets.xcconfig
+          fi
+          cat Config/Secrets.xcconfig | grep -v APNS
+
+      - run: brew install xcodegen && xcodegen generate
+
+      - name: Archive
+        run: |
+          set -o pipefail
+          xcodebuild -project NXTPTT.xcodeproj -scheme NXTPTT -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath build/NXTPTT.xcarchive \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            archive | tail -60
+
+      - name: Upload to TestFlight
+        run: |
+          cat > build/ExportOptions.plist <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>$TEAM_ID</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+            <key>uploadSymbols</key><true/>
+          </dict></plist>
+          PLIST
+          xcodebuild -exportArchive -archivePath build/NXTPTT.xcarchive \
+            -exportOptionsPlist build/ExportOptions.plist -exportPath build/upload \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+          echo "Uploaded build $(/usr/libexec/PlistBuddy -c 'Print ApplicationProperties:CFBundleVersion' build/NXTPTT.xcarchive/Info.plist). It appears in TestFlight after Apple finishes processing (usually 5 to 20 minutes)."
+
+      - name: Remove keys
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/asc" Config/APNsAuthKey.p8 Config/Secrets.xcconfig
