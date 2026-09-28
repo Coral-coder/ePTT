@@ -106,6 +106,16 @@ enum RelayInbox {
         write(entries)
     }
 
+    /// The app is playing `record` itself; the extension should leave its notification silent.
+    static func markPlayedByApp(record: String) {
+        guard !heard().contains(where: { $0.record == record }) else { return }
+        markHeard(.init(record: record, talker: "", channel: "", seconds: 0, sound: "", date: Date(), logged: true))
+    }
+
+    static func wasPlayed(record: String) -> Bool {
+        heard().contains { $0.record == record }
+    }
+
     static func markLogged(record: String) {
         var entries = heard()
         guard let index = entries.firstIndex(where: { $0.record == record }) else { return }

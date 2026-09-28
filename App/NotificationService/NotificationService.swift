@@ -23,6 +23,13 @@ final class NotificationService: UNNotificationServiceExtension {
             deliver()
             return
         }
+        // NXTPTT itself is already playing it (a wake kept it running): stay quiet.
+        if RelayInbox.wasPlayed(record: record) {
+            content.sound = nil
+            content.body = "Played in NXTPTT"
+            deliver()
+            return
+        }
         // Main actor: iOS calls serviceExtensionTimeWillExpire on the main thread too.
         work = Task { @MainActor [weak self] in
             defer { self?.deliver() }

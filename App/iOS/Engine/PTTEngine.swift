@@ -261,10 +261,14 @@ final class PTTEngine {
             if now.timeIntervalSince(t.startedAt) > PTTEngine.maxBurstDuration { releaseTalk() }
         }
 
-        if let wake = pendingWake, now > wake.deadline {
-            pendingWake = nil
-            if rx == nil { ptt.setActiveRemoteParticipant(nil) }
-            emit(.unreachable(wake.talker))
+        if let wake = pendingWake {
+            if now > wake.deadline {
+                pendingWake = nil
+                if rx == nil { ptt.setActiveRemoteParticipant(nil) }
+                emit(.unreachable(wake.talker))
+            } else if rx == nil, now.timeIntervalSince(lastRelayFetch) >= 2 {
+                fetchRelay(force: true)   // woken but not connected: watch the relay
+            }
         }
 
         if now.timeIntervalSince(lastKeepalive) >= 15 {
@@ -675,6 +679,9 @@ final class PTTEngine {
                             frameMilliseconds: start?.frameMilliseconds ?? 20)
         if usesPushToTalk {
             ptt.setActiveRemoteParticipant(talker)   // iOS then activates audio → audioDidActivate
+            // Already active (e.g. a wake is holding the session open): audioDidActivate won't
+            // run again, so play the receive tone here.
+            if audioActive { playIncomingTone() }
         } else {
             if !audioActive { startManualAudio() }
             playIncomingTone()
@@ -787,11 +794,10 @@ final class PTTEngine {
         let talker = inbound.channel.kind == .group ? "\(contact.name) · \(inbound.channel.name)" : contact.name
         lastWakeReceived = Date()
         respondToWake(wake, from: contact)
-        pendingWake = (talker, Date().addingTimeInterval(10))
-        // If no direct path appears, the talker leaves the burst in the relay when they release.
-        for delay in [8.0, 20.0, 45.0, 75.0] {
-            queue.asyncAfter(deadline: .now() + delay) { [weak self] in self?.fetchRelay(force: true) }
-        }
+        // Stay awake (PushToTalk keeps our audio session and runtime while the talker is shown)
+        // long enough for a whole burst: if no direct path appears, e.g. both phones on cellular,
+        // the talker leaves it in the relay when they release, and we play it as soon as it lands.
+        pendingWake = (talker, Date().addingTimeInterval(PTTEngine.maxBurstDuration + 20))
         return talker
     }
 
@@ -1153,7 +1159,10 @@ final class PTTEngine {
 
     func fetchRelay(force: Bool = false) {
         queue.async { [self] in
-            guard isForeground, let relay, state.settings.relayEnabled, let mailbox = state.relayMailbox else { return }
+            // In the background the notification extension handles the relay, except while a wake
+            // keeps us running: then we play relayed audio live through PushToTalk.
+            guard isForeground || pendingWake != nil, let relay, state.settings.relayEnabled,
+                  let mailbox = state.relayMailbox else { return }
             guard !relayFetchInFlight else {
                 if force { relayRefetchPending = true }
                 return
@@ -1178,6 +1187,11 @@ final class PTTEngine {
                                                                 seconds: entry.seconds,
                                                                 legs: [.init(peer: entry.talker, route: .relay)]))
                             }
+                            // A wake was waiting for this one; it has been heard, so stop waiting.
+                            if self.pendingWake != nil, self.rx == nil {
+                                self.pendingWake = nil
+                                self.ptt.setActiveRemoteParticipant(nil)
+                            }
                             continue
                         }
                         guard let packets = try? Relay.decode(record.payload) else {
@@ -1185,6 +1199,8 @@ final class PTTEngine {
                             continue
                         }
                         self.relayPlayed.insert(record.name)
+                        // Tell the notification extension not to play it a second time.
+                        RelayInbox.markPlayedByApp(record: record.name)
                         self.relayQueue.append((record.name, packets))
                     }
                     if self.rx == nil && self.tx == nil { self.playNextRelayed() }
