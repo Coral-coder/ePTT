@@ -74,6 +74,7 @@
 		D598C3A49CAC8DA34FE4633B /* CloudRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7B9B9B9BCD490C371E11C42 /* CloudRelay.swift */; };
 		D8E1607F080CFF7C538A4560 /* CloudRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7B9B9B9BCD490C371E11C42 /* CloudRelay.swift */; };
 		D93634A06B7195653F07336F /* NXTPTTNotify.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 28FC40B604293CC7CD6A3525 /* NXTPTTNotify.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		DB0680E9C743F4A7656940A3 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF14FF95427D6CC114A44733 /* OnboardingView.swift */; };
 		DBE7E7EB1534F734A988B7DD /* Hind-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 4D2CA08401587C4C4AFD4217 /* Hind-Regular.ttf */; };
 		DDAC95820538C1B3DEF4D635 /* WatchBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C624C4BED3D02359B4639ED /* WatchBridge.swift */; };
 		DE954D70350E230150A96F1C /* GridBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6491F3384F5ADA236ECD6732 /* GridBackground.swift */; };
@@ -190,6 +191,7 @@
 		EB79D2E432560F598AE275FF /* VoiceCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCodec.swift; sourceTree = "<group>"; };
 		F0220AFF770A796A696493B8 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		F3A8DE5195AC098334AD17FE /* PushToTalkManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushToTalkManager.swift; sourceTree = "<group>"; };
+		FF14FF95427D6CC114A44733 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -404,6 +406,7 @@
 				CF0F72AD79C914F4229FE377 /* ActivityView.swift */,
 				5F26C0993586F06E0277C2EE /* ChannelsView.swift */,
 				71F9D559EAE5E7FAF3FC7438 /* Components.swift */,
+				FF14FF95427D6CC114A44733 /* OnboardingView.swift */,
 				36E3EB4EF56C3AF302C8490C /* PairView.swift */,
 				F0220AFF770A796A696493B8 /* SettingsView.swift */,
 				90A31E58691124529D39C377 /* SoundsView.swift */,
@@ -604,6 +607,7 @@
 				6B64282570069D75C03530C2 /* LocalAddresses.swift in Sources */,
 				6090112260B68C097D107408 /* NXTPTTApp.swift in Sources */,
 				D5400801694C95121C6BC662 /* NearbyTransport.swift in Sources */,
+				DB0680E9C743F4A7656940A3 /* OnboardingView.swift in Sources */,
 				140445E2C96F7A09C8021C87 /* PTTEngine.swift in Sources */,
 				F0B4EE11E20B998AF99A23FD /* PairView.swift in Sources */,
 				C3C698E53D06432948E6857C /* PushToTalkManager.swift in Sources */,
