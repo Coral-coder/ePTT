@@ -219,7 +219,6 @@ The **Activity** tab shows which route each transmission took.
   - **Roger beep:** optional and off by default, because Nextel had none.
   - **Your own recordings:** users can import a file for any sound in
     Settings → Nextel sounds.
-  synthesized at run time. No audio assets ship with the app.
 
 ## Apple Watch
 
