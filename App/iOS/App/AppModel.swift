@@ -14,6 +14,11 @@ final class AppModel: ObservableObject {
     let engine = PTTEngine()
     private let watch = WatchBridge()
     private var started = false
+    /// Set while a single-press (Action Button / Siri) transmission is keyed up.
+    private var latched = false
+    private var latchTimer: Task<Void, Never>?
+    /// How long a latched transmission may run before it unkeys itself.
+    static let latchLimit: Duration = .seconds(60)
 
     private init() {
         engine.onSnapshot = { [weak self] snapshot in
@@ -41,6 +46,34 @@ final class AppModel: ObservableObject {
         started = true
         engine.start()
         watch.activate()
+    }
+
+    // MARK: - Single-press talk
+
+    var isTransmitting: Bool {
+        if case .transmitting = snapshot.talk { return true }
+        return false
+    }
+
+    func toggleLatchedTalk() {
+        setLatchedTalk(!(latched || isTransmitting))
+    }
+
+    func setLatchedTalk(_ on: Bool) {
+        latchTimer?.cancel()
+        latchTimer = nil
+        latched = on
+        guard on else {
+            engine.releaseTalk()
+            return
+        }
+        tab = .talk
+        engine.pressTalk()
+        latchTimer = Task { [weak self] in
+            try? await Task.sleep(for: Self.latchLimit)
+            guard !Task.isCancelled else { return }
+            self?.setLatchedTalk(false)
+        }
     }
 
     // MARK: - Derived data

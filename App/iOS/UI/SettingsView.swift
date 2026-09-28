@@ -37,6 +37,15 @@ struct SettingsView: View {
                 }
                 .nxRows()
 
+                Section {
+                    Label("Push to Talk shortcut", systemImage: "hand.tap")
+                } header: {
+                    Text("Action Button & Siri")
+                } footer: {
+                    Text("In Settings › Action Button, choose Shortcut › NXTPTT › Push to Talk. Press once to key up and again to unkey; it unkeys on its own after a minute. You can also say \u{201C}Hey Siri, talk on NXTPTT.\u{201D} The side button itself can't be used by apps; Bluetooth PTT buttons can.")
+                }
+                .nxRows()
+
                 Section("Sounds") {
                     NavigationLink("Nextel sounds") { SoundsView() }
                 }
