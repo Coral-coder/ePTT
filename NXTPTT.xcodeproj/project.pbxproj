@@ -31,11 +31,11 @@
 		4AC2847B0A9BFCAEBB5773DB /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84B06BD68E2E389EF003458D /* Theme.swift */; };
 		4D72E8B6C1B4B63A4AA1542A /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F6736A86DBDC21FCC5FD41 /* Keychain.swift */; };
 		4E522EABE049107F3A5FA677 /* Michroma-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 491106D4D4A4C379330E7D8F /* Michroma-Regular.ttf */; };
+		52394BA8F3DCAF5E21811192 /* Tones.swift in Sources */ = {isa = PBXBuildFile; fileRef = C66904B734B15FAC62F2080B /* Tones.swift */; };
 		5A6148034B1C86DEA7181A08 /* Hind-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 0CAE6B4531BEC9AA6608A108 /* Hind-Medium.ttf */; };
 		5FC48FF0DD9C00F4DFE11D8E /* Michroma-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 5CD09CF470401102969B643B /* Michroma-OFL.txt */; };
 		6090112260B68C097D107408 /* NXTPTTApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0617089A27EAF20045AA25FA /* NXTPTTApp.swift */; };
 		6B64282570069D75C03530C2 /* LocalAddresses.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D027783C645D958288C8A85 /* LocalAddresses.swift */; };
-		6DF836C04841048B14E4CCDC /* Tones.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EFE2BF95289F4889473250F /* Tones.swift */; };
 		6FFFB6ACD5671A7B89595B7A /* Exo2-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A9092E4E0C328FCD11AE8CDD /* Exo2-Medium.ttf */; };
 		7072DB12A07222DA3EBAED42 /* CloudRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7B9B9B9BCD490C371E11C42 /* CloudRelay.swift */; };
 		7216C9BCE9AEDC32E574DFA9 /* GridBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6491F3384F5ADA236ECD6732 /* GridBackground.swift */; };
@@ -55,8 +55,10 @@
 		9BA76F5FAF134FD66141AEF3 /* AudioEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36E532B51BC28E621C00976F /* AudioEngine.swift */; };
 		9E4F5A93378F6584613883CC /* EPTTCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8B8EB4BA3015B1AAEAB6DF47 /* EPTTCore */; };
 		9FFC6AD5A1FFCAB7C0C33CAF /* RelayInbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DF053F9471D6B0FC2198E4E /* RelayInbox.swift */; };
+		A174F562A5BEE8848D134DBB /* Tones.swift in Sources */ = {isa = PBXBuildFile; fileRef = C66904B734B15FAC62F2080B /* Tones.swift */; };
 		A2330D8AEF6EF45B4D6FBF79 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0220AFF770A796A696493B8 /* SettingsView.swift */; };
 		A447483C481CDCB0CDF5B1CA /* Hind-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 4D2CA08401587C4C4AFD4217 /* Hind-Regular.ttf */; };
+		A50DB72278D48928CC70B534 /* Tones.swift in Sources */ = {isa = PBXBuildFile; fileRef = C66904B734B15FAC62F2080B /* Tones.swift */; };
 		A8754511BE62CB5CE8275691 /* WatchProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09427238BAEB427DD8DAAC7C /* WatchProtocol.swift */; };
 		AA5712D7435E633C27F4536A /* VoiceCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB79D2E432560F598AE275FF /* VoiceCodec.swift */; };
 		B5999114D66376CDC4304B26 /* WatchEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9395F106355F1105B629D685 /* WatchEngine.swift */; };
@@ -154,7 +156,6 @@
 		48EAEFBB51C34351AB7BB0C2 /* EPTTCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = EPTTCore; path = Packages/EPTTCore; sourceTree = SOURCE_ROOT; };
 		491106D4D4A4C379330E7D8F /* Michroma-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Michroma-Regular.ttf"; sourceTree = "<group>"; };
 		4D2CA08401587C4C4AFD4217 /* Hind-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Hind-Regular.ttf"; sourceTree = "<group>"; };
-		4EFE2BF95289F4889473250F /* Tones.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tones.swift; sourceTree = "<group>"; };
 		5CD09CF470401102969B643B /* Michroma-OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Michroma-OFL.txt"; sourceTree = "<group>"; };
 		5D3D231AD3D8DD38D27C6E84 /* Exo2-OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Exo2-OFL.txt"; sourceTree = "<group>"; };
 		5DF053F9471D6B0FC2198E4E /* RelayInbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayInbox.swift; sourceTree = "<group>"; };
@@ -181,6 +182,7 @@
 		B9337F442BFF9EF1F84AAD59 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
 		BB5C66B7F082C04F7C676223 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
 		C2C1D5CDE2BD22B2DE1968CE /* NXTPTTWatch.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = NXTPTTWatch.entitlements; sourceTree = "<group>"; };
+		C66904B734B15FAC62F2080B /* Tones.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tones.swift; sourceTree = "<group>"; };
 		CF0F72AD79C914F4229FE377 /* ActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityView.swift; sourceTree = "<group>"; };
 		E249A42171F4B53EDD8033DF /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
 		E4D548C686BBCEBBDBC6FA48 /* APNsClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APNsClient.swift; sourceTree = "<group>"; };
@@ -311,6 +313,7 @@
 				A1F6736A86DBDC21FCC5FD41 /* Keychain.swift */,
 				5DF053F9471D6B0FC2198E4E /* RelayInbox.swift */,
 				3871A34AA3E7E3696FC46F78 /* Store.swift */,
+				C66904B734B15FAC62F2080B /* Tones.swift */,
 				EB79D2E432560F598AE275FF /* VoiceCodec.swift */,
 				09427238BAEB427DD8DAAC7C /* WatchProtocol.swift */,
 				CBA7BF46112C7A69FD47C95C /* Fonts */,
@@ -334,7 +337,6 @@
 			children = (
 				36E532B51BC28E621C00976F /* AudioEngine.swift */,
 				1E9A6ACDFE77A95EF0CE726B /* SoundLibrary.swift */,
-				4EFE2BF95289F4889473250F /* Tones.swift */,
 			);
 			path = Audio;
 			sourceTree = "<group>";
@@ -614,7 +616,7 @@
 				8207A5A01E11117F4AF282EC /* TalkOrb.swift in Sources */,
 				E1728BBD1DA81A82ECBCE19F /* TalkView.swift in Sources */,
 				4AC2847B0A9BFCAEBB5773DB /* Theme.swift in Sources */,
-				6DF836C04841048B14E4CCDC /* Tones.swift in Sources */,
+				A50DB72278D48928CC70B534 /* Tones.swift in Sources */,
 				EEBC7C8EDA04AB18260304FE /* UDPTransport.swift in Sources */,
 				AA5712D7435E633C27F4536A /* VoiceCodec.swift in Sources */,
 				DDAC95820538C1B3DEF4D635 /* WatchBridge.swift in Sources */,
@@ -635,6 +637,7 @@
 				913B3DACE8A7011E0E370F19 /* Store.swift in Sources */,
 				311920887632C35D7CCDCC30 /* TalkOrb.swift in Sources */,
 				CB69F5B4DB157871B0AB6369 /* Theme.swift in Sources */,
+				A174F562A5BEE8848D134DBB /* Tones.swift in Sources */,
 				38D5CFB2945070E2AA58406B /* VoiceCodec.swift in Sources */,
 				B5999114D66376CDC4304B26 /* WatchEngine.swift in Sources */,
 				18116EF38271E1E692E10191 /* WatchModel.swift in Sources */,
@@ -653,6 +656,7 @@
 				FC5046A9F3E5F6F64CDF12CA /* NotificationService.swift in Sources */,
 				FBFC6D538CA979D3A4452392 /* RelayInbox.swift in Sources */,
 				47ACF6FC07FE0A76E89EA433 /* Store.swift in Sources */,
+				52394BA8F3DCAF5E21811192 /* Tones.swift in Sources */,
 				14D7602921593D983C1F9895 /* VoiceCodec.swift in Sources */,
 				A8754511BE62CB5CE8275691 /* WatchProtocol.swift in Sources */,
 			);
