@@ -367,12 +367,46 @@ final class AudioEngine {
     // MARK: - Session (fallback when the PushToTalk framework is unavailable)
 
     static func activateSessionManually() throws {
+        try configureSession()
+        try AVAudioSession.sharedInstance().setActive(true)
+        routeToSpeakerIfNeeded()
+    }
+
+    /// Walkie-talkie audio: record and play, loud speaker unless a headset or Bluetooth device is
+    /// connected. Called before PushToTalk activates the session (it keeps our category) and
+    /// before a manual activation.
+    static func configureSession() throws {
         let session = AVAudioSession.sharedInstance()
         // .allowBluetooth (HFP) gives a headset mic; A2DP is output-only, so it is not used.
         try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth])
         try? session.setPreferredSampleRate(48_000)
         try? session.setPreferredIOBufferDuration(0.02)
-        try session.setActive(true)
+        startWatchingRoute()
+    }
+
+    /// Voice processing (echo cancellation) favours the earpiece, like a phone call. A walkie
+    /// talkie is held away from the face, so whenever output lands on the earpiece, move it to
+    /// the speaker. Headphones and Bluetooth are left alone.
+    static func routeToSpeakerIfNeeded() {
+        let session = AVAudioSession.sharedInstance()
+        let outputs = session.currentRoute.outputs.map(\.portType)
+        guard outputs.contains(.builtInReceiver) else { return }
+        do {
+            try session.overrideOutputAudioPort(.speaker)
+        } catch {
+            NSLog("NXTPTT audio: speaker override failed: \(error)")
+        }
+    }
+
+    private static var routeObserver: NSObjectProtocol?
+
+    private static func startWatchingRoute() {
+        guard routeObserver == nil else { return }
+        routeObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main
+        ) { _ in
+            routeToSpeakerIfNeeded()
+        }
     }
 
     // MARK: - Helpers

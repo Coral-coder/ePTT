@@ -324,6 +324,8 @@ final class PTTEngine {
             log.error("Audio engine failed to start: \(error.localizedDescription, privacy: .public)")
             return
         }
+        // Starting the engine enables voice processing, which can move output to the earpiece.
+        AudioEngine.routeToSpeakerIfNeeded()
         if tx != nil {
             audio.play(.talkPermit)
             audio.startCapture()
@@ -338,6 +340,7 @@ final class PTTEngine {
             try AudioEngine.activateSessionManually()
             audioActive = true
             if !audio.isRunning { try audio.start() }
+            AudioEngine.routeToSpeakerIfNeeded()
         } catch {
             log.error("Manual audio session failed: \(error.localizedDescription, privacy: .public)")
         }
