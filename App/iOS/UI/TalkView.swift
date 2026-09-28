@@ -63,7 +63,7 @@ struct TalkView: View {
                 }
             }
             .padding()
-            .navigationTitle("Chirp")
+            .navigationTitle("NXTPTT")
         }
     }
 

@@ -1,4 +1,4 @@
-# Chirp Wire Protocol, version 1
+# NXTPTT Wire Protocol, version 1
 
 This is the normative spec. Any implementation (iOS, Android, desktop) that
 follows it interoperates. `tools/reference/eptt_ref.py` is an executable

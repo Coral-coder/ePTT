@@ -19,7 +19,7 @@ struct SettingsView: View {
                 Section {
                     Toggle("Always listening", isOn: binding(\.alwaysListening))
                 } footer: {
-                    Text("Keeps the app running with an open audio session, so it hears peers without push wake-ups. Uses noticeably more battery and shows the microphone indicator. With it off, iOS wakes Chirp through Apple's Push to Talk service when someone keys up.")
+                    Text("Keeps the app running with an open audio session, so it hears peers without push wake-ups. Uses noticeably more battery and shows the microphone indicator. With it off, iOS wakes NXTPTT through Apple's Push to Talk service when someone keys up.")
                 }
 
                 Section {
@@ -42,13 +42,13 @@ struct SettingsView: View {
                     Toggle("iCloud relay fallback", isOn: binding(\.relayEnabled))
                         .disabled(!model.snapshot.relayAvailable)
                 } footer: {
-                    Text("If someone can't be reached directly, Chirp leaves the encrypted transmission in iCloud for up to 24 hours and deletes it once delivered. Apple only ever sees encrypted data. Requires being signed in to iCloud.")
+                    Text("If someone can't be reached directly, NXTPTT leaves the encrypted transmission in iCloud for up to 24 hours and deletes it once delivered. Apple only ever sees encrypted data. Requires being signed in to iCloud.")
                 }
 
                 Section {
                     NavigationLink("Push key") { PushKeyView() }
                 } footer: {
-                    Text("The push key lets Chirp wake your friends' phones when you key up. Everyone in your group needs the same key; share it in person.")
+                    Text("The push key lets NXTPTT wake your friends' phones when you key up. Everyone in your group needs the same key; share it in person.")
                 }
 
                 Section {
@@ -57,7 +57,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Apple Watch")
                 } footer: {
-                    Text("Copies your Chirp identity, contacts and keys to your paired watch over the encrypted watch link, so it can send and receive through the iCloud relay when your iPhone isn't nearby.")
+                    Text("Copies your NXTPTT identity, contacts and keys to your paired watch over the encrypted watch link, so it can send and receive through the iCloud relay when your iPhone isn't nearby.")
                 }
 
                 Section("Status") {
@@ -103,7 +103,7 @@ struct PushKeyView: View {
             Section {
                 LabeledContent("Status", value: model.snapshot.wakeAvailable ? "Installed" : "Not installed")
             } footer: {
-                Text("Anyone holding this key can send push notifications to Chirp users whose push tokens they know. It cannot decrypt or fake audio. Only share it with people you trust, and revoke it in the Apple developer portal if it leaks.")
+                Text("Anyone holding this key can send push notifications to NXTPTT users whose push tokens they know. It cannot decrypt or fake audio. Only share it with people you trust, and revoke it in the Apple developer portal if it leaks.")
             }
 
             if let shareURI, let image = QRCode.image(for: shareURI) {

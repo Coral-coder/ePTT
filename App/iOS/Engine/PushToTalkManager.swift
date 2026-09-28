@@ -6,7 +6,7 @@ import os
 
 /// Wraps Apple's PushToTalk framework.
 ///
-/// The framework allows one joined channel per app, so Chirp joins a single system channel and
+/// The framework allows one joined channel per app, so NXTPTT joins a single system channel and
 /// multiplexes its own direct channels and talk groups over it (docs/ARCHITECTURE.md).
 /// The framework is what lets a suspended app be woken by a `pushtotalk` push, and it owns the
 /// audio session: audio may only run between `didActivate` and `didDeactivate`.
@@ -28,7 +28,7 @@ final class PushToTalkManager: NSObject {
 
     private let log = Logger(subsystem: "app.eptt", category: "ptt")
     private var manager: PTChannelManager?
-    private var descriptorName = "Chirp"
+    private var descriptorName = "NXTPTT"
     private(set) var isJoined = false
     var isAvailable: Bool { manager != nil }
 
@@ -117,7 +117,7 @@ extension PushToTalkManager: PTChannelManagerDelegate {
                             pushPayload: [String: Any]) -> PTPushResult {
         // Leaving the channel would let anyone holding a push token knock us offline, so an
         // unauthenticated push gets a placeholder participant that the engine clears at once.
-        let name = onIncomingPush?(pushPayload) ?? "Chirp"
+        let name = onIncomingPush?(pushPayload) ?? "NXTPTT"
         return .activeRemoteParticipant(PTParticipant(name: name, image: nil))
     }
 

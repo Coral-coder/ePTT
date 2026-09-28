@@ -1,6 +1,6 @@
-# Setting up Chirp
+# Setting up NXTPTT
 
-Chirp has no server, so setup is all on the Apple side: a developer account, a
+NXTPTT has no server, so setup is all on the Apple side: a developer account, a
 push key, and, for ad-hoc distribution, a list of registered devices.
 
 ## What you need
@@ -17,13 +17,13 @@ push key, and, for ad-hoc distribution, a list of registered devices.
 In [Certificates, Identifiers & Profiles](https://developer.apple.com/account/resources):
 
 1. **Identifiers → +** → App IDs → App, with bundle ID for example
-   `com.yourname.eptt`. Enable these capabilities:
+   `com.lightwave.chirp`. Enable these capabilities:
    - **Push Notifications**
    - **Push to Talk**
    - **iCloud**, with **CloudKit**, and a container named
-     `iCloud.com.yourname.eptt` (that is, `iCloud.` plus your bundle ID). This
+     `iCloud.com.lightwave.chirp` (that is, `iCloud.` plus your bundle ID). This
      is the relay fallback.
-2. Create a second App ID, `com.yourname.eptt.watchkitapp`, for the watch app.
+2. Create a second App ID, `com.lightwave.chirp.watchkitapp`, for the watch app.
    Enable **Push Notifications** and **iCloud** (CloudKit), using the *same*
    container as the iPhone app. The standalone watch uses both.
 3. **Keys → +** → enable **Apple Push Notifications service (APNs)**. If the
@@ -56,7 +56,7 @@ Everyone using the relay must be signed in to iCloud on their iPhone.
 ```sh
 cp Config/Secrets.example.xcconfig Config/Secrets.xcconfig   # then edit it
 xcodegen
-open Chirp.xcodeproj
+open NXTPTT.xcodeproj
 ```
 
 In `Secrets.xcconfig`, set `DEVELOPMENT_TEAM` and `EPTT_BUNDLE_ID`. Pick your
@@ -81,8 +81,8 @@ and set `EPTT_APNS_TEAM_ID` and `EPTT_APNS_KEY_ID` in `Secrets.xcconfig`.
 Only do this for builds you don't publish. Anyone who has the IPA can extract
 the key.
 
-What a leaked key allows: sending pushes to Chirp users whose push tokens the
-holder knows. Tokens only travel inside encrypted Chirp traffic and in contact
+What a leaked key allows: sending pushes to NXTPTT users whose push tokens the
+holder knows. Tokens only travel inside encrypted NXTPTT traffic and in contact
 QR codes. A leaked key cannot decrypt or forge audio. If it leaks, revoke the
 key in the portal and share a new one.
 
@@ -113,7 +113,7 @@ signed IPA and publishes an install page at
    | `ADHOC_PROFILE_IOS_BASE64` | `base64 -i Chirp_AdHoc.mobileprovision` |
    | `ADHOC_PROFILE_WATCH_BASE64` | `base64 -i Chirp_Watch_AdHoc.mobileprovision` |
    | `APPLE_TEAM_ID` | your Team ID |
-   | `EPTT_BUNDLE_ID` | for example `com.yourname.eptt` |
+   | `EPTT_BUNDLE_ID` | for example `com.lightwave.chirp` |
    | `APNS_KEY_P8`, `APNS_KEY_ID` | *optional*: used only when the repository variable `BUNDLE_APNS_KEY` is `true` |
 
 5. **Pages.** Under **Settings → Pages → Source**, choose **GitHub Actions**.
@@ -152,4 +152,4 @@ in **Safari** on a registered iPhone and tap **Install**.
 | "Couldn't connect to …" after a wake | Both phones are behind strict NAT with no IPv6. Add an overlay address (Tailscale or similar) in Settings → Network. |
 | Friend never wakes up | They have no push key installed, their token is stale (they should open the app once), or their build's push environment doesn't match. |
 | Works only when both apps are open | No push key on the talker's phone. See section 3. |
-| Watch says "Open Chirp on iPhone" | The phone app hasn't been launched since the phone rebooted. |
+| Watch says "Open NXTPTT on iPhone" | The phone app hasn't been launched since the phone rebooted. |

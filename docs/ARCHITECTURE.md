@@ -1,6 +1,6 @@
-# Chirp Architecture
+# NXTPTT Architecture
 
-Chirp is a Nextel-style push-to-talk app for iPhone and Apple Watch (Android and
+NXTPTT is a Nextel-style push-to-talk app for iPhone and Apple Watch (Android and
 Wear OS later). Its hard requirements shape everything below:
 
 1. **No server of our own.** No signaling server, no relay, no database.
@@ -40,8 +40,8 @@ in one of two ways:
 
 What someone who obtains the key can and cannot do:
 
-- **Can:** send pushes to Chirp users whose push tokens they know, which could
-  wake their phones. Tokens travel only inside encrypted Chirp traffic and in
+- **Can:** send pushes to NXTPTT users whose push tokens they know, which could
+  wake their phones. Tokens travel only inside encrypted NXTPTT traffic and in
   contact QR codes.
 - **Cannot:** read or inject audio. Every wake payload and voice frame is
   encrypted and authenticated with channel keys the attacker does not have.
@@ -87,8 +87,8 @@ review, the battery-hungry **always-listening** mode is a legitimate option.
 | Module | Location | Platform-neutral? | Role |
 | --- | --- | --- | --- |
 | `EPTTCore` | `Packages/EPTTCore` | Yes (also builds on Linux) | Identity, contact cards, channel model, crypto, packet codec, TLV, floor control, jitter buffer, burst backlog, STUN codec, APNs request builder, peer directory |
-| `Chirp` (iOS app) | `App/iOS` | No | SwiftUI UI, `PTTEngine` orchestrator, PushToTalk integration, audio I/O and Opus, `UDPTransport` (Network.framework), APNs HTTP/2 client, persistence, Watch bridge |
-| `Chirp Watch` | `App/Watch` | No | Hold-to-talk remote: channel picker, mic capture sent to the phone, talker display, haptics |
+| `NXTPTT` (iOS app) | `App/iOS` | No | SwiftUI UI, `PTTEngine` orchestrator, PushToTalk integration, audio I/O and Opus, `UDPTransport` (Network.framework), APNs HTTP/2 client, persistence, Watch bridge |
+| `NXTPTT Watch` | `App/Watch` | No | Hold-to-talk remote: channel picker, mic capture sent to the phone, talker display, haptics |
 
 Everything that has to match across platforms (bytes on the wire, keys, the
 floor-control rules) lives in `EPTTCore` and is pinned by test vectors that a
@@ -127,7 +127,7 @@ cellular. Larger groups need relaying by members (future work).
 ### One PushToTalk channel, many talk groups
 
 Apple's PushToTalk framework allows only **one joined system channel** per app.
-Chirp joins a single system channel ("Chirp") and multiplexes its own logical
+NXTPTT joins a single system channel ("NXTPTT") and multiplexes its own logical
 channels over it. The Lock Screen descriptor shows the selected channel. When
 a wake arrives for a different talk group, the app reports that group's name
 as the active remote participant. This is how Nextel-style **scan** of several
@@ -181,7 +181,7 @@ candidates (a **wake-ack**). The talker then sends HELLOs back. Both sides
 sending at once opens NAT and firewall pinholes.
 
 **When no direct path exists** (both sides behind symmetric or carrier-grade
-NAT, no IPv6, no overlay), Chirp falls back to the **iCloud relay**:
+NAT, no IPv6, no overlay), NXTPTT falls back to the **iCloud relay**:
 
 - **Upload:** when the talker releases, any member who never connected gets
   the burst, still sealed, left in the app's CloudKit public database

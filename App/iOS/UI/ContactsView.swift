@@ -24,7 +24,7 @@ struct ContactsView: View {
                     }
                 }
                 if model.snapshot.contacts.isEmpty {
-                    Text("Scan a friend's Chirp code to add them. There is no directory: you add people in person or through a link they send you.")
+                    Text("Scan a friend's NXTPTT code to add them. There is no directory: you add people in person or through a link they send you.")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -141,7 +141,7 @@ struct MyCardView: View {
                 }
             }
             .padding()
-            .navigationTitle("My Chirp code")
+            .navigationTitle("My NXTPTT code")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .onAppear { model.engine.myCardURI { uri = $0 } }
         }

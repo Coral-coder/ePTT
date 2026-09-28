@@ -3,7 +3,7 @@ import UIKit
 import UserNotifications
 
 @main
-struct ChirpApp: App {
+struct NXTPTTApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.scenePhase) private var scenePhase
 
@@ -35,7 +35,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     }
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
-        NSLog("Chirp: remote notification registration failed: \(error.localizedDescription)")
+        NSLog("NXTPTT: remote notification registration failed: \(error.localizedDescription)")
     }
 
     /// Wake acknowledgements arrive as silent pushes carrying a HELLO (PROTOCOL.md §8.2).

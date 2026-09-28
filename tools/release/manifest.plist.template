@@ -9,7 +9,7 @@
       <array>
         <dict>
           <key>kind</key><string>software-package</string>
-          <key>url</key><string>@BASE@/Chirp.ipa</string>
+          <key>url</key><string>@BASE@/NXTPTT.ipa</string>
         </dict>
       </array>
       <key>metadata</key>
@@ -17,7 +17,7 @@
         <key>bundle-identifier</key><string>@BUNDLE_ID@</string>
         <key>bundle-version</key><string>@VERSION@</string>
         <key>kind</key><string>software</string>
-        <key>title</key><string>Chirp</string>
+        <key>title</key><string>NXTPTT</string>
       </dict>
     </dict>
   </array>
