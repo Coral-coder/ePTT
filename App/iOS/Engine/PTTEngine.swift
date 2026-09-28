@@ -51,6 +51,13 @@ final class PTTEngine {
 
     private let identity: LocalIdentity
     private var state: PersistedState
+    /// Session prekeys for forward secrecy. A class so the packet processor can read the
+    /// current store through a closure without capturing `self` during init.
+    private final class PrekeyBox {
+        var store = PrekeyKeychain.load()
+        var signed: SignedPrekey?
+    }
+    private let prekeys = PrekeyBox()
     private var processor: PacketProcessor
     private let builder: PacketBuilder
     private var floor: FloorControl
@@ -73,6 +80,8 @@ final class PTTEngine {
     private struct Transmission {
         let channel: Channel
         let burst: MessageID
+        /// Random per-burst key; forgotten when the burst ends (forward secrecy).
+        let burstKey: Data
         let startPacket: Data
         var backlog: BurstBacklog
         var pending: [Data] = []
@@ -90,6 +99,7 @@ final class PTTEngine {
     private struct Reception {
         let channel: Channel
         let burst: MessageID
+        let sender: SenderID
         let talker: String
         var jitter = JitterBuffer()
         /// BURST_END arrived: play out what is buffered, then stop.
@@ -98,6 +108,8 @@ final class PTTEngine {
     private var rx: Reception?
     private var playoutTimer: DispatchSourceTimer?
     private var earlyVoice = ExpiringQueue<MessageID, (UInt32, [Data])>()
+    /// Burst packets that arrived before their BURST_START could be opened.
+    private var earlyPackets = ExpiringQueue<MessageID, (Data, NWEndpoint?)>()
 
     private var audioActive = false
     /// Set when a wake push was accepted; cleared when its burst arrives.
@@ -108,7 +120,8 @@ final class PTTEngine {
     init() {
         identity = IdentityKeychain.loadOrCreate()
         state = Store.load()
-        processor = PacketProcessor(local: identity)
+        let box = prekeys
+        processor = PacketProcessor(local: identity, agreement: identity.keyAgreement(prekeys: { box.store }))
         builder = PacketBuilder(local: identity)
         floor = FloorControl(localSender: identity.senderID)
         transport = UDPTransport(queue: queue)
@@ -116,6 +129,18 @@ final class PTTEngine {
             state.settings.displayName = UIDevice.current.name
         }
         rebuildIndexes()
+        rotatePrekeysIfNeeded()
+    }
+
+    /// Creates, rotates and expires session prekeys (PROTOCOL.md §3.1). Returns true on change.
+    @discardableResult
+    private func rotatePrekeysIfNeeded() -> Bool {
+        let changed = prekeys.store.rotateIfNeeded()
+        if changed || prekeys.signed == nil {
+            prekeys.signed = try? prekeys.store.current(signedBy: identity)
+        }
+        if changed { PrekeyKeychain.save(prekeys.store) }
+        return changed
     }
 
     // MARK: - Lifecycle
@@ -185,6 +210,8 @@ final class PTTEngine {
                 if let contact = self.contact(sender) { sendHello(to: contact, endpoints: [link.endpoint]) }
             }
             earlyVoice.expire(now: now)
+            earlyPackets.expire(now: now)
+            if rotatePrekeysIfNeeded() { announceReachability() }
             publishIfOnlineChanged()
         }
     }
@@ -301,12 +328,18 @@ final class PTTEngine {
     private func startTransmission(channelID: ChannelID, burst: MessageID, timestamp: UInt64) {
         guard let channel = self.channel(channelID) else { return }
         do {
-            let start = try BurstStart.signed(by: identity, channelID: channel.id, burstID: burst, timestamp: timestamp,
-                                              codec: audio.captureCodec.codec,
-                                              sampleRate: audio.captureCodec.sampleRate,
-                                              frameMilliseconds: audio.captureCodec.frameMilliseconds)
-            let packet = try builder.seal(.burstStart, plaintext: start.encoded, keys: channel.keys, messageID: burst)
-            var t = Transmission(channel: channel, burst: burst, startPacket: packet, backlog: BurstBacklog(burst: burst))
+            // Seal a fresh burst key to each member's current prekey (or static key if unknown).
+            let targets = channel.members.compactMap { self.contact(id: $0) }
+                .map { SealTarget(identity: $0.identity, prekey: $0.reachability.prekey) }
+            let outgoing = try OutgoingBurst(identity: identity, channelID: channel.id, burstID: burst,
+                                             timestamp: timestamp, targets: targets,
+                                             codec: audio.captureCodec.codec,
+                                             sampleRate: audio.captureCodec.sampleRate,
+                                             frameMilliseconds: audio.captureCodec.frameMilliseconds)
+            let packet = try builder.seal(.burstStart, plaintext: outgoing.start.encoded, keys: channel.keys,
+                                          messageID: burst)
+            var t = Transmission(channel: channel, burst: burst, burstKey: outgoing.burstKey, startPacket: packet,
+                                 backlog: BurstBacklog(burst: burst))
             t.backlog.append(packet)
             tx = t
             for member in channel.members {
@@ -334,8 +367,8 @@ final class PTTEngine {
     private func flushVoice() {
         guard var t = tx, !t.pending.isEmpty else { return }
         do {
-            let packet = try builder.seal(.voice, plaintext: VoiceBody.encode(t.pending), keys: t.channel.keys,
-                                          messageID: t.burst, seq: t.nextFrameIndex)
+            let packet = try builder.sealBurst(.voice, plaintext: VoiceBody.encode(t.pending), keys: t.channel.keys,
+                                               burstID: t.burst, burstKey: t.burstKey, seq: t.nextFrameIndex)
             t.nextFrameIndex += UInt32(t.pending.count)
             t.pending.removeAll()
             t.backlog.append(packet)
@@ -354,8 +387,8 @@ final class PTTEngine {
         if floor.isTransmitting { _ = floor.releaseTalk() }
         tx = nil
         let end = BurstEnd(timestamp: currentTimestamp(), frameCount: t.nextFrameIndex)
-        if let packet = try? builder.seal(.burstEnd, plaintext: end.encoded, keys: t.channel.keys,
-                                          messageID: t.burst, seq: t.nextFrameIndex) {
+        if let packet = try? builder.sealBurst(.burstEnd, plaintext: end.encoded, keys: t.channel.keys,
+                                               burstID: t.burst, burstKey: t.burstKey, seq: t.nextFrameIndex) {
             // Three copies 40 ms apart; receivers drop the duplicates.
             for i in 0..<3 {
                 queue.asyncAfter(deadline: .now() + .milliseconds(40 * i)) { [weak self] in
@@ -427,6 +460,10 @@ final class PTTEngine {
                 channelLookup: { [self] in channel($0) },
                 memberLookup: { [self] in contact($0)?.identity }
             )
+        } catch InboundError.unknownBurst {
+            // VOICE overtook its BURST_START (or the start is still in flight): retry after it lands.
+            if let header = try? PacketHeader(packet: data) { earlyPackets.append((data, endpoint), for: header.messageID) }
+            return
         } catch InboundError.replay {
             // Retransmitted BURST_START/END; still proof the peer is reachable here.
             if let endpoint, let header = try? PacketHeader(packet: data), contact(header.senderID) != nil {
@@ -445,6 +482,9 @@ final class PTTEngine {
         case .hello(let hello):
             handleHello(hello, from: sender, endpoint: endpoint)
         case .burstStart(let start):
+            defer {
+                for (packet, from) in earlyPackets.take(inbound.header.messageID) { handleDatagram(packet, from: from) }
+            }
             guard inbound.channel.isMonitored || inbound.channel.kind == .direct else { return }
             pendingBurstInfo[inbound.header.messageID] = start
             apply(floor.remoteBurstStarted(channel: inbound.channel.id, burst: inbound.header.messageID,
@@ -515,7 +555,7 @@ final class PTTEngine {
         let start = pendingBurstInfo.removeValue(forKey: burst)
         pendingBurstInfo.removeAll()
         let talker = channel.kind == .group ? "\(contact.name) · \(channel.name)" : contact.name
-        var r = Reception(channel: channel, burst: burst, talker: talker)
+        var r = Reception(channel: channel, burst: burst, sender: sender, talker: talker)
         for (index, frames) in earlyVoice.take(burst) {
             for (offset, frame) in frames.enumerated() { r.jitter.insert(index: index + UInt32(offset), frame: frame) }
         }
@@ -534,8 +574,9 @@ final class PTTEngine {
     }
 
     private func stopReception(playEndTone: Bool = true) {
-        guard rx != nil else { return }
+        guard let finished = rx else { return }
         rx = nil
+        processor.forgetBurst(sender: finished.sender, burst: finished.burst)
         playoutTimer?.cancel()
         playoutTimer = nil
         audio.endPlayback()
@@ -695,7 +736,11 @@ final class PTTEngine {
             if let c = self.contact(id: member), let card = try? ContactCard(encoded: c.cardData) { cards.append(card) }
         }
         let invite = GroupInvite(timestamp: currentTimestamp(), name: channel.name, keys: channel.keys, memberCards: cards)
-        guard let packet = try? builder.seal(.groupInvite, plaintext: invite.encoded, keys: direct.keys) else { return }
+        let messageID = MessageID.random()
+        let target = SealTarget(identity: contact.identity, prekey: contact.reachability.prekey)
+        guard let plaintext = try? invite.sealed(for: target, messageID: messageID),
+              let packet = try? builder.seal(.groupInvite, plaintext: plaintext, keys: direct.keys,
+                                             messageID: messageID) else { return }
         sendAnyway(packet, to: contact)
     }
 
@@ -809,7 +854,8 @@ final class PTTEngine {
     private var myReachability: Reachability {
         let env = APNsClient.environment(of: .main)
         return Reachability(apnsPTTToken: state.pttToken, apnsDeviceToken: state.deviceToken, apnsEnvironment: env,
-                            apnsTopic: Bundle.main.bundleIdentifier, candidates: transport.localCandidates)
+                            apnsTopic: Bundle.main.bundleIdentifier, candidates: transport.localCandidates,
+                            prekey: prekeys.signed)
     }
 
     private func myCard() throws -> ContactCard {

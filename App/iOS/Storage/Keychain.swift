@@ -105,3 +105,37 @@ enum PushKeyKeychain {
         SecItemAdd(item as CFDictionary, nil)
     }
 }
+
+/// Session prekeys (private keys). Device-only; deleting old ones is what gives forward secrecy.
+enum PrekeyKeychain {
+    private static let service = "app.eptt.prekeys"
+    private static let account = "prekeys-v1"
+
+    static func load() -> PrekeyStore {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var result: AnyObject?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data,
+              let store = try? JSONDecoder().decode(PrekeyStore.self, from: data) else { return PrekeyStore() }
+        return store
+    }
+
+    static func save(_ store: PrekeyStore) {
+        let base: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        SecItemDelete(base as CFDictionary)
+        guard let data = try? JSONEncoder().encode(store) else { return }
+        var item = base
+        item[kSecValueData as String] = data
+        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        SecItemAdd(item as CFDictionary, nil)
+    }
+}
