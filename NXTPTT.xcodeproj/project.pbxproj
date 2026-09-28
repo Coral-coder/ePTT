@@ -15,6 +15,7 @@
 		1D02B4A4052FAC307F18B41A /* Exo2-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 5D3D231AD3D8DD38D27C6E84 /* Exo2-OFL.txt */; };
 		1DFFA2E5B927BECD035BA852 /* Hind-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 86C6075D9CF35FBF29F82B4D /* Hind-OFL.txt */; };
 		205CE1EDABF15B65869E866E /* Michroma-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 5CD09CF470401102969B643B /* Michroma-OFL.txt */; };
+		2188181AC237CC20CAAFE532 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0D0D91D7B31C7569A01D813D /* Assets.xcassets */; };
 		21BCC0DB5EE25D477D3D1664 /* SoundLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E9A6ACDFE77A95EF0CE726B /* SoundLibrary.swift */; };
 		2A5A06893DAC551D20ADF165 /* EPTTCore in Frameworks */ = {isa = PBXBuildFile; productRef = 495B256A42190904284376F5 /* EPTTCore */; };
 		2E95082B95769334A273504D /* Exo2-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 5D3D231AD3D8DD38D27C6E84 /* Exo2-OFL.txt */; };
@@ -53,6 +54,7 @@
 		AA5712D7435E633C27F4536A /* VoiceCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB79D2E432560F598AE275FF /* VoiceCodec.swift */; };
 		B5999114D66376CDC4304B26 /* WatchEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9395F106355F1105B629D685 /* WatchEngine.swift */; };
 		B7427C19AAA77A6D303EE2AC /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F6736A86DBDC21FCC5FD41 /* Keychain.swift */; };
+		BBCFA036AEC89DAFC03BB613 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 019D70435FCEB590B528B9CA /* Assets.xcassets */; };
 		C3C698E53D06432948E6857C /* PushToTalkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A8DE5195AC098334AD17FE /* PushToTalkManager.swift */; };
 		C503B435FB25F5B640E74FF2 /* ActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF0F72AD79C914F4229FE377 /* ActivityView.swift */; };
 		CB69F5B4DB157871B0AB6369 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84B06BD68E2E389EF003458D /* Theme.swift */; };
@@ -98,10 +100,12 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		019D70435FCEB590B528B9CA /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		0617089A27EAF20045AA25FA /* NXTPTTApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NXTPTTApp.swift; sourceTree = "<group>"; };
 		09427238BAEB427DD8DAAC7C /* WatchProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchProtocol.swift; sourceTree = "<group>"; };
 		0A620DEC285D829E5852A944 /* NearbyTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NearbyTransport.swift; sourceTree = "<group>"; };
 		0CAE6B4531BEC9AA6608A108 /* Hind-Medium.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Hind-Medium.ttf"; sourceTree = "<group>"; };
+		0D0D91D7B31C7569A01D813D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		1204D39E340822B372551829 /* NXTPTT.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = NXTPTT.entitlements; sourceTree = "<group>"; };
 		17CC1D25F2383E91FA90B7FB /* TalkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TalkView.swift; sourceTree = "<group>"; };
 		1B66223E5D77EA18085B8F51 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -196,6 +200,7 @@
 		411BA19601FF0F7BDB496AF8 /* Watch */ = {
 			isa = PBXGroup;
 			children = (
+				019D70435FCEB590B528B9CA /* Assets.xcassets */,
 				1B66223E5D77EA18085B8F51 /* Info.plist */,
 				C2C1D5CDE2BD22B2DE1968CE /* NXTPTTWatch.entitlements */,
 				670CC2CACF289A683AB032A0 /* NXTPTTWatchApp.swift */,
@@ -262,6 +267,7 @@
 		752B5F1341DDA57915A8A39A /* Support */ = {
 			isa = PBXGroup;
 			children = (
+				0D0D91D7B31C7569A01D813D /* Assets.xcassets */,
 				79FAA49CE1E6E885E051B01B /* Info.plist */,
 				1204D39E340822B372551829 /* NXTPTT.entitlements */,
 			);
@@ -441,6 +447,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BBCFA036AEC89DAFC03BB613 /* Assets.xcassets in Resources */,
 				36C76FD8D8A9685D965A1CA6 /* Exo2-Bold.ttf in Resources */,
 				6FFFB6ACD5671A7B89595B7A /* Exo2-Medium.ttf in Resources */,
 				1D02B4A4052FAC307F18B41A /* Exo2-OFL.txt in Resources */,
@@ -458,6 +465,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2188181AC237CC20CAAFE532 /* Assets.xcassets in Resources */,
 				E4B79DCC58710E40C4D17AFF /* Exo2-Bold.ttf in Resources */,
 				CB8FC46706BCB887620F8918 /* Exo2-Medium.ttf in Resources */,
 				2E95082B95769334A273504D /* Exo2-OFL.txt in Resources */,
@@ -624,7 +632,7 @@
 		1371BD905317D71C07BCFA57 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = App/Watch/NXTPTTWatch.entitlements;
 				INFOPLIST_FILE = App/Watch/Info.plist;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(EPTT_BUNDLE_ID).watchkitapp";
@@ -638,7 +646,7 @@
 		374E3B2CD941D6F9440791B4 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = App/iOS/Support/NXTPTT.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
@@ -657,7 +665,7 @@
 		590381DF9668104C8D4B586D /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = App/Watch/NXTPTTWatch.entitlements;
 				INFOPLIST_FILE = App/Watch/Info.plist;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(EPTT_BUNDLE_ID).watchkitapp";
@@ -737,7 +745,7 @@
 		B66207BB99A04F4F9DCB4E13 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = App/iOS/Support/NXTPTT.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
