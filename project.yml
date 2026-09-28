@@ -52,6 +52,8 @@ targets:
       path: App/iOS/Support/Info.plist
       properties:
         CFBundleDisplayName: NXTPTT
+        # Encryption is Apple's CryptoKit only (see docs/SETUP.md, export compliance).
+        ITSAppUsesNonExemptEncryption: false
         UIAppFonts:
           - Michroma-Regular.ttf
           - Exo2-Medium.ttf
@@ -104,6 +106,8 @@ targets:
       path: App/Watch/Info.plist
       properties:
         CFBundleDisplayName: NXTPTT
+        # Encryption is Apple's CryptoKit only (see docs/SETUP.md, export compliance).
+        ITSAppUsesNonExemptEncryption: false
         UIAppFonts:
           - Michroma-Regular.ttf
           - Exo2-Medium.ttf
