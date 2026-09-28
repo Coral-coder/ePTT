@@ -26,6 +26,8 @@ struct EngineSnapshot {
     var localIdentity: PublicIdentity?
     var transfers: [TransferRecord] = []
     var relayAvailable = false
+    /// How the transmission being received reached us.
+    var receivingRoute: Route?
 }
 
 /// Where a peer was last heard: a UDP endpoint or a MultipeerConnectivity peer.
@@ -1237,6 +1239,7 @@ final class PTTEngine {
             snapshot.talk = .transmitting(t.channel.id)
         } else if let r = rx {
             snapshot.talk = .receiving(r.channel.id, talker: r.talker)
+            snapshot.receivingRoute = r.route
         }
         lastOnline = onlinePeers()
         snapshot.onlinePeers = lastOnline

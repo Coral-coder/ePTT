@@ -29,6 +29,7 @@ struct SoundsView: View {
             } footer: {
                 Text("The chirp follows the iDEN spec: a tone played 24 ms on, 24 off, 24 on, 24 off, 48 on. You hear it when you get the channel and when a call comes in. Nextel had no beep at the end of a transmission, so the roger beep is off by default.")
             }
+            .nxRows()
 
             Section {
                 ForEach(Tone.allCases) { tone in
@@ -56,7 +57,10 @@ struct SoundsView: View {
             } footer: {
                 Text("Have your own recordings of the original Nextel sounds? Import a short audio file (up to 5 seconds) to replace any of these.")
             }
+            .nxRows()
         }
+        .nxForm()
+        .toggleStyle(NeonToggleStyle())
         .navigationTitle("Nextel sounds")
         .onAppear(perform: refresh)
         .fileImporter(isPresented: Binding(get: { importing != nil }, set: { if !$0 { importing = nil } }),

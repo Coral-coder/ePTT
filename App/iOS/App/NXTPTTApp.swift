@@ -22,6 +22,7 @@ struct NXTPTTApp: App {
 final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        NXAppearance.apply()
         // Start before anything else: a PushToTalk wake may be what launched us.
         AppModel.shared.start()
         application.registerForRemoteNotifications()

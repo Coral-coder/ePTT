@@ -52,6 +52,14 @@ targets:
       path: App/iOS/Support/Info.plist
       properties:
         CFBundleDisplayName: NXTPTT
+        UIAppFonts:
+          - Michroma-Regular.ttf
+          - Exo2-Medium.ttf
+          - Exo2-SemiBold.ttf
+          - Exo2-Bold.ttf
+          - Hind-Regular.ttf
+          - Hind-Medium.ttf
+          - Hind-SemiBold.ttf
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
@@ -96,6 +104,14 @@ targets:
       path: App/Watch/Info.plist
       properties:
         CFBundleDisplayName: NXTPTT
+        UIAppFonts:
+          - Michroma-Regular.ttf
+          - Exo2-Medium.ttf
+          - Exo2-SemiBold.ttf
+          - Exo2-Bold.ttf
+          - Hind-Regular.ttf
+          - Hind-Medium.ttf
+          - Hind-SemiBold.ttf
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         WKApplication: true

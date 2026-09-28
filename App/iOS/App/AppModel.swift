@@ -9,6 +9,7 @@ final class AppModel: ObservableObject {
 
     @Published private(set) var snapshot = EngineSnapshot()
     @Published var banner: String?
+    @Published var tab: NXTab = .talk
 
     let engine = PTTEngine()
     private let watch = WatchBridge()
