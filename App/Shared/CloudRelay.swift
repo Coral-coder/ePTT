@@ -62,38 +62,46 @@ final class CloudRelay {
         }
     }
 
-    /// (Re)creates the push subscription for our current inbox tags. iCloud then notifies us of
-    /// new relayed messages, which works even without an APNs push key.
-    func subscribe(tags: [String]) async {
-        let subscription = CKQuerySubscription(
-            recordType: CloudRelay.recordType,
-            predicate: NSPredicate(format: "mailbox IN %@", tags),
-            subscriptionID: CloudRelay.subscriptionID,
-            options: [.firesOnRecordCreation]
-        )
-        let info = CKSubscription.NotificationInfo()
-        info.alertBody = "New voice message"
-        info.soundName = "default"
-        info.shouldSendContentAvailable = true
-        // Lets the notification service extension decode the message and play it as the sound.
-        info.shouldSendMutableContent = true
-        subscription.notificationInfo = info
-        do {
-            _ = try? await database.deleteSubscription(withID: CloudRelay.subscriptionID)
-            _ = try await database.save(subscription)
-        } catch {
-            log.notice("Relay subscription failed: \(error.localizedDescription, privacy: .public)")
+    /// (Re)creates the push subscriptions for our current inbox tags, one per tag. iCloud then
+    /// notifies us of new relayed messages, which works even without an APNs push key.
+    /// Throws if iCloud refused them, so the app can say so.
+    func subscribe(tags: [String]) async throws {
+        // One plain equality subscription per tag: the most widely supported predicate form.
+        let subscriptions = tags.enumerated().map { index, tag -> CKSubscription in
+            let subscription = CKQuerySubscription(
+                recordType: CloudRelay.recordType,
+                predicate: NSPredicate(format: "mailbox == %@", tag),
+                subscriptionID: "\(CloudRelay.subscriptionID)-\(index)",
+                options: [.firesOnRecordCreation]
+            )
+            let info = CKSubscription.NotificationInfo()
+            info.alertBody = "New voice message"
+            info.soundName = "default"
+            info.shouldSendContentAvailable = true
+            // Lets the notification service extension decode the message and play it as the sound.
+            info.shouldSendMutableContent = true
+            subscription.notificationInfo = info
+            return subscription
+        }
+        let existing = (try? await database.allSubscriptions()) ?? []
+        let keep = Set(subscriptions.map(\.subscriptionID))
+        // Includes the old single "relay-inbox" subscription from earlier versions.
+        let stale = existing.map(\.subscriptionID).filter { $0.hasPrefix(CloudRelay.subscriptionID) && !keep.contains($0) }
+        let (saved, _) = try await database.modifySubscriptions(saving: subscriptions, deleting: stale)
+        for case let (_, .failure(error)) in saved {
+            log.error("Relay subscription failed: \(String(describing: error), privacy: .public)")
+            throw error
         }
     }
 
     static func isRelayNotification(_ userInfo: [AnyHashable: Any]) -> Bool {
-        CKNotification(fromRemoteNotificationDictionary: userInfo)?.subscriptionID == subscriptionID
+        CKNotification(fromRemoteNotificationDictionary: userInfo)?.subscriptionID?.hasPrefix(subscriptionID) == true
     }
 
     /// The relay record a push is about, if it is one of ours.
     static func recordName(inNotification userInfo: [AnyHashable: Any]) -> String? {
         guard let notification = CKNotification(fromRemoteNotificationDictionary: userInfo) as? CKQueryNotification,
-              notification.subscriptionID == subscriptionID else { return nil }
+              notification.subscriptionID?.hasPrefix(subscriptionID) == true else { return nil }
         return notification.recordID?.recordName
     }
 }

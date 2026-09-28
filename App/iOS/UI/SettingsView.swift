@@ -1,10 +1,12 @@
 import SwiftUI
+import UserNotifications
 import EPTTCore
 
 struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
     @State private var name = ""
     @State private var staticCandidates = ""
+    @State private var notificationStatus = "…"
 
     private var settings: Settings { model.snapshot.settings }
 
@@ -72,6 +74,11 @@ struct SettingsView: View {
                 Section("Status") {
                     LabeledContent("Push to Talk", value: model.snapshot.pushToTalkAvailable ? "Ready" : "Unavailable")
                     LabeledContent("Background wake", value: model.snapshot.wakeAvailable ? "Enabled" : "No push key installed")
+                    LabeledContent("Voice message alerts", value: model.snapshot.relayAlerts)
+                    LabeledContent("Notifications", value: notificationStatus)
+                    LabeledContent("Last iCloud alert", value: model.snapshot.lastRelayAlert.map {
+                        $0.formatted(.relative(presentation: .named))
+                    } ?? "None yet")
                     ForEach(model.snapshot.candidates, id: \.self) { candidate in
                         Text(candidate.description).font(.caption.monospaced())
                     }
@@ -81,6 +88,15 @@ struct SettingsView: View {
             .nxForm()
             .toggleStyle(NeonToggleStyle())
             .navigationTitle("Settings")
+            .task {
+                let settings = await UNUserNotificationCenter.current().notificationSettings()
+                switch settings.authorizationStatus {
+                case .authorized, .provisional, .ephemeral:
+                    notificationStatus = settings.soundSetting == .enabled ? "Allowed" : "Allowed, sound off"
+                case .denied: notificationStatus = "Off (turn on in iOS Settings)"
+                default: notificationStatus = "Not asked yet"
+                }
+            }
             .onAppear {
                 name = settings.displayName
                 staticCandidates = settings.staticCandidates.joined(separator: ", ")

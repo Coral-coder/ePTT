@@ -44,6 +44,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any],
                      fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
         if CloudRelay.isRelayNotification(userInfo) {
+            AppModel.shared.engine.noteRelayAlert()
             AppModel.shared.engine.fetchRelay(force: true)
         } else {
             AppModel.shared.engine.handlePushPacket(userInfo)
@@ -59,6 +60,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
         let userInfo = notification.request.content.userInfo
         if CloudRelay.isRelayNotification(userInfo) {
+            AppModel.shared.engine.noteRelayAlert()
             // The extension may already have turned it into a sound; on screen, play it live instead.
             if let record = CloudRelay.recordName(inNotification: userInfo) {
                 AppModel.shared.engine.claimRelayed(record: record)

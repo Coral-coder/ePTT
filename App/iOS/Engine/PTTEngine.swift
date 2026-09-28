@@ -26,6 +26,8 @@ struct EngineSnapshot {
     var localIdentity: PublicIdentity?
     var transfers: [TransferRecord] = []
     var relayAvailable = false
+    var relayAlerts = ""
+    var lastRelayAlert: Date?
     /// How the transmission being received reached us.
     var receivingRoute: Route?
     /// The path each connected contact is reachable on right now.
@@ -97,6 +99,9 @@ final class PTTEngine {
     private var lastInboxSnapshot: WatchSync?
     private var lastRelayFetch = Date.distantPast
     private var subscribedTags: [String] = []
+    /// Whether iCloud will alert us to relayed messages (shown in Settings › Status).
+    private var relayAlerts = "Not set up"
+    private var lastRelayAlert: Date?
     private let bundlesPushKey = APNsClient.fromBundle() != nil
 
     // Derived lookups, rebuilt whenever contacts or channels change.
@@ -223,6 +228,7 @@ final class PTTEngine {
             transport.start()
             nearby.start()
             announceReachability()
+            refreshRelaySubscription()   // mailbox tags rotate daily
             fetchRelay()
         }
     }
@@ -1094,6 +1100,14 @@ final class PTTEngine {
         }
     }
 
+    /// iCloud told us about a relayed message (proves the alert path works end to end).
+    func noteRelayAlert() {
+        queue.async { [self] in
+            lastRelayAlert = Date()
+            publish()
+        }
+    }
+
     func fetchRelay(force: Bool = false) {
         queue.async { [self] in
             guard isForeground, let relay, state.settings.relayEnabled, let mailbox = state.relayMailbox else { return }
@@ -1154,7 +1168,20 @@ final class PTTEngine {
         let tags = Relay.inboxTags(mailbox: mailbox) + [Relay.tag(mailbox: mailbox, at: Date().addingTimeInterval(86400))]
         guard tags != subscribedTags else { return }
         subscribedTags = tags
-        Task { await relay.subscribe(tags: tags) }
+        relayAlerts = "Setting up…"
+        Task { [weak self] in
+            do {
+                try await relay.subscribe(tags: tags)
+                self?.queue.async { self?.relayAlerts = "On"; self?.publish() }
+            } catch {
+                self?.queue.async {
+                    guard let self else { return }
+                    self.subscribedTags = []   // retry on the next housekeeping pass
+                    self.relayAlerts = "Failed: \(error.localizedDescription)"
+                    self.publish()
+                }
+            }
+        }
     }
 
     private func purgeExpiredRelayUploads() {
@@ -1338,6 +1365,8 @@ final class PTTEngine {
         snapshot.localIdentity = identity.publicIdentity
         snapshot.transfers = state.transfers
         snapshot.relayAvailable = relay != nil
+        snapshot.relayAlerts = relay == nil ? "iCloud unavailable" : (state.settings.relayEnabled ? relayAlerts : "Relay off")
+        snapshot.lastRelayAlert = lastRelayAlert
         DispatchQueue.main.async { [weak self] in self?.onSnapshot?(snapshot) }
     }
 
