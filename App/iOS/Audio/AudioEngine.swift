@@ -355,7 +355,7 @@ final class AudioEngine {
     func play(_ tone: Tone) {
         queue.async {
             guard self.engine.isRunning, let format = self.toneFormat else { return }
-            let buffer = ToneSynth.buffer(for: tone, format: format)
+            let buffer = SoundLibrary.buffer(for: tone, format: format) ?? ToneSynth.buffer(for: tone, format: format)
             // A new tone replaces one that is still sounding.
             self.tonePlayer.scheduleBuffer(buffer, at: nil, options: .interrupts, completionHandler: nil)
             if !self.tonePlayer.isPlaying {

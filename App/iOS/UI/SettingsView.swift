@@ -34,6 +34,10 @@ struct SettingsView: View {
                     Text("STUN asks a public server what your address looks like from the internet; it never carries audio. Extra addresses let you publish an overlay VPN (Tailscale, ZeroTier, WireGuard) address that works through any NAT. Separate them with commas.")
                 }
 
+                Section("Sounds") {
+                    NavigationLink("Nextel sounds") { SoundsView() }
+                }
+
                 Section {
                     Toggle("iCloud relay fallback", isOn: binding(\.relayEnabled))
                         .disabled(!model.snapshot.relayAvailable)

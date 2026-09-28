@@ -1,16 +1,38 @@
 import AVFoundation
 
-/// The Nextel-style chirps. All are synthesized at run time; no audio assets ship with the app.
-enum Tone {
+/// The Nextel sounds. They are synthesized at run time from the published specification of the
+/// iDEN chirp, so no recordings ship with the app. Users can import their own (SoundLibrary).
+enum Tone: String, CaseIterable, Identifiable {
+    /// The chirp: played when you get the floor and when an incoming call starts.
     case talkPermit
+    /// Optional "roger beep" when the other side releases. Nextel had none, so it's off by default.
     case endOfTransmission
+    /// The "bonk": someone else has the channel, or you were cut off.
     case busy
+    /// Call alert: a run of chirps, like a Nextel page.
     case callAlert
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .talkPermit: return "Chirp"
+        case .endOfTransmission: return "Roger beep"
+        case .busy: return "Bonk"
+        case .callAlert: return "Call alert"
+        }
+    }
 }
 
 enum ToneSynth {
     /// Peak amplitude of every tone.
     static let amplitude: Float = 0.35
+
+    /// The two pitches of the iDEN chirp on record: 1800 Hz (classic) and 911 Hz (deep).
+    static let classicChirpHz: Double = 1_800
+    static let deepChirpHz: Double = 911
+    /// Pitch used for chirps. Set from Settings.
+    static var chirpFrequency: Double = classicChirpHz
 
     /// Renders `tone` into a buffer of `format` (normally Float32 mono 48 kHz). Every channel
     /// gets the same signal. Float32 and Int16 formats are supported.
@@ -60,25 +82,49 @@ enum ToneSynth {
         var synth = Synth(sampleRate: sampleRate)
         switch tone {
         case .talkPermit:
-            // Three quick high blips: the classic "chirp-chirp-chirp".
-            for i in 0..<3 {
-                synth.tone(frequency: 1_800, milliseconds: 45)
-                if i < 2 { synth.silence(milliseconds: 35) }
-            }
+            chirp(into: &synth)
         case .endOfTransmission:
-            // One short, higher blip.
-            synth.tone(frequency: 2_400, milliseconds: 60)
+            // A single short blip at the chirp pitch.
+            synth.tone(frequency: chirpFrequency, milliseconds: 40, fadeInMs: 2, fadeOutMs: 2)
         case .busy:
-            // Low "bonk" with a fast exponential decay and a touch of second harmonic.
-            synth.tone(frequency: 420, milliseconds: 350, fadeInMs: 2, fadeOutMs: 20,
-                       decayPerSecond: 9, secondHarmonic: 0.35)
+            // The "bonk": a low, hollow tone that drops in pitch and dies away quickly.
+            synth.tone(frequency: 560, milliseconds: 90, fadeInMs: 2, fadeOutMs: 4, secondHarmonic: 0.3)
+            synth.tone(frequency: 400, milliseconds: 260, fadeInMs: 2, fadeOutMs: 30,
+                       decayPerSecond: 7, secondHarmonic: 0.3)
         case .callAlert:
-            // Alternating trill for about one second.
-            synth.trill(frequencies: (1_400, 1_900), segmentMilliseconds: 50, totalMilliseconds: 1_000)
+            // A Nextel page: the chirp, over and over.
+            for i in 0..<4 {
+                chirp(into: &synth)
+                if i < 3 { synth.silence(milliseconds: 180) }
+            }
         }
         // A short tail of silence so the last sample is never cut abruptly.
         synth.silence(milliseconds: 10)
         return synth.samples
+    }
+
+    /// The iDEN chirp: a tone played 24 ms on, 24 off, 24 on, 24 off, 48 on.
+    private static func chirp(into synth: inout Synth) {
+        let f = chirpFrequency
+        synth.tone(frequency: f, milliseconds: 24, fadeInMs: 1.5, fadeOutMs: 1.5)
+        synth.silence(milliseconds: 24)
+        synth.tone(frequency: f, milliseconds: 24, fadeInMs: 1.5, fadeOutMs: 1.5)
+        synth.silence(milliseconds: 24)
+        synth.tone(frequency: f, milliseconds: 48, fadeInMs: 1.5, fadeOutMs: 1.5)
+    }
+
+    /// 16-bit mono WAV of a tone, for previews.
+    static func wav(for tone: Tone, sampleRate: Double = 48_000) -> Data {
+        let samples = render(tone, sampleRate: sampleRate)
+        var data = Data()
+        func append<T: FixedWidthInteger>(_ value: T) { withUnsafeBytes(of: value.littleEndian) { data.append(contentsOf: $0) } }
+        let byteCount = UInt32(samples.count * 2)
+        data.append(contentsOf: Array("RIFF".utf8)); append(UInt32(36) + byteCount)
+        data.append(contentsOf: Array("WAVEfmt ".utf8)); append(UInt32(16)); append(UInt16(1)); append(UInt16(1))
+        append(UInt32(sampleRate)); append(UInt32(sampleRate) * 2); append(UInt16(2)); append(UInt16(16))
+        data.append(contentsOf: Array("data".utf8)); append(byteCount)
+        for s in samples { append(Int16((max(-1, min(1, s)) * 32_767).rounded())) }
+        return data
     }
 
     // MARK: - Synthesizer

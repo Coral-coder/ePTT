@@ -210,7 +210,15 @@ The **Activity** tab shows which route each transmission took.
 - `JitterBuffer` targets a playout delay of about 80 ms. It reorders frames,
   drops duplicates and signals gaps for packet-loss concealment (silence in
   v1).
-- The chirps (talk permit, end of transmission, busy bonk, call alert) are
+- The Nextel sounds are synthesized at run time; no audio assets ship with the app.
+  - **Chirp:** built from its published iDEN spec, a tone at 1800 Hz (or the
+    911 Hz variant) played 24 ms on, 24 off, 24 on, 24 off, 48 on. It plays
+    when you get the floor and when a call comes in.
+  - **Bonk:** played when the channel is busy or you lose a collision.
+  - **Call alert:** a run of chirps.
+  - **Roger beep:** optional and off by default, because Nextel had none.
+  - **Your own recordings:** users can import a file for any sound in
+    Settings → Nextel sounds.
   synthesized at run time. No audio assets ship with the app.
 
 ## Apple Watch

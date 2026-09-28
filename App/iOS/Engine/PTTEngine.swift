@@ -644,9 +644,9 @@ final class PTTEngine {
         playoutTimer?.cancel()
         playoutTimer = nil
         audio.endPlayback()
-        if playEndTone && audioActive { audio.play(.endOfTransmission) }
+        if playEndTone && audioActive && state.settings.rogerBeep { audio.play(.endOfTransmission) }
         if usesPushToTalk && tx == nil {
-            // Give the end tone a moment before iOS tears the audio session down.
+            // Give any end tone a moment before iOS tears the audio session down.
             queue.asyncAfter(deadline: .now() + 0.4) { [weak self] in
                 guard let self, self.rx == nil, self.tx == nil else { return }
                 self.ptt.setActiveRemoteParticipant(nil)
@@ -918,6 +918,7 @@ final class PTTEngine {
     }
 
     private func applyTransportSettings() {
+        ToneSynth.chirpFrequency = state.settings.deepChirp ? ToneSynth.deepChirpHz : ToneSynth.classicChirpHz
         transport.stunEnabled = state.settings.stunEnabled
         transport.staticCandidates = state.settings.parsedStaticCandidates
     }

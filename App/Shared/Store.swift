@@ -15,6 +15,10 @@ struct Settings: Codable, Equatable {
     var relayEnabled = true
     /// Give the paired Apple Watch this identity so it can talk without the iPhone nearby.
     var standaloneWatch = true
+    /// Use the 911 Hz chirp instead of the classic 1800 Hz one.
+    var deepChirp = false
+    /// Beep when the other side releases. Nextel didn't, so it's off by default.
+    var rogerBeep = false
     var selectedChannel: ChannelID?
 
     var parsedStaticCandidates: [Candidate] {
@@ -135,6 +139,8 @@ extension Settings {
         forwardAudioToWatch = try c.decodeIfPresent(Bool.self, forKey: .forwardAudioToWatch) ?? d.forwardAudioToWatch
         relayEnabled = try c.decodeIfPresent(Bool.self, forKey: .relayEnabled) ?? d.relayEnabled
         standaloneWatch = try c.decodeIfPresent(Bool.self, forKey: .standaloneWatch) ?? d.standaloneWatch
+        deepChirp = try c.decodeIfPresent(Bool.self, forKey: .deepChirp) ?? d.deepChirp
+        rogerBeep = try c.decodeIfPresent(Bool.self, forKey: .rogerBeep) ?? d.rogerBeep
         selectedChannel = try c.decodeIfPresent(ChannelID.self, forKey: .selectedChannel)
     }
 }

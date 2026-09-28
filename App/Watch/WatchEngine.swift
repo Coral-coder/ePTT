@@ -258,8 +258,10 @@ final class CaptureEncoder {
     private var fifo: [Float] = []
 
     init() {
-        encoder = VoiceCodecFactory.makeEncoder()
-        inputFormat = AudioFormats.int16Mono(sampleRate: 16_000)
+        let encoder = VoiceCodecFactory.makeEncoder()
+        let inputFormat = AudioFormats.int16Mono(sampleRate: 16_000)
+        self.encoder = encoder
+        self.inputFormat = inputFormat
         converter = inputFormat.flatMap { AVAudioConverter(from: $0, to: encoder.pcmFormat) }
     }
 
