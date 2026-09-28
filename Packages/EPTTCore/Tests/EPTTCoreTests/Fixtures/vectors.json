@@ -1,0 +1,139 @@
+{
+  "candidates": {
+    "host": {
+      "address": "alice.tailnet.ts.net",
+      "encoded": "4814616c6963652e7461696c6e65742e74732e6e65749c42",
+      "port": 40002
+    },
+    "ipv4": {
+      "address": "192.0.2.10",
+      "encoded": "04c000020a9c40",
+      "port": 40000
+    },
+    "ipv6": {
+      "address": "2001:db8::1",
+      "encoded": "0620010db80000000000000000000000019c41",
+      "port": 40001
+    }
+  },
+  "card_alice": {
+    "apns_device_token": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "apns_env": 0,
+    "apns_ptt_token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "apns_topic": "com.example.eptt",
+    "candidates": [
+      "04c000020a9c40",
+      "0620010db80000000000000000000000019c41"
+    ],
+    "card": "010005416c696365020008000001a0c4506c00030020aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa040020bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb0500010006000704c000020a9c400600130620010db80000000000000000000000019c41070010636f6d2e6578616d706c652e65707474080001014000010141002003a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8420020358072d6365880d1aeea329adf9121383851ed21a28e3b75e965d0d2cd1662544f00400dd55b5c5cccfdb74300423b25e7ab1c28cb1b4ba31c7fd6de43779d06db2ac90e7eeb381ad3141fb556d62073aac31470393a7658b3c18b7fa6c0a84319e60b",
+    "name": "Alice",
+    "platform": 1,
+    "timestamp": 1790000000000,
+    "unsigned": "010005416c696365020008000001a0c4506c00030020aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa040020bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb0500010006000704c000020a9c400600130620010db80000000000000000000000019c41070010636f6d2e6578616d706c652e65707474080001014000010141002003a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8420020358072d6365880d1aeea329adf9121383851ed21a28e3b75e965d0d2cd166254",
+    "uri": "eptt://contact/AQAFQWxpY2UCAAgAAAGgxFBsAAMAIKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqBAAgu7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7sFAAEABgAHBMAAAgqcQAYAEwYgAQ24AAAAAAAAAAAAAAABnEEHABBjb20uZXhhbXBsZS5lcHR0CAABAUAAAQFBACADoQe_884Qvh1w3RjnS8CZZ-TWMJulDV8d3IZkElUxuEIAIDWActY2WIDRruoymt-RITg4Ue0hoo47dell0NLNFmJUTwBADdVbXFzM_bdDAEI7JeerHCjLG0ujHH_W3kN3nQbbKskOfus4GtMUH7VW1iBzqsMUcDk6dlizwYt_psCoQxnmCw"
+  },
+  "direct_alice_bob": {
+    "channel_id": "e7b353f15517a54cfa50ba3a9ab7ea22",
+    "channel_key": "302f047ec1746be6d812b95a1e297182be163abb83ec413dce9473ad49cea16c",
+    "shared": "7c79d7b5f31b9aac367477f5f7c7a68b5c44cac28ed5c902a59ec48c02956a6a"
+  },
+  "group_burst": {
+    "burst_id": "f0e1d2c3b4a59687",
+    "end_packet": "0104000311111111111111111111111111111111519cae93e93ad011f0e1d2c3b4a5968700000009a18cbc01a50bcc652446791287611c385b0fd4ab7f79abff7733ff022d6756835fc6",
+    "end_plaintext": "020008000001a0c4506f8414000400000009",
+    "end_seq": 9,
+    "epoch": 3,
+    "group_id": "11111111111111111111111111111111",
+    "group_key": "2222222222222222222222222222222222222222222222222222222222222222",
+    "sender_id": "519cae93e93ad011",
+    "signature": "d91de7d9811d4dd8fd512d78c41d1a7b1e76f401f0571163f19b45030aaa32c9dd791321c4f8adce7fb528aff70fe8f23974c6cf79f1b74251d81475fb3ad20a",
+    "signature_input": "655054542f3120627572737411111111111111111111111111111111519cae93e93ad011f0e1d2c3b4a59687000001a0c4506c00",
+    "start_packet": "0102000311111111111111111111111111111111519cae93e93ad011f0e1d2c3b4a596870000000021e72ee376316d24a8483a58b1f4444e9d72fc0719f838b32200af8ccdf3b89a270a5cfc006f1427702065f87105556f0851415613379041709b2e1945a7d69d8ef2274c0a7d21ddec92a30fec54ac8aa83e96003adebb69e37182518324f107cb011c0f55d098f6e81ffd187c",
+    "start_plaintext": "020008000001a0c4506c001000010111000400003e8012000114130040d91de7d9811d4dd8fd512d78c41d1a7b1e76f401f0571163f19b45030aaa32c9dd791321c4f8adce7fb528aff70fe8f23974c6cf79f1b74251d81475fb3ad20a",
+    "timestamp": 1790000000000,
+    "voice_frames": [
+      "010203",
+      "04",
+      "0506"
+    ],
+    "voice_packet": "0103000311111111111111111111111111111111519cae93e93ad011f0e1d2c3b4a59687000000068f11589fdffa635a7ca2388a4682908b931758518a5d0dd2484717f595",
+    "voice_plaintext": "03000301020300010400020506",
+    "voice_seq": 6
+  },
+  "identities": {
+    "alice": {
+      "identity_id": "56475aa75463474c0285df5dbf2bcab7",
+      "kx_pk": "358072d6365880d1aeea329adf9121383851ed21a28e3b75e965d0d2cd166254",
+      "kx_private": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+      "sender_id": "56475aa75463474c",
+      "sign_pk": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+      "sign_seed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+    },
+    "bob": {
+      "identity_id": "03396219237f75a64f12aeb7f39723ab",
+      "kx_pk": "675dd574ed7789310b3d2e7681f3790b466c773b1521fecf36577958371ea52f",
+      "kx_private": "606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f",
+      "sender_id": "03396219237f75a6",
+      "sign_pk": "2543b92ff1095511476adc8369db6ddc933665a11978dda1404ee1066ca9559d",
+      "sign_seed": "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f"
+    },
+    "carol": {
+      "identity_id": "519cae93e93ad011d785355894405ed8",
+      "kx_pk": "605a725d2a4adfeeb1a29e17edd621c1b7593ee8cdbc44ac6c4ab6e2f805d23c",
+      "kx_private": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+      "sender_id": "519cae93e93ad011",
+      "sign_pk": "cd14b37f956e953194ff7fb73b3d81dcc561d61a7538094b7c3e1a643ee5f3aa",
+      "sign_seed": "808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f"
+    }
+  },
+  "packet_hello": {
+    "channel_id": "e7b353f15517a54cfa50ba3a9ab7ea22",
+    "channel_key": "302f047ec1746be6d812b95a1e297182be163abb83ec413dce9473ad49cea16c",
+    "epoch": 0,
+    "message_id": "0102030405060708",
+    "message_key": "8c9bc5e5be4ca6eeabf070109c34ef024612bd6c05fe34f770ab35b30dce1b0d",
+    "nonce": "010000000000000000000000",
+    "packet": "01010000e7b353f15517a54cfa50ba3a9ab7ea2256475aa75463474c0102030405060708000000008fece90affec38f2f8d4f80e565e2c8b47bdf74206792ea7e5abedd2da235724cdeedded35d608a28e6a9b1517d080b5ba",
+    "plaintext": "010005416c696365020008000001a0c4506c0006000704c000020a9c4009000101",
+    "sender_id": "56475aa75463474c",
+    "seq": 0,
+    "type": 1
+  },
+  "safety_number_alice_bob": "25042 56032 48284 22806 53725 13627",
+  "stun": {
+    "request": "000100002112a442000102030405060708090a0b",
+    "response_ipv4": {
+      "address": "203.0.113.7",
+      "packet": "010100142112a442000102030405060708090a0b8022000372656600002000080001e930ea12d545",
+      "port": 51234
+    },
+    "response_ipv6": {
+      "address": "2001:db8::abcd",
+      "packet": "010100202112a442000102030405060708090a0b802200037265660000200014000220a90113a9fa00010203040506070809a1c6",
+      "port": 443
+    },
+    "transaction_id": "000102030405060708090a0b"
+  },
+  "tlv": {
+    "encoded": "010002686902000800000000000000010600020a0b0600010c",
+    "records": [
+      [
+        6,
+        "0a0b"
+      ],
+      [
+        1,
+        "6869"
+      ],
+      [
+        6,
+        "0c"
+      ],
+      [
+        2,
+        "0000000000000001"
+      ]
+    ]
+  },
+  "version": 1
+}
