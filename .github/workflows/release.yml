@@ -1,0 +1,155 @@
+# Builds a signed ad-hoc IPA and publishes an install page on GitHub Pages.
+# One-time setup (secrets, Pages, device registration) is described in docs/SETUP.md.
+name: Ad-hoc release
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-15
+    env:
+      EPTT_BUNDLE_ID: ${{ secrets.EPTT_BUNDLE_ID }}
+      TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check secrets
+        run: |
+          for name in BUILD_CERTIFICATE_P12_BASE64 P12_PASSWORD ADHOC_PROFILE_IOS_BASE64 ADHOC_PROFILE_WATCH_BASE64 APPLE_TEAM_ID EPTT_BUNDLE_ID; do
+            if [ -z "${!name}" ]; then echo "::error::Missing secret $name (see docs/SETUP.md)"; exit 1; fi
+          done
+        env:
+          BUILD_CERTIFICATE_P12_BASE64: ${{ secrets.BUILD_CERTIFICATE_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          ADHOC_PROFILE_IOS_BASE64: ${{ secrets.ADHOC_PROFILE_IOS_BASE64 }}
+          ADHOC_PROFILE_WATCH_BASE64: ${{ secrets.ADHOC_PROFILE_WATCH_BASE64 }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Install signing certificate and profiles
+        env:
+          P12: ${{ secrets.BUILD_CERTIFICATE_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          IOS_PROFILE: ${{ secrets.ADHOC_PROFILE_IOS_BASE64 }}
+          WATCH_PROFILE: ${{ secrets.ADHOC_PROFILE_WATCH_BASE64 }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          echo "$P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+
+          PROFILES="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILES"
+          for kind in IOS WATCH; do
+            var="${kind}_PROFILE"
+            echo "${!var}" | base64 --decode > "$RUNNER_TEMP/$kind.mobileprovision"
+            security cms -D -i "$RUNNER_TEMP/$kind.mobileprovision" > "$RUNNER_TEMP/$kind.plist"
+            uuid=$(/usr/libexec/PlistBuddy -c "Print UUID" "$RUNNER_TEMP/$kind.plist")
+            name=$(/usr/libexec/PlistBuddy -c "Print Name" "$RUNNER_TEMP/$kind.plist")
+            cp "$RUNNER_TEMP/$kind.mobileprovision" "$PROFILES/$uuid.mobileprovision"
+            echo "${kind}_PROFILE_NAME=$name" >> "$GITHUB_ENV"
+          done
+
+      - name: Write build configuration
+        env:
+          APNS_KEY_P8: ${{ secrets.APNS_KEY_P8 }}
+          APNS_KEY_ID: ${{ secrets.APNS_KEY_ID }}
+          BUNDLE_APNS_KEY: ${{ vars.BUNDLE_APNS_KEY }}
+        run: |
+          {
+            echo "DEVELOPMENT_TEAM = $TEAM_ID"
+            echo "EPTT_BUNDLE_ID = $EPTT_BUNDLE_ID"
+            echo "CODE_SIGN_STYLE = Manual"
+            echo "CODE_SIGN_IDENTITY = Apple Distribution"
+            echo "EPTT_IOS_PROFILE = $IOS_PROFILE_NAME"
+            echo "EPTT_WATCH_PROFILE = $WATCH_PROFILE_NAME"
+            echo "CURRENT_PROJECT_VERSION = $GITHUB_RUN_NUMBER"
+          } > Config/Secrets.xcconfig
+          # Bundling the APNs key into an IPA that anyone can download from Pages publishes the key.
+          # It is opt-in; the default is to share the key in-app (docs/SETUP.md).
+          if [ "$BUNDLE_APNS_KEY" = "true" ] && [ -n "$APNS_KEY_P8" ]; then
+            printf '%s\n' "$APNS_KEY_P8" > Config/APNsAuthKey.p8
+            echo "EPTT_APNS_TEAM_ID = $TEAM_ID" >> Config/Secrets.xcconfig
+            echo "EPTT_APNS_KEY_ID = $APNS_KEY_ID" >> Config/Secrets.xcconfig
+            echo "::warning::The APNs key is bundled into this build; anyone who downloads the IPA can extract it."
+          fi
+
+      - run: brew install xcodegen && xcodegen generate
+
+      - name: Archive
+        run: |
+          set -o pipefail
+          xcodebuild -project Chirp.xcodeproj -scheme Chirp -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath build/Chirp.xcarchive archive | tail -40
+
+      - name: Export ad-hoc IPA
+        run: |
+          cat > build/ExportOptions.plist <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>release-testing</string>
+            <key>teamID</key><string>$TEAM_ID</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>signingCertificate</key><string>Apple Distribution</string>
+            <key>provisioningProfiles</key><dict>
+              <key>$EPTT_BUNDLE_ID</key><string>$IOS_PROFILE_NAME</string>
+              <key>$EPTT_BUNDLE_ID.watchkitapp</key><string>$WATCH_PROFILE_NAME</string>
+            </dict>
+            <key>compileBitcode</key><false/>
+            <key>thinning</key><string>&lt;none&gt;</string>
+          </dict></plist>
+          PLIST
+          xcodebuild -exportArchive -archivePath build/Chirp.xcarchive \
+            -exportOptionsPlist build/ExportOptions.plist -exportPath build/export
+          ls -la build/export
+
+      - name: Build install page
+        run: |
+          OWNER="${GITHUB_REPOSITORY_OWNER,,}"
+          REPO="${GITHUB_REPOSITORY#*/}"
+          BASE="https://$OWNER.github.io/$REPO"
+          VERSION="$(/usr/libexec/PlistBuddy -c 'Print ApplicationProperties:CFBundleShortVersionString' build/Chirp.xcarchive/Info.plist)"
+          mkdir -p site
+          cp build/export/*.ipa site/Chirp.ipa
+          sed -e "s|@BASE@|$BASE|g" -e "s|@BUNDLE_ID@|$EPTT_BUNDLE_ID|g" -e "s|@VERSION@|$VERSION|g" \
+            tools/release/manifest.plist.template > site/manifest.plist
+          sed -e "s|@BASE@|$BASE|g" -e "s|@VERSION@|$VERSION ($GITHUB_RUN_NUMBER)|g" \
+            tools/release/index.html.template > site/index.html
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Attach IPA to the GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" site/Chirp.ipa --title "Chirp $GITHUB_REF_NAME" --notes "Ad-hoc build. Install from the Pages site on a registered device." || gh release upload "$GITHUB_REF_NAME" site/Chirp.ipa --clobber
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

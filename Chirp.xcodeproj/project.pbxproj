@@ -1,0 +1,686 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		040A6B645D84A1F54CA25660 /* Tones.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4030DAAEF075BCB40969A827 /* Tones.swift */; };
+		06165A28DF2D75C137038D7D /* UDPTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C78317B8254C2D497FF6EDBA /* UDPTransport.swift */; };
+		085CE0FB1398F0F53E9CB7FD /* WatchProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A31168628B748D4B7A93A209 /* WatchProtocol.swift */; };
+		0B574DE5FE5841780B0BD0AF /* LocalAddresses.swift in Sources */ = {isa = PBXBuildFile; fileRef = 271981E0BC3090E844372E96 /* LocalAddresses.swift */; };
+		0C6FDBBB6A1EDA698B2948DC /* PTTEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F8EC7EE4E39FCFA53FA9DEF /* PTTEngine.swift */; };
+		10413DD8B8B6F19890639CFD /* SoundsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58DA4F617A05D5EAB3BD3D7C /* SoundsView.swift */; };
+		1A6CC5DFD1350665DA5499DC /* CloudRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98C176F6261A2EE5837D7DE3 /* CloudRelay.swift */; };
+		1DFB12F0B9B1387E3CF02065 /* EPTTCore in Frameworks */ = {isa = PBXBuildFile; productRef = 0EEB6353BEB88B6CB6ADC0F1 /* EPTTCore */; };
+		2199BBFDBFDE0F4DA9F17A3F /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = 781B448EDC94A51371296D04 /* Store.swift */; };
+		2BC45D9AFED01207A87E5301 /* ActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEDA0CE66AA5F6411C26ADEB /* ActivityView.swift */; };
+		2C8489C4547C088AB10C0F29 /* WatchBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05C50FD094DDE91ED9644948 /* WatchBridge.swift */; };
+		2E902BD018ABC4ECB02A7782 /* VoiceCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BA5E3311A354B85155DF5D5 /* VoiceCodec.swift */; };
+		3C9FE1A691E43AFC424A31D1 /* PushToTalkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B189843F187E4EC136C9881 /* PushToTalkManager.swift */; };
+		42E8C127D37CB0608647F339 /* TalkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83BA1B05BA7784EF78F51EFA /* TalkView.swift */; };
+		43C62F340FBBAA8AE4EDA869 /* EPTTCore in Frameworks */ = {isa = PBXBuildFile; productRef = 6EB2BD5BDB385824E92D01ED /* EPTTCore */; };
+		455D9E784FB38D6D5EC2ED20 /* VoiceCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BA5E3311A354B85155DF5D5 /* VoiceCodec.swift */; };
+		46010AAC96FEF82FFC7E9CEC /* ChirpWatch.app in Embed Dependencies */ = {isa = PBXBuildFile; fileRef = 7C972BD8376513B47936CE8A /* ChirpWatch.app */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		4702E35904E813D12F13AC96 /* AudioEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 305EB8036A19985A34714DEB /* AudioEngine.swift */; };
+		48FC7DADD9DF2AFB4BFBC0F1 /* APNsClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F6D0C3FBCFA1A4046E5BE03 /* APNsClient.swift */; };
+		5FAE3F09B0F3FF0F54432771 /* APNsClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F6D0C3FBCFA1A4046E5BE03 /* APNsClient.swift */; };
+		79BF4B67207AEBED8DD5B700 /* WatchTalkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC2966AD5E34181BFB0DB9F3 /* WatchTalkView.swift */; };
+		7EFFD9B0DB1FFD8863BC22E4 /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C91407CC13EDDCBCFB1D1F8 /* Keychain.swift */; };
+		8980692844DA62EDBF00D0B3 /* WatchModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 146200F0CA29F204D86E3091 /* WatchModel.swift */; };
+		8A7814D3388FB4154309A5BC /* WatchEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EED298AA5C99D7ED8EE8B04 /* WatchEngine.swift */; };
+		8CEB9A680D38F586C604326F /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C91407CC13EDDCBCFB1D1F8 /* Keychain.swift */; };
+		8D8EE035822F2C903CFCA85C /* ChirpWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 305D5EE57699D5E53269593C /* ChirpWatchApp.swift */; };
+		967BD804AAB32A9723F63B2C /* NearbyTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E89FADF6E35002848E50DB13 /* NearbyTransport.swift */; };
+		A6481FB12DF68028B80E9754 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AAB7B3DA133B75E286D4F94 /* SettingsView.swift */; };
+		B99825D2506D0DF5C4DBB871 /* SoundLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F29ADF16B911CA9420C16A9E /* SoundLibrary.swift */; };
+		BBFAAE1B2D65BC268AC48ADA /* WatchProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A31168628B748D4B7A93A209 /* WatchProtocol.swift */; };
+		DDFFAC04CC4B70BDD33F607C /* ContactsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64A3B1DBCA46959304F47DFD /* ContactsView.swift */; };
+		E0ABA5DE62C5868E09631F18 /* ChirpApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 334DC7624DB889689A500BEF /* ChirpApp.swift */; };
+		E606B8E7B177CC8DCFE8BD59 /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = 781B448EDC94A51371296D04 /* Store.swift */; };
+		E8B6BE6F52745A52009437CA /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06AFAC98D9E30357604F7F6D /* AppModel.swift */; };
+		F7292EAA7BC0160FFD1E8A46 /* CloudRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98C176F6261A2EE5837D7DE3 /* CloudRelay.swift */; };
+		FEF2CCCC1143D0F7AB130695 /* ChannelsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB0BF36D8C5E1444092AF5A5 /* ChannelsView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		9B15832CA045A7FD0EB702DC /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = F9902D8B13CCB06443824441 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B77C1F6D69DED1C1A7A1870C;
+			remoteInfo = ChirpWatch;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		9B11F5E79BCF15FD0095B263 /* Embed Dependencies */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				46010AAC96FEF82FFC7E9CEC /* ChirpWatch.app in Embed Dependencies */,
+			);
+			name = "Embed Dependencies";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		05C50FD094DDE91ED9644948 /* WatchBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchBridge.swift; sourceTree = "<group>"; };
+		06AFAC98D9E30357604F7F6D /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		0C91407CC13EDDCBCFB1D1F8 /* Keychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keychain.swift; sourceTree = "<group>"; };
+		0DE0D6DDADC972274FA5CE78 /* ChirpWatch.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ChirpWatch.entitlements; sourceTree = "<group>"; };
+		0F8EC7EE4E39FCFA53FA9DEF /* PTTEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PTTEngine.swift; sourceTree = "<group>"; };
+		146200F0CA29F204D86E3091 /* WatchModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchModel.swift; sourceTree = "<group>"; };
+		271981E0BC3090E844372E96 /* LocalAddresses.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalAddresses.swift; sourceTree = "<group>"; };
+		2EED298AA5C99D7ED8EE8B04 /* WatchEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchEngine.swift; sourceTree = "<group>"; };
+		305D5EE57699D5E53269593C /* ChirpWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChirpWatchApp.swift; sourceTree = "<group>"; };
+		305EB8036A19985A34714DEB /* AudioEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioEngine.swift; sourceTree = "<group>"; };
+		334DC7624DB889689A500BEF /* ChirpApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChirpApp.swift; sourceTree = "<group>"; };
+		4030DAAEF075BCB40969A827 /* Tones.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tones.swift; sourceTree = "<group>"; };
+		4B8D2CE54350D9B0175C06C1 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		4BA5E3311A354B85155DF5D5 /* VoiceCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCodec.swift; sourceTree = "<group>"; };
+		542CE01D54D9466D183B190A /* EPTTCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = EPTTCore; path = Packages/EPTTCore; sourceTree = SOURCE_ROOT; };
+		58DA4F617A05D5EAB3BD3D7C /* SoundsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundsView.swift; sourceTree = "<group>"; };
+		64A3B1DBCA46959304F47DFD /* ContactsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactsView.swift; sourceTree = "<group>"; };
+		6B189843F187E4EC136C9881 /* PushToTalkManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushToTalkManager.swift; sourceTree = "<group>"; };
+		6F6D0C3FBCFA1A4046E5BE03 /* APNsClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APNsClient.swift; sourceTree = "<group>"; };
+		771F80D547A7D640DB6213B4 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
+		781B448EDC94A51371296D04 /* Store.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Store.swift; sourceTree = "<group>"; };
+		7C972BD8376513B47936CE8A /* ChirpWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ChirpWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		83686022E358E6F36AC6DB43 /* Chirp.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Chirp.entitlements; sourceTree = "<group>"; };
+		83BA1B05BA7784EF78F51EFA /* TalkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TalkView.swift; sourceTree = "<group>"; };
+		8AAB7B3DA133B75E286D4F94 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		98C176F6261A2EE5837D7DE3 /* CloudRelay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudRelay.swift; sourceTree = "<group>"; };
+		A31168628B748D4B7A93A209 /* WatchProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchProtocol.swift; sourceTree = "<group>"; };
+		BE212C39877A658DFB0C98FA /* Chirp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Chirp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BEDA0CE66AA5F6411C26ADEB /* ActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityView.swift; sourceTree = "<group>"; };
+		C73A767B6D38E8F4C0259463 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		C78317B8254C2D497FF6EDBA /* UDPTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UDPTransport.swift; sourceTree = "<group>"; };
+		D0B797693DDF10C35BAC615F /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
+		E89FADF6E35002848E50DB13 /* NearbyTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NearbyTransport.swift; sourceTree = "<group>"; };
+		EC2966AD5E34181BFB0DB9F3 /* WatchTalkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchTalkView.swift; sourceTree = "<group>"; };
+		F29ADF16B911CA9420C16A9E /* SoundLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundLibrary.swift; sourceTree = "<group>"; };
+		FB0BF36D8C5E1444092AF5A5 /* ChannelsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelsView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		508C6B98B6722BD7B8DD3AD0 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				43C62F340FBBAA8AE4EDA869 /* EPTTCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		64E6CAA6DDA45B0B44D97F2E /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1DFB12F0B9B1387E3CF02065 /* EPTTCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		02696F15C035DC3EAF3112AE /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				D0B797693DDF10C35BAC615F /* Debug.xcconfig */,
+				771F80D547A7D640DB6213B4 /* Release.xcconfig */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+		1143457E5A357D8F07F70234 /* Audio */ = {
+			isa = PBXGroup;
+			children = (
+				305EB8036A19985A34714DEB /* AudioEngine.swift */,
+				F29ADF16B911CA9420C16A9E /* SoundLibrary.swift */,
+				4030DAAEF075BCB40969A827 /* Tones.swift */,
+			);
+			path = Audio;
+			sourceTree = "<group>";
+		};
+		215C06739F2BE9409A23CAB0 /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				80DE8B1EFADB833C044DB5E1 /* App */,
+				1143457E5A357D8F07F70234 /* Audio */,
+				E886593D53CEE169798C91E5 /* Engine */,
+				2F206666D91812E72A5355F1 /* Network */,
+				C6DE1A31AF4E912C1EFF0780 /* Support */,
+				77A41C5FB66D8D8F423B54DC /* UI */,
+			);
+			path = iOS;
+			sourceTree = "<group>";
+		};
+		22EC7420128987049AD6FEE0 /* Watch */ = {
+			isa = PBXGroup;
+			children = (
+				0DE0D6DDADC972274FA5CE78 /* ChirpWatch.entitlements */,
+				305D5EE57699D5E53269593C /* ChirpWatchApp.swift */,
+				C73A767B6D38E8F4C0259463 /* Info.plist */,
+				2EED298AA5C99D7ED8EE8B04 /* WatchEngine.swift */,
+				146200F0CA29F204D86E3091 /* WatchModel.swift */,
+				EC2966AD5E34181BFB0DB9F3 /* WatchTalkView.swift */,
+			);
+			path = Watch;
+			sourceTree = "<group>";
+		};
+		26E6F52A54743D11DFA78B83 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				BE212C39877A658DFB0C98FA /* Chirp.app */,
+				7C972BD8376513B47936CE8A /* ChirpWatch.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		2F206666D91812E72A5355F1 /* Network */ = {
+			isa = PBXGroup;
+			children = (
+				271981E0BC3090E844372E96 /* LocalAddresses.swift */,
+				E89FADF6E35002848E50DB13 /* NearbyTransport.swift */,
+				C78317B8254C2D497FF6EDBA /* UDPTransport.swift */,
+			);
+			path = Network;
+			sourceTree = "<group>";
+		};
+		688CF1B920AAAD8660A44488 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				542CE01D54D9466D183B190A /* EPTTCore */,
+			);
+			path = Packages;
+			sourceTree = "<group>";
+		};
+		77A41C5FB66D8D8F423B54DC /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				BEDA0CE66AA5F6411C26ADEB /* ActivityView.swift */,
+				FB0BF36D8C5E1444092AF5A5 /* ChannelsView.swift */,
+				64A3B1DBCA46959304F47DFD /* ContactsView.swift */,
+				8AAB7B3DA133B75E286D4F94 /* SettingsView.swift */,
+				58DA4F617A05D5EAB3BD3D7C /* SoundsView.swift */,
+				83BA1B05BA7784EF78F51EFA /* TalkView.swift */,
+			);
+			path = UI;
+			sourceTree = "<group>";
+		};
+		80DE8B1EFADB833C044DB5E1 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				06AFAC98D9E30357604F7F6D /* AppModel.swift */,
+				334DC7624DB889689A500BEF /* ChirpApp.swift */,
+				05C50FD094DDE91ED9644948 /* WatchBridge.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		83C46AE6CB870E66A4AEC55C /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				6F6D0C3FBCFA1A4046E5BE03 /* APNsClient.swift */,
+				98C176F6261A2EE5837D7DE3 /* CloudRelay.swift */,
+				0C91407CC13EDDCBCFB1D1F8 /* Keychain.swift */,
+				781B448EDC94A51371296D04 /* Store.swift */,
+				4BA5E3311A354B85155DF5D5 /* VoiceCodec.swift */,
+				A31168628B748D4B7A93A209 /* WatchProtocol.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		AEA85AB36EE60D165F0C8A26 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				215C06739F2BE9409A23CAB0 /* iOS */,
+				83C46AE6CB870E66A4AEC55C /* Shared */,
+				22EC7420128987049AD6FEE0 /* Watch */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		C6DE1A31AF4E912C1EFF0780 /* Support */ = {
+			isa = PBXGroup;
+			children = (
+				83686022E358E6F36AC6DB43 /* Chirp.entitlements */,
+				4B8D2CE54350D9B0175C06C1 /* Info.plist */,
+			);
+			path = Support;
+			sourceTree = "<group>";
+		};
+		E2E0CE7C80541C9169F414C6 = {
+			isa = PBXGroup;
+			children = (
+				AEA85AB36EE60D165F0C8A26 /* App */,
+				02696F15C035DC3EAF3112AE /* Config */,
+				688CF1B920AAAD8660A44488 /* Packages */,
+				26E6F52A54743D11DFA78B83 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		E886593D53CEE169798C91E5 /* Engine */ = {
+			isa = PBXGroup;
+			children = (
+				0F8EC7EE4E39FCFA53FA9DEF /* PTTEngine.swift */,
+				6B189843F187E4EC136C9881 /* PushToTalkManager.swift */,
+			);
+			path = Engine;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		063AA418A76E467C127B2092 /* Chirp */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 757DFA98676C48ACD6508A66 /* Build configuration list for PBXNativeTarget "Chirp" */;
+			buildPhases = (
+				EE812C034A7568790A8F7328 /* Sources */,
+				508C6B98B6722BD7B8DD3AD0 /* Frameworks */,
+				9B11F5E79BCF15FD0095B263 /* Embed Dependencies */,
+				1E13A032C259C525125B067A /* Bundle APNs key if present */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				49F93B2E7A7589E23AE81A4A /* PBXTargetDependency */,
+			);
+			name = Chirp;
+			packageProductDependencies = (
+				6EB2BD5BDB385824E92D01ED /* EPTTCore */,
+			);
+			productName = Chirp;
+			productReference = BE212C39877A658DFB0C98FA /* Chirp.app */;
+			productType = "com.apple.product-type.application";
+		};
+		B77C1F6D69DED1C1A7A1870C /* ChirpWatch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 66327B67BB7848051B120F0B /* Build configuration list for PBXNativeTarget "ChirpWatch" */;
+			buildPhases = (
+				6B44D2536D6F576FC73E5CD2 /* Sources */,
+				64E6CAA6DDA45B0B44D97F2E /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ChirpWatch;
+			packageProductDependencies = (
+				0EEB6353BEB88B6CB6ADC0F1 /* EPTTCore */,
+			);
+			productName = ChirpWatch;
+			productReference = 7C972BD8376513B47936CE8A /* ChirpWatch.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		F9902D8B13CCB06443824441 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					063AA418A76E467C127B2092 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+					B77C1F6D69DED1C1A7A1870C = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 44649860CA8F9C9EA0EA2354 /* Build configuration list for PBXProject "Chirp" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = E2E0CE7C80541C9169F414C6;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				E9B2A0A5FB9AC2485F6C8064 /* XCLocalSwiftPackageReference "Packages/EPTTCore" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 26E6F52A54743D11DFA78B83 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				063AA418A76E467C127B2092 /* Chirp */,
+				B77C1F6D69DED1C1A7A1870C /* ChirpWatch */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		1E13A032C259C525125B067A /* Bundle APNs key if present */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Bundle APNs key if present";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Optional and only for private builds (docs/SETUP.md). Runs before code signing.\nif [ -f \"$SRCROOT/Config/APNsAuthKey.p8\" ]; then\n  cp \"$SRCROOT/Config/APNsAuthKey.p8\" \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/APNsAuthKey.p8\"\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		6B44D2536D6F576FC73E5CD2 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				48FC7DADD9DF2AFB4BFBC0F1 /* APNsClient.swift in Sources */,
+				8D8EE035822F2C903CFCA85C /* ChirpWatchApp.swift in Sources */,
+				1A6CC5DFD1350665DA5499DC /* CloudRelay.swift in Sources */,
+				7EFFD9B0DB1FFD8863BC22E4 /* Keychain.swift in Sources */,
+				2199BBFDBFDE0F4DA9F17A3F /* Store.swift in Sources */,
+				2E902BD018ABC4ECB02A7782 /* VoiceCodec.swift in Sources */,
+				8A7814D3388FB4154309A5BC /* WatchEngine.swift in Sources */,
+				8980692844DA62EDBF00D0B3 /* WatchModel.swift in Sources */,
+				085CE0FB1398F0F53E9CB7FD /* WatchProtocol.swift in Sources */,
+				79BF4B67207AEBED8DD5B700 /* WatchTalkView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EE812C034A7568790A8F7328 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5FAE3F09B0F3FF0F54432771 /* APNsClient.swift in Sources */,
+				2BC45D9AFED01207A87E5301 /* ActivityView.swift in Sources */,
+				E8B6BE6F52745A52009437CA /* AppModel.swift in Sources */,
+				4702E35904E813D12F13AC96 /* AudioEngine.swift in Sources */,
+				FEF2CCCC1143D0F7AB130695 /* ChannelsView.swift in Sources */,
+				E0ABA5DE62C5868E09631F18 /* ChirpApp.swift in Sources */,
+				F7292EAA7BC0160FFD1E8A46 /* CloudRelay.swift in Sources */,
+				DDFFAC04CC4B70BDD33F607C /* ContactsView.swift in Sources */,
+				8CEB9A680D38F586C604326F /* Keychain.swift in Sources */,
+				0B574DE5FE5841780B0BD0AF /* LocalAddresses.swift in Sources */,
+				967BD804AAB32A9723F63B2C /* NearbyTransport.swift in Sources */,
+				0C6FDBBB6A1EDA698B2948DC /* PTTEngine.swift in Sources */,
+				3C9FE1A691E43AFC424A31D1 /* PushToTalkManager.swift in Sources */,
+				A6481FB12DF68028B80E9754 /* SettingsView.swift in Sources */,
+				B99825D2506D0DF5C4DBB871 /* SoundLibrary.swift in Sources */,
+				10413DD8B8B6F19890639CFD /* SoundsView.swift in Sources */,
+				E606B8E7B177CC8DCFE8BD59 /* Store.swift in Sources */,
+				42E8C127D37CB0608647F339 /* TalkView.swift in Sources */,
+				040A6B645D84A1F54CA25660 /* Tones.swift in Sources */,
+				06165A28DF2D75C137038D7D /* UDPTransport.swift in Sources */,
+				455D9E784FB38D6D5EC2ED20 /* VoiceCodec.swift in Sources */,
+				2C8489C4547C088AB10C0F29 /* WatchBridge.swift in Sources */,
+				BBFAAE1B2D65BC268AC48ADA /* WatchProtocol.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		49F93B2E7A7589E23AE81A4A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B77C1F6D69DED1C1A7A1870C /* ChirpWatch */;
+			targetProxy = 9B15832CA045A7FD0EB702DC /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		078888E0E7264D0D14F863E2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				CODE_SIGN_ENTITLEMENTS = App/iOS/Support/Chirp.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				INFOPLIST_FILE = App/iOS/Support/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(EPTT_BUNDLE_ID)";
+				PROVISIONING_PROFILE_SPECIFIER = "$(EPTT_IOS_PROFILE)";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		0B54409F3C1DBC37D0DE3E87 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 771F80D547A7D640DB6213B4 /* Release.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				WATCHOS_DEPLOYMENT_TARGET = 9.0;
+			};
+			name = Release;
+		};
+		4AC550F33127223ECAB7403F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = D0B797693DDF10C35BAC615F /* Debug.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				WATCHOS_DEPLOYMENT_TARGET = 9.0;
+			};
+			name = Debug;
+		};
+		74AFC5401470246E77F06BF3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				CODE_SIGN_ENTITLEMENTS = App/iOS/Support/Chirp.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				INFOPLIST_FILE = App/iOS/Support/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(EPTT_BUNDLE_ID)";
+				PROVISIONING_PROFILE_SPECIFIER = "$(EPTT_IOS_PROFILE)";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A0746A6AD6000032BBE78489 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				CODE_SIGN_ENTITLEMENTS = App/Watch/ChirpWatch.entitlements;
+				INFOPLIST_FILE = App/Watch/Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(EPTT_BUNDLE_ID).watchkitapp";
+				PROVISIONING_PROFILE_SPECIFIER = "$(EPTT_WATCH_PROFILE)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 4;
+			};
+			name = Debug;
+		};
+		E36979B03571726EE63937E1 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				CODE_SIGN_ENTITLEMENTS = App/Watch/ChirpWatch.entitlements;
+				INFOPLIST_FILE = App/Watch/Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(EPTT_BUNDLE_ID).watchkitapp";
+				PROVISIONING_PROFILE_SPECIFIER = "$(EPTT_WATCH_PROFILE)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 4;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		44649860CA8F9C9EA0EA2354 /* Build configuration list for PBXProject "Chirp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4AC550F33127223ECAB7403F /* Debug */,
+				0B54409F3C1DBC37D0DE3E87 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		66327B67BB7848051B120F0B /* Build configuration list for PBXNativeTarget "ChirpWatch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A0746A6AD6000032BBE78489 /* Debug */,
+				E36979B03571726EE63937E1 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		757DFA98676C48ACD6508A66 /* Build configuration list for PBXNativeTarget "Chirp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				74AFC5401470246E77F06BF3 /* Debug */,
+				078888E0E7264D0D14F863E2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		E9B2A0A5FB9AC2485F6C8064 /* XCLocalSwiftPackageReference "Packages/EPTTCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/EPTTCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		0EEB6353BEB88B6CB6ADC0F1 /* EPTTCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = EPTTCore;
+		};
+		6EB2BD5BDB385824E92D01ED /* EPTTCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = EPTTCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = F9902D8B13CCB06443824441 /* Project object */;
+}

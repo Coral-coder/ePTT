@@ -1,0 +1,108 @@
+# Generate the Xcode project with XcodeGen:  brew install xcodegen && xcodegen
+name: Chirp
+options:
+  bundleIdPrefix: app.eptt
+  deploymentTarget:
+    iOS: "16.0"
+    watchOS: "9.0"
+  createIntermediateGroups: true
+configFiles:
+  Debug: Config/Debug.xcconfig
+  Release: Config/Release.xcconfig
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+packages:
+  EPTTCore:
+    path: Packages/EPTTCore
+targets:
+  Chirp:
+    type: application
+    platform: iOS
+    sources:
+      - path: App/iOS
+      - path: App/Shared
+    postBuildScripts:
+      - name: Bundle APNs key if present
+        basedOnDependencyAnalysis: false
+        script: |
+          # Optional and only for private builds (docs/SETUP.md). Runs before code signing.
+          if [ -f "$SRCROOT/Config/APNsAuthKey.p8" ]; then
+            cp "$SRCROOT/Config/APNsAuthKey.p8" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/APNsAuthKey.p8"
+          fi
+    dependencies:
+      - package: EPTTCore
+      - target: ChirpWatch
+        embed: true
+        codeSign: true
+        copy:
+          destination: productsDirectory
+          subpath: $(CONTENTS_FOLDER_PATH)/Watch
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(EPTT_BUNDLE_ID)
+        PROVISIONING_PROFILE_SPECIFIER: $(EPTT_IOS_PROFILE)
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_ENTITLEMENTS: App/iOS/Support/Chirp.entitlements
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+    info:
+      path: App/iOS/Support/Info.plist
+      properties:
+        CFBundleDisplayName: Chirp
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIBackgroundModes: [audio, push-to-talk, remote-notification]
+        NSMicrophoneUsageDescription: Chirp uses the microphone while you hold the talk button.
+        NSCameraUsageDescription: Chirp uses the camera to scan contact codes.
+        NSLocalNetworkUsageDescription: Chirp talks directly to nearby devices on your network, with no server in between.
+        NSBluetoothAlwaysUsageDescription: Chirp uses Bluetooth to talk to nearby phones when there is no network.
+        NSBonjourServices: [_eptt._udp, _chirp-ptt._tcp, _chirp-ptt._udp]
+        CFBundleURLTypes:
+          - CFBundleURLName: app.eptt.links
+            CFBundleURLSchemes: [eptt]
+        EPTTAPNsTeamID: $(EPTT_APNS_TEAM_ID)
+        EPTTAPNsKeyID: $(EPTT_APNS_KEY_ID)
+        EPTTAPNsEnvironment: $(EPTT_APNS_ENVIRONMENT)
+        EPTTCloudContainer: iCloud.$(EPTT_BUNDLE_ID)
+    scheme: {}
+
+  ChirpWatch:
+    type: application
+    platform: watchOS
+    sources:
+      - path: App/Watch
+      - path: App/Shared
+    dependencies:
+      - package: EPTTCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(EPTT_BUNDLE_ID).watchkitapp
+        CODE_SIGN_ENTITLEMENTS: App/Watch/ChirpWatch.entitlements
+        PROVISIONING_PROFILE_SPECIFIER: $(EPTT_WATCH_PROFILE)
+        TARGETED_DEVICE_FAMILY: "4"
+        SKIP_INSTALL: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+    info:
+      path: App/Watch/Info.plist
+      properties:
+        CFBundleDisplayName: Chirp
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        WKApplication: true
+        WKCompanionAppBundleIdentifier: $(EPTT_BUNDLE_ID)
+        WKRunsIndependentlyOfCompanionApp: false
+        UIBackgroundModes: [remote-notification]
+        EPTTAPNsEnvironment: $(EPTT_APNS_ENVIRONMENT)
+        EPTTCloudContainer: iCloud.$(EPTT_BUNDLE_ID)
+        NSMicrophoneUsageDescription: Chirp uses the microphone while you hold the talk button.
+    scheme: {}

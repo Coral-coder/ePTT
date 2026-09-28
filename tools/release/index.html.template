@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Install Chirp</title>
+<style>
+  :root { color-scheme: light dark; --accent: #f28c28; }
+  body { font: 17px/1.5 -apple-system, system-ui, sans-serif; max-width: 34rem; margin: 0 auto; padding: 3rem 1.25rem; }
+  h1 { margin-bottom: .25rem; }
+  .version { color: GrayText; margin-top: 0; }
+  a.install { display: inline-block; margin: 1.5rem 0; padding: .9rem 1.6rem; border-radius: 999px;
+              background: var(--accent); color: white; font-weight: 600; text-decoration: none; }
+  li { margin-bottom: .5rem; }
+</style>
+</head>
+<body>
+<h1>Chirp</h1>
+<p class="version">Version @VERSION@</p>
+<p>Serverless, end-to-end encrypted push-to-talk for iPhone and Apple Watch.</p>
+<a class="install" href="itms-services://?action=download-manifest&amp;url=@BASE@/manifest.plist">Install on this iPhone</a>
+<ol>
+  <li>Open this page in <strong>Safari</strong> on your iPhone.</li>
+  <li>Your device must be registered with the developer's account first; otherwise installation fails with "Unable to install".</li>
+  <li>After installing, turn on <strong>Settings → Privacy &amp; Security → Developer Mode</strong> if iOS asks.</li>
+  <li>The watch app installs automatically if <em>Automatic App Install</em> is on in the Watch app.</li>
+  <li>Get the group's push key from a friend (Settings → Push key) so your phone can be woken.</li>
+</ol>
+</body>
+</html>

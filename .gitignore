@@ -1,0 +1,22 @@
+# Xcode (Chirp.xcodeproj is committed, generated from project.yml by CI)
+xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+DerivedData/
+build/
+*.ipa
+*.dSYM.zip
+
+# SwiftPM
+.build/
+.swiftpm/
+Package.resolved
+
+# Secrets: never commit these (see docs/SETUP.md)
+*.p8
+*.p12
+*.mobileprovision
+Config/Secrets.xcconfig
+
+# Python
+__pycache__/
+.venv/

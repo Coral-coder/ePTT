@@ -1,0 +1,38 @@
+# Keeps Chirp.xcodeproj in the repo in sync with project.yml, so the app opens and builds in
+# Xcode without installing XcodeGen. Edit project.yml, not the .xcodeproj.
+name: Xcode project
+
+on:
+  push:
+    paths:
+      - project.yml
+      - Config/**
+      - App/**
+      - Packages/EPTTCore/Package.swift
+      - .github/workflows/xcodeproj.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: xcodeproj-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  generate:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install xcodegen
+      - run: xcodegen generate
+      - name: Commit the project if it changed
+        run: |
+          git add -A Chirp.xcodeproj
+          if git diff --cached --quiet; then
+            echo "Chirp.xcodeproj is up to date"
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -m "Regenerate Chirp.xcodeproj from project.yml"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
