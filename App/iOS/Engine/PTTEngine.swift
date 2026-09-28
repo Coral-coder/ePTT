@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import MultipeerConnectivity
 import Network
 import UIKit
 import UserNotifications
@@ -25,6 +26,12 @@ struct EngineSnapshot {
     var localIdentity: PublicIdentity?
     var transfers: [TransferRecord] = []
     var relayAvailable = false
+}
+
+/// Where a peer was last heard: a UDP endpoint or a MultipeerConnectivity peer.
+enum PeerPath: Hashable {
+    case udp(NWEndpoint)
+    case nearby(MCPeerID)
 }
 
 enum EngineEvent {
@@ -64,6 +71,8 @@ final class PTTEngine {
     private let builder: PacketBuilder
     private var floor: FloorControl
     private let transport: UDPTransport
+    /// Bluetooth + peer-to-peer Wi-Fi (MultipeerConnectivity) for phones with no network at all.
+    private let nearby: NearbyTransport
     private let audio = AudioEngine()
     let ptt = PushToTalkManager()
     private var apns = APNsClient.fromBundle() ?? APNsClient.fromKeychain()
@@ -81,7 +90,7 @@ final class PTTEngine {
     private var channelIndex: [ChannelID: Int] = [:]
 
     private struct PeerLink {
-        var endpoint: NWEndpoint
+        var endpoint: PeerPath
         var lastHeard: Date
     }
     private var links: [SenderID: PeerLink] = [:]
@@ -121,7 +130,7 @@ final class PTTEngine {
     private var playoutTimer: DispatchSourceTimer?
     private var earlyVoice = ExpiringQueue<MessageID, (UInt32, [Data])>()
     /// Burst packets that arrived before their BURST_START could be opened.
-    private var earlyPackets = ExpiringQueue<MessageID, (Data, NWEndpoint?)>()
+    private var earlyPackets = ExpiringQueue<MessageID, (Data, PeerPath?)>()
 
     private var audioActive = false
     /// Set when a wake push was accepted; cleared when its burst arrives.
@@ -137,6 +146,7 @@ final class PTTEngine {
         builder = PacketBuilder(local: identity)
         floor = FloorControl(localSender: identity.senderID)
         transport = UDPTransport(queue: queue)
+        nearby = NearbyTransport(queue: queue)
         if state.settings.displayName.isEmpty {
             state.settings.displayName = UIDevice.current.name
         }
@@ -171,8 +181,11 @@ final class PTTEngine {
                 guard let self, self.state.settings.forwardAudioToWatch else { return }
                 self.onWatchAudio?(pcm)
             }
-            transport.onPacket = { [weak self] data, endpoint in self?.handleDatagram(data, from: endpoint) }
-            transport.onPeerDiscovered = { [weak self] endpoint in self?.helloEveryone(at: endpoint) }
+            transport.onPacket = { [weak self] data, endpoint in self?.handleDatagram(data, from: .udp(endpoint)) }
+            transport.onPeerDiscovered = { [weak self] endpoint in self?.helloEveryone(at: .udp(endpoint)) }
+            nearby.onPacket = { [weak self] data, peer in self?.handleDatagram(data, from: .nearby(peer)) }
+            nearby.onPeerConnected = { [weak self] peer in self?.helloEveryone(at: .nearby(peer)) }
+            nearby.start()
             transport.onCandidatesChanged = { [weak self] _ in self?.announceReachability() }
             applyTransportSettings()
             transport.start()
@@ -192,6 +205,7 @@ final class PTTEngine {
     func resume() {
         queue.async { [self] in
             transport.start()
+            nearby.start()
             announceReachability()
             fetchRelay()
         }
@@ -479,7 +493,7 @@ final class PTTEngine {
         queue.async { self.handleDatagram(packet, from: nil) }
     }
 
-    private func handleDatagram(_ data: Data, from endpoint: NWEndpoint?, relayed: Bool = false) {
+    private func handleDatagram(_ data: Data, from endpoint: PeerPath?, relayed: Bool = false) {
         let inbound: InboundPacket
         do {
             inbound = try processor.process(
@@ -556,7 +570,7 @@ final class PTTEngine {
     private var pendingBurstInfo: [MessageID: BurstStart] = [:]
     private var pendingRoutes: [MessageID: Route] = [:]
 
-    private func handleHello(_ hello: Hello, from sender: SenderID, endpoint: NWEndpoint?) {
+    private func handleHello(_ hello: Hello, from sender: SenderID, endpoint: PeerPath?) {
         guard let i = contactsBySender[sender] else { return }
         if state.contacts[i].apply(hello: hello) { save() }
         let contact = state.contacts[i]
@@ -569,7 +583,7 @@ final class PTTEngine {
         }
     }
 
-    private func noteHeard(_ sender: SenderID, at endpoint: NWEndpoint) {
+    private func noteHeard(_ sender: SenderID, at endpoint: PeerPath) {
         let wasLinked = isLinked(sender)
         links[sender] = PeerLink(endpoint: endpoint, lastHeard: Date())
         guard !wasLinked, let contact = self.contact(sender) else { return }
@@ -922,11 +936,11 @@ final class PTTEngine {
         return try? builder.seal(.hello, plaintext: hello.encoded, keys: keys)
     }
 
-    private func sendHello(to contact: Contact, replyRequested: Bool = false, endpoints: [NWEndpoint],
+    private func sendHello(to contact: Contact, replyRequested: Bool = false, endpoints: [PeerPath],
                            candidates: [Candidate] = []) {
         guard let channel = self.directChannel(for: contact.id),
               let packet = helloPacket(replyRequested: replyRequested, keys: channel.keys) else { return }
-        for endpoint in endpoints { transport.send(packet, to: endpoint) }
+        for endpoint in endpoints { send(packet, via: endpoint) }
         sendToCandidates(packet, candidates)
     }
 
@@ -937,14 +951,14 @@ final class PTTEngine {
     /// Sends over live links only.
     private func send(_ packet: Data, to senders: Set<SenderID>) {
         for sender in senders {
-            if let link = links[sender] { transport.send(packet, to: link.endpoint) }
+            if let link = links[sender] { send(packet, via: link.endpoint) }
         }
     }
 
     /// Control messages: use the live link if there is one, otherwise the last known candidates.
     private func sendAnyway(_ packet: Data, to contact: Contact) {
         if let link = links[contact.senderID] {
-            transport.send(packet, to: link.endpoint)
+            send(packet, via: link.endpoint)
         } else {
             sendToCandidates(packet, contact.reachability.candidates)
         }
@@ -961,7 +975,7 @@ final class PTTEngine {
     }
 
     /// A new Bonjour peer appeared; we cannot tell who it is, so greet each contact there.
-    private func helloEveryone(at endpoint: NWEndpoint) {
+    private func helloEveryone(at endpoint: PeerPath) {
         for contact in state.contacts.prefix(32) {
             sendHello(to: contact, replyRequested: true, endpoints: [endpoint])
         }
@@ -1086,8 +1100,9 @@ final class PTTEngine {
     }
 
     /// Classifies the path a packet took from its remote endpoint.
-    static func route(for endpoint: NWEndpoint?) -> Route {
-        guard let endpoint else { return .internet }
+    static func route(for path: PeerPath?) -> Route {
+        guard let path else { return .internet }
+        guard case .udp(let endpoint) = path else { return .nearby }
         switch endpoint {
         case .service:
             return .nearby
@@ -1126,6 +1141,13 @@ final class PTTEngine {
     }
 
     // MARK: - Helpers
+
+    private func send(_ packet: Data, via path: PeerPath) {
+        switch path {
+        case .udp(let endpoint): transport.send(packet, to: endpoint)
+        case .nearby(let peer): nearby.send(packet, to: peer)
+        }
+    }
 
     private func isLinked(_ sender: SenderID) -> Bool {
         guard let link = links[sender] else { return false }

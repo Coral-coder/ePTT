@@ -65,7 +65,8 @@ targets:
         NSMicrophoneUsageDescription: Chirp uses the microphone while you hold the talk button.
         NSCameraUsageDescription: Chirp uses the camera to scan contact codes.
         NSLocalNetworkUsageDescription: Chirp talks directly to nearby devices on your network, with no server in between.
-        NSBonjourServices: [_eptt._udp]
+        NSBluetoothAlwaysUsageDescription: Chirp uses Bluetooth to talk to nearby phones when there is no network.
+        NSBonjourServices: [_eptt._udp, _chirp-ptt._tcp, _chirp-ptt._udp]
         CFBundleURLTypes:
           - CFBundleURLName: app.eptt.links
             CFBundleURLSchemes: [eptt]
