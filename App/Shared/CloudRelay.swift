@@ -45,6 +45,13 @@ final class CloudRelay {
         .sorted { $0.created < $1.created }
     }
 
+    /// One record by name (the notification service extension gets the name from the push).
+    func fetch(recordName: String) async throws -> Data? {
+        let record = try await database.record(for: CKRecord.ID(recordName: recordName))
+        if let expires = record["expires"] as? Date, expires < Date() { return nil }
+        return record["payload"] as? Data
+    }
+
     /// Deletes a delivered or expired record. Recipients can only do this if the container's
     /// security roles allow it (docs/SETUP.md); otherwise the talker's expiry cleanup removes it.
     func delete(recordName: String) async {
@@ -68,6 +75,8 @@ final class CloudRelay {
         info.alertBody = "New voice message"
         info.soundName = "default"
         info.shouldSendContentAvailable = true
+        // Lets the notification service extension decode the message and play it as the sound.
+        info.shouldSendMutableContent = true
         subscription.notificationInfo = info
         do {
             _ = try? await database.deleteSubscription(withID: CloudRelay.subscriptionID)
@@ -79,5 +88,12 @@ final class CloudRelay {
 
     static func isRelayNotification(_ userInfo: [AnyHashable: Any]) -> Bool {
         CKNotification(fromRemoteNotificationDictionary: userInfo)?.subscriptionID == subscriptionID
+    }
+
+    /// The relay record a push is about, if it is one of ours.
+    static func recordName(inNotification userInfo: [AnyHashable: Any]) -> String? {
+        guard let notification = CKNotification(fromRemoteNotificationDictionary: userInfo) as? CKQueryNotification,
+              notification.subscriptionID == subscriptionID else { return nil }
+        return notification.recordID?.recordName
     }
 }

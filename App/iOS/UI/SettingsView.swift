@@ -18,13 +18,6 @@ struct SettingsView: View {
                 .nxRows()
 
                 Section {
-                    Toggle("Always listening", isOn: binding(\.alwaysListening))
-                } footer: {
-                    Text("Keeps the app running with an open audio session, so it hears peers without push wake-ups. Uses noticeably more battery and shows the microphone indicator. With it off, iOS wakes NXTPTT through Apple's Push to Talk service when someone keys up.")
-                }
-                .nxRows()
-
-                Section {
                     Toggle("Discover public address (STUN)", isOn: binding(\.stunEnabled))
                     TextField("Extra addresses, e.g. me.tailnet.ts.net:47474", text: $staticCandidates, axis: .vertical)
                         .autocorrectionDisabled()

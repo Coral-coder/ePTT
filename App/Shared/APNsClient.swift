@@ -17,7 +17,7 @@ final class APNsClient {
 
     /// Loads credentials from Info.plist (`EPTTAPNsTeamID`, `EPTTAPNsKeyID`, `EPTTAPNsEnvironment`)
     /// and the bundled `APNsAuthKey.p8`. Returns nil when the build has no key, in which case
-    /// the app still works while in the foreground or in always-listening mode.
+    /// the app still works in the foreground and through the iCloud relay.
     static func fromBundle(_ bundle: Bundle = .main) -> APNsClient? {
         let log = Logger(subsystem: "app.eptt", category: "apns")
         guard let teamID = bundle.object(forInfoDictionaryKey: "EPTTAPNsTeamID") as? String, !teamID.isEmpty,

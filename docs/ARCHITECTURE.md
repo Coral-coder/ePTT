@@ -13,13 +13,15 @@ Wear OS later). Its hard requirements shape everything below:
 ## The honest constraint: iOS background execution
 
 iOS suspends a backgrounded app within seconds. A suspended app has no
-sockets and cannot hear a peer. Without a server there are only two ways to
+sockets and cannot hear a peer. Without a server there are two ways to
 receive in the background:
 
 | Approach | How it works | Cost |
 | --- | --- | --- |
 | **PushToTalk framework + direct APNs** (default) | The talker's phone sends an Apple Push Notification (`pushtotalk` type) straight to Apple, addressed to each listener. iOS wakes the listener's app, which connects back to the talker and plays the audio. | The APNs signing key (`.p8`) ships inside the app, so every copy of the app can sign pushes. See "APNs key" below. |
-| **Always-listening mode** (opt-in) | The app keeps an audio session open so iOS never suspends it, and holds live connections to peers. | Noticeable battery drain, and the microphone indicator stays on. App Store review would likely reject it, but ad-hoc builds skip review. |
+| **iCloud relay + notification extension** (no key needed) | The talker leaves the encrypted burst in the iCloud relay. iCloud notifies the listener, and a notification service extension opens the burst with a Keychain-shared copy of the listener's keys and plays it as the notification sound. | Not live: a few seconds' delay, at most 30 seconds of audio per notification, and it follows the ring/silent switch and Focus. |
+
+(An earlier "always listening" mode kept an audio session, and so the microphone, open to stay alive. It was removed.)
 
 Apple's servers (APNs) are infrastructure we use, not a server we run. That
 is the "serverless" line this design holds.
@@ -60,7 +62,7 @@ The target is **ad-hoc distribution from GitHub Pages**. A GitHub Actions
 workflow signs an ad-hoc IPA and publishes an `itms-services` install page.
 Only devices whose UDIDs are registered in the Apple Developer account can
 install it, up to 100 iPhones per year. Because this path skips App Store
-review, the battery-hungry **always-listening** mode is a legitimate option.
+review, bundling the push key into private builds is a reasonable option.
 
 ## System overview
 
