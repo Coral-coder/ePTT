@@ -9,40 +9,67 @@
 /* Begin PBXBuildFile section */
 		0372DE70FB56FF9FAA1F25D8 /* WatchProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09427238BAEB427DD8DAAC7C /* WatchProtocol.swift */; };
 		140445E2C96F7A09C8021C87 /* PTTEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AC3817AC8CB636667D7340D /* PTTEngine.swift */; };
+		16CD6B4B382D10EC22ACA38F /* Hind-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 0CAE6B4531BEC9AA6608A108 /* Hind-Medium.ttf */; };
 		18116EF38271E1E692E10191 /* WatchModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D11E4A1C1C9BE40767F906E /* WatchModel.swift */; };
 		1CEA506A8124FB124D3874CA /* WatchTalkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B87B1D6A78B0BF42AB8164DA /* WatchTalkView.swift */; };
+		1D02B4A4052FAC307F18B41A /* Exo2-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 5D3D231AD3D8DD38D27C6E84 /* Exo2-OFL.txt */; };
+		1DFFA2E5B927BECD035BA852 /* Hind-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 86C6075D9CF35FBF29F82B4D /* Hind-OFL.txt */; };
+		205CE1EDABF15B65869E866E /* Michroma-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 5CD09CF470401102969B643B /* Michroma-OFL.txt */; };
 		21BCC0DB5EE25D477D3D1664 /* SoundLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E9A6ACDFE77A95EF0CE726B /* SoundLibrary.swift */; };
-		27D72DF17A213F691924BE41 /* ContactsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 720AAE4B401065A75FDFB241 /* ContactsView.swift */; };
 		2A5A06893DAC551D20ADF165 /* EPTTCore in Frameworks */ = {isa = PBXBuildFile; productRef = 495B256A42190904284376F5 /* EPTTCore */; };
+		2E95082B95769334A273504D /* Exo2-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 5D3D231AD3D8DD38D27C6E84 /* Exo2-OFL.txt */; };
+		311920887632C35D7CCDCC30 /* TalkOrb.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E2AE46EE092CDD2652AB8F4 /* TalkOrb.swift */; };
+		36C76FD8D8A9685D965A1CA6 /* Exo2-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = E7C7BE4D46DBAFAC1026CC07 /* Exo2-Bold.ttf */; };
 		38D5CFB2945070E2AA58406B /* VoiceCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB79D2E432560F598AE275FF /* VoiceCodec.swift */; };
 		398F262FF219DA3530AA8093 /* NXTPTTWatch.app in Embed Dependencies */ = {isa = PBXBuildFile; fileRef = 80A85358D711C3876170FC52 /* NXTPTTWatch.app */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		447CA7943CB16CAA18791B63 /* Exo2-SemiBold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 8AD1870F39C6EC6AC9973449 /* Exo2-SemiBold.ttf */; };
+		4AC2847B0A9BFCAEBB5773DB /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84B06BD68E2E389EF003458D /* Theme.swift */; };
+		4E522EABE049107F3A5FA677 /* Michroma-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 491106D4D4A4C379330E7D8F /* Michroma-Regular.ttf */; };
+		5A6148034B1C86DEA7181A08 /* Hind-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 0CAE6B4531BEC9AA6608A108 /* Hind-Medium.ttf */; };
+		5FC48FF0DD9C00F4DFE11D8E /* Michroma-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 5CD09CF470401102969B643B /* Michroma-OFL.txt */; };
 		6090112260B68C097D107408 /* NXTPTTApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0617089A27EAF20045AA25FA /* NXTPTTApp.swift */; };
 		6B64282570069D75C03530C2 /* LocalAddresses.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D027783C645D958288C8A85 /* LocalAddresses.swift */; };
 		6DF836C04841048B14E4CCDC /* Tones.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EFE2BF95289F4889473250F /* Tones.swift */; };
+		6FFFB6ACD5671A7B89595B7A /* Exo2-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A9092E4E0C328FCD11AE8CDD /* Exo2-Medium.ttf */; };
 		7072DB12A07222DA3EBAED42 /* CloudRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7B9B9B9BCD490C371E11C42 /* CloudRelay.swift */; };
+		7216C9BCE9AEDC32E574DFA9 /* GridBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6491F3384F5ADA236ECD6732 /* GridBackground.swift */; };
+		73D5A97F043B3FB629E9370C /* Hind-SemiBold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 2ADBCA494A03F009112D2C9E /* Hind-SemiBold.ttf */; };
 		77D702F41080827A847D8E84 /* NXTPTTWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 670CC2CACF289A683AB032A0 /* NXTPTTWatchApp.swift */; };
+		8207A5A01E11117F4AF282EC /* TalkOrb.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E2AE46EE092CDD2652AB8F4 /* TalkOrb.swift */; };
 		849FF42B4171F02C65972757 /* ChannelsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F26C0993586F06E0277C2EE /* ChannelsView.swift */; };
 		8E29EC7844A7E7CE1D330DDE /* APNsClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4D548C686BBCEBBDBC6FA48 /* APNsClient.swift */; };
 		8F6A494B7199A7DB7C423022 /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3871A34AA3E7E3696FC46F78 /* Store.swift */; };
 		8FD58ACB811C4A82A5C6C342 /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F6736A86DBDC21FCC5FD41 /* Keychain.swift */; };
 		913B3DACE8A7011E0E370F19 /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3871A34AA3E7E3696FC46F78 /* Store.swift */; };
+		9433C6AA64945A26EA27F4FF /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71F9D559EAE5E7FAF3FC7438 /* Components.swift */; };
 		94D0AF3C8B10EAF5372DC4D9 /* APNsClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4D548C686BBCEBBDBC6FA48 /* APNsClient.swift */; };
+		9734444B6A3BCC1F6BA2EDEA /* Exo2-SemiBold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 8AD1870F39C6EC6AC9973449 /* Exo2-SemiBold.ttf */; };
 		97E525E51A462FF784A35604 /* WatchProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09427238BAEB427DD8DAAC7C /* WatchProtocol.swift */; };
 		9AB8653681BAA1DF67E7D890 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 350380534669517534DB1AB8 /* AppModel.swift */; };
 		9BA76F5FAF134FD66141AEF3 /* AudioEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36E532B51BC28E621C00976F /* AudioEngine.swift */; };
 		9E4F5A93378F6584613883CC /* EPTTCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8B8EB4BA3015B1AAEAB6DF47 /* EPTTCore */; };
 		A2330D8AEF6EF45B4D6FBF79 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0220AFF770A796A696493B8 /* SettingsView.swift */; };
+		A447483C481CDCB0CDF5B1CA /* Hind-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 4D2CA08401587C4C4AFD4217 /* Hind-Regular.ttf */; };
 		AA5712D7435E633C27F4536A /* VoiceCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB79D2E432560F598AE275FF /* VoiceCodec.swift */; };
 		B5999114D66376CDC4304B26 /* WatchEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9395F106355F1105B629D685 /* WatchEngine.swift */; };
 		B7427C19AAA77A6D303EE2AC /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F6736A86DBDC21FCC5FD41 /* Keychain.swift */; };
 		C3C698E53D06432948E6857C /* PushToTalkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A8DE5195AC098334AD17FE /* PushToTalkManager.swift */; };
 		C503B435FB25F5B640E74FF2 /* ActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF0F72AD79C914F4229FE377 /* ActivityView.swift */; };
+		CB69F5B4DB157871B0AB6369 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84B06BD68E2E389EF003458D /* Theme.swift */; };
+		CB8FC46706BCB887620F8918 /* Exo2-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A9092E4E0C328FCD11AE8CDD /* Exo2-Medium.ttf */; };
 		CC8FD19B5343AB6096B3D7A4 /* SoundsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90A31E58691124529D39C377 /* SoundsView.swift */; };
 		D5400801694C95121C6BC662 /* NearbyTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A620DEC285D829E5852A944 /* NearbyTransport.swift */; };
 		D598C3A49CAC8DA34FE4633B /* CloudRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7B9B9B9BCD490C371E11C42 /* CloudRelay.swift */; };
+		DBE7E7EB1534F734A988B7DD /* Hind-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 4D2CA08401587C4C4AFD4217 /* Hind-Regular.ttf */; };
 		DDAC95820538C1B3DEF4D635 /* WatchBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C624C4BED3D02359B4639ED /* WatchBridge.swift */; };
+		DE954D70350E230150A96F1C /* GridBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6491F3384F5ADA236ECD6732 /* GridBackground.swift */; };
 		E1728BBD1DA81A82ECBCE19F /* TalkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17CC1D25F2383E91FA90B7FB /* TalkView.swift */; };
+		E407E0A5973562C7E918C81D /* Hind-SemiBold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 2ADBCA494A03F009112D2C9E /* Hind-SemiBold.ttf */; };
+		E4B79DCC58710E40C4D17AFF /* Exo2-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = E7C7BE4D46DBAFAC1026CC07 /* Exo2-Bold.ttf */; };
+		E741D9CBA15D323B5CA905F1 /* Hind-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 86C6075D9CF35FBF29F82B4D /* Hind-OFL.txt */; };
+		E9E7BE59DBD99423581C6B98 /* Michroma-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 491106D4D4A4C379330E7D8F /* Michroma-Regular.ttf */; };
 		EEBC7C8EDA04AB18260304FE /* UDPTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26DDD1D519B9A057A89F92C3 /* UDPTransport.swift */; };
+		F0B4EE11E20B998AF99A23FD /* PairView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36E3EB4EF56C3AF302C8490C /* PairView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -73,36 +100,50 @@
 		0617089A27EAF20045AA25FA /* NXTPTTApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NXTPTTApp.swift; sourceTree = "<group>"; };
 		09427238BAEB427DD8DAAC7C /* WatchProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchProtocol.swift; sourceTree = "<group>"; };
 		0A620DEC285D829E5852A944 /* NearbyTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NearbyTransport.swift; sourceTree = "<group>"; };
+		0CAE6B4531BEC9AA6608A108 /* Hind-Medium.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Hind-Medium.ttf"; sourceTree = "<group>"; };
 		1204D39E340822B372551829 /* NXTPTT.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = NXTPTT.entitlements; sourceTree = "<group>"; };
 		17CC1D25F2383E91FA90B7FB /* TalkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TalkView.swift; sourceTree = "<group>"; };
 		1B66223E5D77EA18085B8F51 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		1C624C4BED3D02359B4639ED /* WatchBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchBridge.swift; sourceTree = "<group>"; };
 		1E9A6ACDFE77A95EF0CE726B /* SoundLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundLibrary.swift; sourceTree = "<group>"; };
 		26DDD1D519B9A057A89F92C3 /* UDPTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UDPTransport.swift; sourceTree = "<group>"; };
+		2ADBCA494A03F009112D2C9E /* Hind-SemiBold.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Hind-SemiBold.ttf"; sourceTree = "<group>"; };
 		350380534669517534DB1AB8 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		36E3EB4EF56C3AF302C8490C /* PairView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairView.swift; sourceTree = "<group>"; };
 		36E532B51BC28E621C00976F /* AudioEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioEngine.swift; sourceTree = "<group>"; };
 		3871A34AA3E7E3696FC46F78 /* Store.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Store.swift; sourceTree = "<group>"; };
 		395A0ED889A9C3AA6045A5EA /* NXTPTT.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = NXTPTT.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		3D11E4A1C1C9BE40767F906E /* WatchModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchModel.swift; sourceTree = "<group>"; };
 		48EAEFBB51C34351AB7BB0C2 /* EPTTCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = EPTTCore; path = Packages/EPTTCore; sourceTree = SOURCE_ROOT; };
+		491106D4D4A4C379330E7D8F /* Michroma-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Michroma-Regular.ttf"; sourceTree = "<group>"; };
+		4D2CA08401587C4C4AFD4217 /* Hind-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Hind-Regular.ttf"; sourceTree = "<group>"; };
 		4EFE2BF95289F4889473250F /* Tones.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tones.swift; sourceTree = "<group>"; };
+		5CD09CF470401102969B643B /* Michroma-OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Michroma-OFL.txt"; sourceTree = "<group>"; };
+		5D3D231AD3D8DD38D27C6E84 /* Exo2-OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Exo2-OFL.txt"; sourceTree = "<group>"; };
 		5F26C0993586F06E0277C2EE /* ChannelsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelsView.swift; sourceTree = "<group>"; };
+		6491F3384F5ADA236ECD6732 /* GridBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridBackground.swift; sourceTree = "<group>"; };
 		670CC2CACF289A683AB032A0 /* NXTPTTWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NXTPTTWatchApp.swift; sourceTree = "<group>"; };
-		720AAE4B401065A75FDFB241 /* ContactsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactsView.swift; sourceTree = "<group>"; };
+		6E2AE46EE092CDD2652AB8F4 /* TalkOrb.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TalkOrb.swift; sourceTree = "<group>"; };
+		71F9D559EAE5E7FAF3FC7438 /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
 		79FAA49CE1E6E885E051B01B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		7D027783C645D958288C8A85 /* LocalAddresses.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalAddresses.swift; sourceTree = "<group>"; };
 		80A85358D711C3876170FC52 /* NXTPTTWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NXTPTTWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		84B06BD68E2E389EF003458D /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		86C6075D9CF35FBF29F82B4D /* Hind-OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Hind-OFL.txt"; sourceTree = "<group>"; };
 		8AC3817AC8CB636667D7340D /* PTTEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PTTEngine.swift; sourceTree = "<group>"; };
+		8AD1870F39C6EC6AC9973449 /* Exo2-SemiBold.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Exo2-SemiBold.ttf"; sourceTree = "<group>"; };
 		90A31E58691124529D39C377 /* SoundsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundsView.swift; sourceTree = "<group>"; };
 		9395F106355F1105B629D685 /* WatchEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchEngine.swift; sourceTree = "<group>"; };
 		A1F6736A86DBDC21FCC5FD41 /* Keychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keychain.swift; sourceTree = "<group>"; };
 		A7B9B9B9BCD490C371E11C42 /* CloudRelay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudRelay.swift; sourceTree = "<group>"; };
+		A9092E4E0C328FCD11AE8CDD /* Exo2-Medium.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Exo2-Medium.ttf"; sourceTree = "<group>"; };
 		B87B1D6A78B0BF42AB8164DA /* WatchTalkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchTalkView.swift; sourceTree = "<group>"; };
 		BB5C66B7F082C04F7C676223 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
 		C2C1D5CDE2BD22B2DE1968CE /* NXTPTTWatch.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = NXTPTTWatch.entitlements; sourceTree = "<group>"; };
 		CF0F72AD79C914F4229FE377 /* ActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityView.swift; sourceTree = "<group>"; };
 		E249A42171F4B53EDD8033DF /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
 		E4D548C686BBCEBBDBC6FA48 /* APNsClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APNsClient.swift; sourceTree = "<group>"; };
+		E7C7BE4D46DBAFAC1026CC07 /* Exo2-Bold.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Exo2-Bold.ttf"; sourceTree = "<group>"; };
 		EB79D2E432560F598AE275FF /* VoiceCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCodec.swift; sourceTree = "<group>"; };
 		F0220AFF770A796A696493B8 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		F3A8DE5195AC098334AD17FE /* PushToTalkManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushToTalkManager.swift; sourceTree = "<group>"; };
@@ -209,6 +250,8 @@
 				3871A34AA3E7E3696FC46F78 /* Store.swift */,
 				EB79D2E432560F598AE275FF /* VoiceCodec.swift */,
 				09427238BAEB427DD8DAAC7C /* WatchProtocol.swift */,
+				CBA7BF46112C7A69FD47C95C /* Fonts */,
+				C5B3F979053E89D72393FE27 /* UI */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -261,12 +304,40 @@
 			);
 			sourceTree = "<group>";
 		};
+		C5B3F979053E89D72393FE27 /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				6491F3384F5ADA236ECD6732 /* GridBackground.swift */,
+				6E2AE46EE092CDD2652AB8F4 /* TalkOrb.swift */,
+				84B06BD68E2E389EF003458D /* Theme.swift */,
+			);
+			path = UI;
+			sourceTree = "<group>";
+		};
+		CBA7BF46112C7A69FD47C95C /* Fonts */ = {
+			isa = PBXGroup;
+			children = (
+				E7C7BE4D46DBAFAC1026CC07 /* Exo2-Bold.ttf */,
+				A9092E4E0C328FCD11AE8CDD /* Exo2-Medium.ttf */,
+				5D3D231AD3D8DD38D27C6E84 /* Exo2-OFL.txt */,
+				8AD1870F39C6EC6AC9973449 /* Exo2-SemiBold.ttf */,
+				0CAE6B4531BEC9AA6608A108 /* Hind-Medium.ttf */,
+				86C6075D9CF35FBF29F82B4D /* Hind-OFL.txt */,
+				4D2CA08401587C4C4AFD4217 /* Hind-Regular.ttf */,
+				2ADBCA494A03F009112D2C9E /* Hind-SemiBold.ttf */,
+				5CD09CF470401102969B643B /* Michroma-OFL.txt */,
+				491106D4D4A4C379330E7D8F /* Michroma-Regular.ttf */,
+			);
+			path = Fonts;
+			sourceTree = "<group>";
+		};
 		D28DA42CDAD2ACDA2EF8C84F /* UI */ = {
 			isa = PBXGroup;
 			children = (
 				CF0F72AD79C914F4229FE377 /* ActivityView.swift */,
 				5F26C0993586F06E0277C2EE /* ChannelsView.swift */,
-				720AAE4B401065A75FDFB241 /* ContactsView.swift */,
+				71F9D559EAE5E7FAF3FC7438 /* Components.swift */,
+				36E3EB4EF56C3AF302C8490C /* PairView.swift */,
 				F0220AFF770A796A696493B8 /* SettingsView.swift */,
 				90A31E58691124529D39C377 /* SoundsView.swift */,
 				17CC1D25F2383E91FA90B7FB /* TalkView.swift */,
@@ -282,6 +353,7 @@
 			buildConfigurationList = 88A3C8BDEA9A846FA0D0E7B0 /* Build configuration list for PBXNativeTarget "NXTPTTWatch" */;
 			buildPhases = (
 				5E34C9B30335780384B5F7F2 /* Sources */,
+				197D0EBAF0CCF22E59D13116 /* Resources */,
 				8209F3626DB1A4C0ED5D5301 /* Frameworks */,
 			);
 			buildRules = (
@@ -301,6 +373,7 @@
 			buildConfigurationList = 75A3B17931CE5F1CB29F69AA /* Build configuration list for PBXNativeTarget "NXTPTT" */;
 			buildPhases = (
 				28CBBB5DDD700D54C408AB2A /* Sources */,
+				F307270248EB998FA9B45B59 /* Resources */,
 				5755C87342ED75F2574F432E /* Frameworks */,
 				88A296C06CE037A13B5D0886 /* Embed Dependencies */,
 				C9D8814C8B0862F1477F38A2 /* Bundle APNs key if present */,
@@ -360,6 +433,43 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		197D0EBAF0CCF22E59D13116 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				36C76FD8D8A9685D965A1CA6 /* Exo2-Bold.ttf in Resources */,
+				6FFFB6ACD5671A7B89595B7A /* Exo2-Medium.ttf in Resources */,
+				1D02B4A4052FAC307F18B41A /* Exo2-OFL.txt in Resources */,
+				9734444B6A3BCC1F6BA2EDEA /* Exo2-SemiBold.ttf in Resources */,
+				5A6148034B1C86DEA7181A08 /* Hind-Medium.ttf in Resources */,
+				1DFFA2E5B927BECD035BA852 /* Hind-OFL.txt in Resources */,
+				A447483C481CDCB0CDF5B1CA /* Hind-Regular.ttf in Resources */,
+				73D5A97F043B3FB629E9370C /* Hind-SemiBold.ttf in Resources */,
+				5FC48FF0DD9C00F4DFE11D8E /* Michroma-OFL.txt in Resources */,
+				E9E7BE59DBD99423581C6B98 /* Michroma-Regular.ttf in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F307270248EB998FA9B45B59 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E4B79DCC58710E40C4D17AFF /* Exo2-Bold.ttf in Resources */,
+				CB8FC46706BCB887620F8918 /* Exo2-Medium.ttf in Resources */,
+				2E95082B95769334A273504D /* Exo2-OFL.txt in Resources */,
+				447CA7943CB16CAA18791B63 /* Exo2-SemiBold.ttf in Resources */,
+				16CD6B4B382D10EC22ACA38F /* Hind-Medium.ttf in Resources */,
+				E741D9CBA15D323B5CA905F1 /* Hind-OFL.txt in Resources */,
+				DBE7E7EB1534F734A988B7DD /* Hind-Regular.ttf in Resources */,
+				E407E0A5973562C7E918C81D /* Hind-SemiBold.ttf in Resources */,
+				205CE1EDABF15B65869E866E /* Michroma-OFL.txt in Resources */,
+				4E522EABE049107F3A5FA677 /* Michroma-Regular.ttf in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXShellScriptBuildPhase section */
 		C9D8814C8B0862F1477F38A2 /* Bundle APNs key if present */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -393,18 +503,22 @@
 				9BA76F5FAF134FD66141AEF3 /* AudioEngine.swift in Sources */,
 				849FF42B4171F02C65972757 /* ChannelsView.swift in Sources */,
 				D598C3A49CAC8DA34FE4633B /* CloudRelay.swift in Sources */,
-				27D72DF17A213F691924BE41 /* ContactsView.swift in Sources */,
+				9433C6AA64945A26EA27F4FF /* Components.swift in Sources */,
+				7216C9BCE9AEDC32E574DFA9 /* GridBackground.swift in Sources */,
 				B7427C19AAA77A6D303EE2AC /* Keychain.swift in Sources */,
 				6B64282570069D75C03530C2 /* LocalAddresses.swift in Sources */,
 				6090112260B68C097D107408 /* NXTPTTApp.swift in Sources */,
 				D5400801694C95121C6BC662 /* NearbyTransport.swift in Sources */,
 				140445E2C96F7A09C8021C87 /* PTTEngine.swift in Sources */,
+				F0B4EE11E20B998AF99A23FD /* PairView.swift in Sources */,
 				C3C698E53D06432948E6857C /* PushToTalkManager.swift in Sources */,
 				A2330D8AEF6EF45B4D6FBF79 /* SettingsView.swift in Sources */,
 				21BCC0DB5EE25D477D3D1664 /* SoundLibrary.swift in Sources */,
 				CC8FD19B5343AB6096B3D7A4 /* SoundsView.swift in Sources */,
 				8F6A494B7199A7DB7C423022 /* Store.swift in Sources */,
+				8207A5A01E11117F4AF282EC /* TalkOrb.swift in Sources */,
 				E1728BBD1DA81A82ECBCE19F /* TalkView.swift in Sources */,
+				4AC2847B0A9BFCAEBB5773DB /* Theme.swift in Sources */,
 				6DF836C04841048B14E4CCDC /* Tones.swift in Sources */,
 				EEBC7C8EDA04AB18260304FE /* UDPTransport.swift in Sources */,
 				AA5712D7435E633C27F4536A /* VoiceCodec.swift in Sources */,
@@ -419,9 +533,12 @@
 			files = (
 				94D0AF3C8B10EAF5372DC4D9 /* APNsClient.swift in Sources */,
 				7072DB12A07222DA3EBAED42 /* CloudRelay.swift in Sources */,
+				DE954D70350E230150A96F1C /* GridBackground.swift in Sources */,
 				8FD58ACB811C4A82A5C6C342 /* Keychain.swift in Sources */,
 				77D702F41080827A847D8E84 /* NXTPTTWatchApp.swift in Sources */,
 				913B3DACE8A7011E0E370F19 /* Store.swift in Sources */,
+				311920887632C35D7CCDCC30 /* TalkOrb.swift in Sources */,
+				CB69F5B4DB157871B0AB6369 /* Theme.swift in Sources */,
 				38D5CFB2945070E2AA58406B /* VoiceCodec.swift in Sources */,
 				B5999114D66376CDC4304B26 /* WatchEngine.swift in Sources */,
 				18116EF38271E1E692E10191 /* WatchModel.swift in Sources */,
