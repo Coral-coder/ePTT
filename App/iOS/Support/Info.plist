@@ -39,6 +39,8 @@
 	<string>$(EPTT_APNS_TEAM_ID)</string>
 	<key>EPTTCloudContainer</key>
 	<string>iCloud.$(EPTT_BUNDLE_ID)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>NXTPTT uses Bluetooth to talk to nearby phones when there is no network.</string>
 	<key>NSBonjourServices</key>

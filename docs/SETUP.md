@@ -145,6 +145,16 @@ in **Safari** on a registered iPhone and tap **Install**.
 5. Create talk groups on the **Channels** tab. Members receive the key
    automatically over their private channels.
 
+## Export compliance (encryption)
+
+Both apps set `ITSAppUsesNonExemptEncryption` to `NO`, so App Store Connect and
+TestFlight skip the encryption and France questions on every upload. The basis:
+all cryptography runs through Apple's CryptoKit (built into iOS and watchOS),
+with only standard algorithms (X25519, Ed25519, HKDF-SHA256, ChaCha20-Poly1305);
+nothing is implemented in the app itself. That declaration is yours to make as
+the publisher. If you distribute somewhere that needs a different answer, set
+the key to `YES` in `project.yml` and answer the questions in App Store Connect.
+
 ## Troubleshooting
 
 | Symptom | Likely cause |

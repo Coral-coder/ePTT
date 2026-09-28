@@ -24,6 +24,8 @@
 	<string>$(EPTT_APNS_ENVIRONMENT)</string>
 	<key>EPTTCloudContainer</key>
 	<string>iCloud.$(EPTT_BUNDLE_ID)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>NXTPTT uses the microphone while you hold the talk button.</string>
 	<key>UIAppFonts</key>
