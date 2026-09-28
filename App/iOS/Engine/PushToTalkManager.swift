@@ -34,6 +34,10 @@ final class PushToTalkManager: NSObject {
 
     /// Creates the channel manager. Call as early as possible at launch so pushes are handled.
     func setUp() async {
+        // PushToTalk activates the session with whatever category we set beforehand.
+        do { try AudioEngine.configureSession() } catch {
+            log.error("Audio session setup failed: \(error.localizedDescription, privacy: .public)")
+        }
         do {
             manager = try await PTChannelManager.channelManager(delegate: self, restorationDelegate: self)
             if manager?.activeChannelUUID == nil { join() } else { isJoined = true; onJoined?() }

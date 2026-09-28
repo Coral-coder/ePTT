@@ -139,7 +139,7 @@ struct PrivateRow: View {
                     .font(NX.body(16, .medium))
                     .foregroundStyle(NX.text)
                 Spacer()
-                Text(online ? "On the grid" : "Wakes by push")
+                Text(model.connectionStatus(channel))
                     .font(NX.body(12))
                     .foregroundStyle(NX.textMuted)
                 if model.snapshot.settings.selectedChannel == channel.id {

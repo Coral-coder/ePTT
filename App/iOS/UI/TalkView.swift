@@ -32,13 +32,19 @@ struct BannerView: View {
             Text(text)
                 .font(NX.label(14, .semibold))
                 .foregroundStyle(NX.text)
+                .multilineTextAlignment(.center)
+                .lineLimit(4)
                 .padding(.horizontal, 18)
                 .padding(.vertical, 10)
-                .glassCapsule(glow: 0.35, strong: true)
+                .glass(cornerRadius: 22, glow: 0.35, strong: true)
+                .padding(.horizontal, 16)
                 .padding(.top, 8)
                 .transition(.move(edge: .top).combined(with: .opacity))
+                .onTapGesture { withAnimation { model.banner = nil } }
                 .task(id: text) {
-                    try? await Task.sleep(nanoseconds: 2_500_000_000)
+                    // Long messages (delivery failures) stay up long enough to read.
+                    let seconds = max(2.5, min(8, Double(text.count) / 15))
+                    try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
                     withAnimation { model.banner = nil }
                 }
         }
@@ -166,7 +172,7 @@ struct TalkView: View {
 
     private var idleCaption: String {
         guard let channel = model.selectedChannel else { return "NO CHANNEL" }
-        return model.isOnline(channel) ? "ON THE GRID" : "STANDING BY"
+        return model.connectionStatus(channel).uppercased()
     }
 
     private var relayReady: Bool {

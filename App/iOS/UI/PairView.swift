@@ -16,7 +16,7 @@ struct PairView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
                         ScreenTitle(text: "Pair")
-                        Text("Hold your codes up to each other. Your identity key is inside; no server, no directory.")
+                        Text("Both of you scan each other's code: a phone only accepts voice from people it has scanned. Your identity key is inside; no server, no directory.")
                             .font(NX.body(15))
                             .foregroundStyle(Color(hex: 0xAEEEF8))
 
@@ -152,7 +152,7 @@ struct ContactRow: View {
             InitialsRing(name: contact.name, size: 40, lit: online)
             VStack(alignment: .leading, spacing: 2) {
                 Text(contact.name).font(NX.label(16, .bold)).foregroundStyle(NX.text)
-                Text(online ? "On the grid" : (contact.isWakeable ? "Wakes by push" : "Offline"))
+                Text(model.snapshot.peerRoutes[contact.id].map { "Connected · \($0.shortLabel)" } ?? (contact.isWakeable ? "Not connected · wakes by push" : "Not connected"))
                     .font(NX.body(13))
                     .foregroundStyle(NX.textDim)
             }

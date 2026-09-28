@@ -28,6 +28,8 @@ struct EngineSnapshot {
     var relayAvailable = false
     /// How the transmission being received reached us.
     var receivingRoute: Route?
+    /// The path each connected contact is reachable on right now.
+    var peerRoutes: [IdentityID: Route] = [:]
 }
 
 /// Where a peer was last heard: a UDP endpoint or a MultipeerConnectivity peer.
@@ -43,6 +45,8 @@ enum EngineEvent {
     case joinedGroup(String)
     case unreachable(String)
     case message(String)
+    /// How the transmission we just finished was delivered, one leg per recipient.
+    case delivery([TransferRecord.Leg])
 }
 
 /// The walkie-talkie itself: owns identity, contacts, channels, networking, audio and the
@@ -230,6 +234,9 @@ final class PTTEngine {
     private func housekeeping() {
         let now = Date()
         apply(floor.tick(now: now))
+        // Links go stale silently (nothing arrives), so re-check who is online on every tick;
+        // otherwise the UI keeps showing a peer "on the grid" after the path has died.
+        publishIfOnlineChanged()
 
         if var t = tx {
             if now.timeIntervalSince(t.lastStartResend) >= 0.5 {
@@ -317,6 +324,8 @@ final class PTTEngine {
             log.error("Audio engine failed to start: \(error.localizedDescription, privacy: .public)")
             return
         }
+        // Starting the engine enables voice processing, which can move output to the earpiece.
+        AudioEngine.routeToSpeakerIfNeeded()
         if tx != nil {
             audio.play(.talkPermit)
             audio.startCapture()
@@ -331,6 +340,7 @@ final class PTTEngine {
             try AudioEngine.activateSessionManually()
             audioActive = true
             if !audio.isRunning { try audio.start() }
+            AudioEngine.routeToSpeakerIfNeeded()
         } catch {
             log.error("Manual audio session failed: \(error.localizedDescription, privacy: .public)")
         }
@@ -1009,28 +1019,49 @@ final class PTTEngine {
         if let endPacket { packets.append(endPacket) }
         let seconds = Double(t.nextFrameIndex) * Double(audio.captureCodec.frameMilliseconds) / 1000
         let channelName = displayName(of: t.channel)
-        let relayable = missed.filter { $0.reachability.relayMailbox != nil }
-        guard let relay, state.settings.relayEnabled, !relayable.isEmpty, t.nextFrameIndex > 0,
-              let payload = Relay.encode(packets: packets) else {
-            legs += missed.map { .init(peer: $0.name, route: .failed) }
+
+        // Anyone we couldn't reach directly goes to the relay, or gets a reason why not.
+        var relayable: [(Contact, Data)] = []
+        let payload = t.nextFrameIndex > 0 ? Relay.encode(packets: packets) : nil
+        for contact in missed {
+            let reason: String?
+            if t.nextFrameIndex == 0 || payload == nil {
+                reason = "nothing was recorded"
+            } else if relay == nil {
+                reason = "no direct connection, and the iCloud relay is unavailable (sign in to iCloud)"
+            } else if !state.settings.relayEnabled {
+                reason = "no direct connection, and the iCloud relay is off in Settings"
+            } else if contact.reachability.relayMailbox == nil {
+                reason = "no direct connection, and they haven't shared a relay mailbox yet (have them open the app)"
+            } else {
+                reason = nil
+            }
+            if let reason {
+                legs.append(.init(peer: contact.name, route: .failed, reason: reason))
+            } else if let mailbox = contact.reachability.relayMailbox {
+                relayable.append((contact, mailbox))
+            }
+        }
+
+        guard let relay, let payload, !relayable.isEmpty else {
             if !legs.isEmpty {
                 logTransfer(TransferRecord(date: Date(), outgoing: true, channel: channelName, seconds: seconds, legs: legs))
             }
             return
         }
-        legs += missed.filter { $0.reachability.relayMailbox == nil }.map { .init(peer: $0.name, route: .failed) }
         let directLegs = legs
         Task { [weak self] in
             var relayedLegs: [TransferRecord.Leg] = []
             var uploads: [String: Date] = [:]
-            for contact in relayable {
-                guard let mailbox = contact.reachability.relayMailbox else { continue }
+            for (contact, mailbox) in relayable {
                 do {
                     let name = try await relay.upload(payload: payload, tag: Relay.tag(mailbox: mailbox))
                     uploads[name] = Date().addingTimeInterval(Relay.lifetime)
                     relayedLegs.append(.init(peer: contact.name, route: .relay))
                 } catch {
-                    relayedLegs.append(.init(peer: contact.name, route: .failed))
+                    log.error("Relay upload failed: \(String(describing: error), privacy: .public)")
+                    relayedLegs.append(.init(peer: contact.name, route: .failed,
+                                             reason: "iCloud relay upload failed: \(error.localizedDescription)"))
                 }
             }
             self?.queue.async {
@@ -1097,6 +1128,7 @@ final class PTTEngine {
     }
 
     private func logTransfer(_ record: TransferRecord) {
+        if record.outgoing { emit(.delivery(record.legs)) }
         state.transfers.insert(record, at: 0)
         if state.transfers.count > 100 { state.transfers.removeLast(state.transfers.count - 100) }
         save()
@@ -1243,6 +1275,9 @@ final class PTTEngine {
         }
         lastOnline = onlinePeers()
         snapshot.onlinePeers = lastOnline
+        for contact in state.contacts where lastOnline.contains(contact.id) {
+            snapshot.peerRoutes[contact.id] = PTTEngine.route(for: links[contact.senderID]?.endpoint)
+        }
         snapshot.candidates = transport.localCandidates
         snapshot.pushToTalkAvailable = ptt.isAvailable
         snapshot.wakeAvailable = apns != nil

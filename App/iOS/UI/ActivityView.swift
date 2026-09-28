@@ -65,6 +65,12 @@ struct TransferRow: View {
                 }
                 .font(NX.body(13))
                 .foregroundStyle(leg.route == .failed ? Color(hex: 0xFF8A8A) : NX.textDim)
+                if let reason = leg.reason {
+                    Text(reason)
+                        .font(NX.body(12))
+                        .foregroundStyle(Color(hex: 0xFF8A8A, opacity: 0.8))
+                        .padding(.leading, 26)
+                }
             }
         }
         .padding(.vertical, 2)
