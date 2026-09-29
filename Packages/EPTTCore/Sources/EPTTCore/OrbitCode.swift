@@ -200,7 +200,7 @@ public enum OrbitCode {
                 }
             }
             clusters.sort { $0.count > $1.count }
-            for cluster in clusters.prefix(3) {
+            for cluster in clusters.prefix(5) {
                 let n = Double(cluster.count)
                 let cx = cluster.reduce(0) { $0 + $1.x } / n, cy = cluster.reduce(0) { $0 + $1.y } / n
                 let core = cluster.reduce(0) { $0 + $1.core } / n
@@ -228,7 +228,11 @@ public enum OrbitCode {
                     let total = integral[y1 * (W + 1) + x1] - integral[y0 * (W + 1) + x1]
                         - integral[y1 * (W + 1) + x0] + integral[y0 * (W + 1) + x0]
                     let mean = Double(total) / Double((x1 - x0) * (y1 - y0))
-                    dark[y * W + x] = Double(L[y * W + x]) < mean * 0.92
+                    // A 3 × 3 average, so single noisy pixels don't break the finder's runs.
+                    let a0 = max(0, x - 1), a1 = min(W, x + 2), b0 = max(0, y - 1), b1 = min(H, y + 2)
+                    let local = integral[b1 * (W + 1) + a1] - integral[b0 * (W + 1) + a1]
+                        - integral[b1 * (W + 1) + a0] + integral[b0 * (W + 1) + a0]
+                    dark[y * W + x] = Double(local) / Double((a1 - a0) * (b1 - b0)) < mean * 0.92
                 }
             }
         }
