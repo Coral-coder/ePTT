@@ -54,7 +54,7 @@ public enum OpticalLink {
         precondition(payload.count == payloadBytes)
         let crc = LightCode.crc32(payload)
         let message = payload + Data([UInt8(crc >> 24), UInt8(crc >> 16 & 0xFF), UInt8(crc >> 8 & 0xFF), UInt8(crc & 0xFF)])
-        var bits = message.flatMap { byte in (0..<8).map { byte >> (7 - $0) & 1 == 1 } }
+        var bits: [Bool] = message.flatMap { (byte: UInt8) -> [Bool] in (0..<8).map { byte >> (7 - $0) & 1 == 1 } }
         bits += Array(repeating: false, count: dataSymbols * dataBitsPerSymbol - bits.count)
         return header(preamble) + (0..<dataSymbols).map { k in
             payloadSymbol(Array(bits[(k * dataBitsPerSymbol)..<((k + 1) * dataBitsPerSymbol)]), index: k)
@@ -224,10 +224,10 @@ public enum OpticalLink {
                         events.append(.roundIncomplete)
                     }
                 case .ack:
-                    let symbols = levels.map { $0?.map { $0 > 0.5 } }
+                    let symbols: [OpticalLink.Symbol?] = levels.map { (x: [Double]?) in x?.map { v in v > 0.5 } }
                     let good = symbols.enumerated().allSatisfy { OpticalLink.check($0.element, index: $0.offset) }
                     guard good else { continue }
-                    let bits = symbols.flatMap { Array($0[1...OpticalLink.dataBitsPerSymbol]) }
+                    let bits: [Bool] = symbols.flatMap { (s: OpticalLink.Symbol?) -> [Bool] in Array(s![1...OpticalLink.dataBitsPerSymbol]) }
                     guard bits == OpticalLink.ackBits(bits.prefix(16).reduce(UInt16(0)) { $0 << 1 | ($1 ? 1 : 0) }) else { continue }
                     events.append(.ack(bits.prefix(16).reduce(UInt16(0)) { $0 << 1 | ($1 ? 1 : 0) }))
                 }
