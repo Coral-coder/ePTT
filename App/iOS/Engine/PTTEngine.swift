@@ -1461,6 +1461,23 @@ final class PTTEngine {
 
     // MARK: - Face-to-face pairing
 
+    /// Our signed card for Orbit face-to-face pairing: keys, name, push tokens, addresses, relay
+    /// mailbox and current signed prekey, so the other phone can reach us directly and
+    /// forward-secret from the start.
+    func faceCard(completion: @escaping (ContactCard?) -> Void) {
+        queue.async { [self] in
+            _ = rotatePrekeysIfNeeded()
+            let card = try? myCard()
+            DispatchQueue.main.async { completion(card) }
+        }
+    }
+
+    /// Adds a contact whose signed card was read face to face, and says hello straight to the
+    /// addresses it lists. They hold our card already, so nothing waits on the relay.
+    func addFacePaired(_ card: ContactCard) {
+        queue.async { [self] in addContact(card) }
+    }
+
     /// What this phone shows over light: public keys, name and relay mailbox.
     func lightProfile(completion: @escaping (Data?) -> Void) {
         queue.async { [self] in

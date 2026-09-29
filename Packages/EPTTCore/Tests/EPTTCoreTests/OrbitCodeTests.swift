@@ -74,7 +74,7 @@ final class OrbitCodeTests: XCTestCase {
 
     private func frame(_ seed: UInt8) -> OrbitCode.Frame {
         OrbitCode.Frame(kind: seed & 1, index: Int(seed % 3), total: 3, session: seed &* 37,
-                        payload: (0..<27).map { UInt8(truncatingIfNeeded: Int(seed) * 31 + $0 * 7) })
+                        payload: (0..<26).map { UInt8(truncatingIfNeeded: Int(seed) * 31 + $0 * 7) })
     }
 
     private func assertReads(_ camera: Camera, seed: UInt8 = 5, file: StaticString = #filePath, line: UInt = #line) {
@@ -161,25 +161,67 @@ final class OrbitCodeTests: XCTestCase {
         XCTAssertNil(OrbitCode.read(luma: [UInt8](repeating: 128, count: 640 * 480), width: 640, height: 480))
     }
 
-    func testHandshakeOverCameraImages() throws {
-        func profile(_ name: String) -> LightProfile {
-            LightProfile(identity: LocalIdentity.generate().publicIdentity, name: name, relayMailbox: .random(count: 16))
+    /// A realistic card: push tokens, three addresses, a signed prekey and a relay mailbox.
+    private func card(_ name: String) throws -> ContactCard {
+        let identity = LocalIdentity.generate()
+        var prekeys = PrekeyStore()
+        _ = prekeys.rotateIfNeeded()
+        let reachability = Reachability(
+            apnsPTTToken: .random(count: 32), apnsDeviceToken: .random(count: 32), apnsEnvironment: .production,
+            apnsTopic: "app.nxtptt.NXTPTT",
+            candidates: [.ipv4(Data([192, 168, 1, 20]), port: 40_000), .ipv4(Data([203, 0, 113, 7]), port: 51_820),
+                         .ipv6(.random(count: 16), port: 40_000)],
+            prekey: try prekeys.current(signedBy: identity), relayMailbox: .random(count: 16))
+        return try ContactCard(signing: identity, name: name, timestamp: 1_900_000_000, reachability: reachability)
+    }
+
+    func testFramesCarryUpTo127ChunksAndACardFitsWell() throws {
+        let f = OrbitCode.Frame(kind: 0, index: 126, total: 127, session: 9, payload: [1, 2, 3])
+        XCTAssertEqual(OrbitCode.Frame(bytes: f.bytes), f)
+        let c = try card("Someone with a long name")
+        let frames = OrbitHandshake(card: c, session: 1).frames
+        XCTAssertLessThanOrEqual(frames.count, 30, "\(c.encoded.count) bytes")
+        XCTAssertEqual(OrbitHandshake.card(in: Data(frames.flatMap(\.payload))), c)
+    }
+
+    func testHandshakeSwapsWholeCardsWithTheirPrekeys() throws {
+        let alice = try card("Alice"), bob = try card("Bob")
+        var a = OrbitHandshake(card: alice, session: 1), b = OrbitHandshake(card: bob, session: 2)
+        var aDone: (ContactCard, String)?, bDone: (ContactCard, String)?
+        for round in 0..<6 where aDone == nil || bDone == nil {
+            // Each side misses a different third of the other's frames every round.
+            for (i, f) in b.frames.enumerated() where (i + round) % 3 != 0 {
+                if case .completed(let c, let code)? = a.receive(f) { aDone = (c, code) }
+            }
+            for (i, f) in a.frames.enumerated() where (i + round) % 3 != 1 {
+                if case .completed(let c, let code)? = b.receive(f) { bDone = (c, code) }
+            }
         }
-        let alice = profile("Alice"), bob = profile("Bob with a long name!!")
-        var a = OrbitHandshake(profile: alice, session: 1), b = OrbitHandshake(profile: bob, session: 2)
+        XCTAssertEqual(aDone?.0, bob)
+        XCTAssertEqual(bDone?.0, alice)
+        XCTAssertEqual(aDone?.1, bDone?.1)
+        XCTAssertNotNil(aDone?.0.reachability.prekey)
+        XCTAssertTrue(aDone?.0.reachability.prekey?.isValid(for: bob.identity) ?? false)
+        XCTAssertEqual(aDone?.0.reachability.candidates.count, 3)
+        XCTAssertEqual(a.frames.count, 1, "after completing, only the ACK")
+    }
+
+    func testHandshakeOverCameraImages() throws {
+        let alice = try card("Alice"), bob = try card("Bob")
+        var a = OrbitHandshake(card: alice, session: 1), b = OrbitHandshake(card: bob, session: 2)
         var aDone: String?, bDone: String?
         var camera = Camera(width: 400, height: 320, diameter: 220, angle: 0.4, mirror: true, tilt: (0.15, -0.1), blur: 1)
-        for tick in 0..<40 where aDone == nil || bDone == nil {
+        for tick in 0..<90 where aDone == nil || bDone == nil {
             camera.angle += 0.37
             camera.seed = UInt64(tick + 100)
             let fromA = a.frames[tick % a.frames.count], fromB = b.frames[tick % b.frames.count]
             // Each also sees its own reflection now and then, which it must ignore.
             let seenByB = tick % 7 == 6 ? b.frames[0] : fromA
-            if let read = OrbitCode.read(luma: camera.view(fromB), width: camera.width, height: camera.height),
+            if aDone == nil, let read = OrbitCode.read(luma: camera.view(fromB), width: camera.width, height: camera.height),
                case .completed(let p, let code)? = a.receive(read) {
                 XCTAssertEqual(p, bob); aDone = code
             }
-            if let read = OrbitCode.read(luma: camera.view(seenByB), width: camera.width, height: camera.height),
+            if bDone == nil, let read = OrbitCode.read(luma: camera.view(seenByB), width: camera.width, height: camera.height),
                case .completed(let p, let code)? = b.receive(read) {
                 XCTAssertEqual(p, alice); bDone = code
             }
@@ -188,20 +230,26 @@ final class OrbitCodeTests: XCTestCase {
         XCTAssertEqual(aDone, bDone)
     }
 
-    func testHandshakeRejectsAnAckForSomeoneElse() {
-        func profile() -> LightProfile {
-            LightProfile(identity: LocalIdentity.generate().publicIdentity, name: "", relayMailbox: .random(count: 16))
-        }
-        var a = OrbitHandshake(profile: profile(), session: 1)
-        var b = OrbitHandshake(profile: profile(), session: 2)
-        var c = OrbitHandshake(profile: profile(), session: 3)
-        for f in a.frames { _ = b.receive(f) }
-        for f in c.frames { _ = b.receive(f) }   // b already holds a's offer; c's is ignored
+    func testHandshakeRejectsAnAckForSomeoneElse() throws {
+        var a = OrbitHandshake(card: try card("A"), session: 1)
+        var b = OrbitHandshake(card: try card("B"), session: 2)
+        var c = OrbitHandshake(card: try card("C"), session: 3)
+        for f in a.frames { _ = b.receive(f) }       // b now holds a's card and shows an ACK for it
         var events: [OrbitHandshake.Event] = []
         for f in b.frames { if let e = c.receive(f) { events.append(e) } }
         XCTAssertTrue(events.contains { if case .rejected = $0 { return true } else { return false } })
         XCTAssertFalse(c.isComplete)
-        for f in b.frames { if case .completed? = a.receive(f) {} }
+        for f in b.frames { _ = a.receive(f) }
         XCTAssertTrue(a.isComplete)
+    }
+
+    func testRejectsATamperedCard() throws {
+        var a = OrbitHandshake(card: try card("A"), session: 1)
+        var frames = OrbitHandshake(card: try card("B"), session: 2).frames
+        frames[1].payload[5] ^= 0x40                   // survives the CRC (re-computed), not the signature
+        var events: [OrbitHandshake.Event] = []
+        for f in frames { if let e = a.receive(f) { events.append(e) } }
+        XCTAssertNil(a.peer)
+        XCTAssertTrue(events.contains { if case .rejected = $0 { return true } else { return false } })
     }
 }

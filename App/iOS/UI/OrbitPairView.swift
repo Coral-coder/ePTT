@@ -49,13 +49,13 @@ struct FacePairView: View {
             savedBrightness = UIScreen.main.brightness
             UIScreen.main.brightness = 0.8
             let groupID = group?.id
-            pairing.onPaired = { profile in
-                model.engine.addLightPaired(profile)
-                if let groupID { model.engine.addMember(profile.identity.id, toGroup: groupID) }
+            pairing.onPaired = { card in
+                model.engine.addFacePaired(card)
+                if let groupID { model.engine.addMember(card.id, toGroup: groupID) }
             }
-            model.engine.lightProfile { data in
-                guard let data, let profile = try? LightProfile(encoded: data) else { return }
-                pairing.start(profile: profile)
+            model.engine.faceCard { card in
+                guard let card else { return }
+                pairing.start(card: card)
             }
         }
         .onDisappear {
@@ -132,8 +132,8 @@ private struct OrbitStepsPanel: View {
             VStack(alignment: .leading, spacing: 6) {
                 step("See the other phone", done: pairing.stage != .looking, active: pairing.stage == .looking)
                 step(pairing.stage == .receiving && pairing.collected.of > 0
-                        ? "Read their code · \(pairing.collected.have) of \(pairing.collected.of)"
-                        : "Read their code",
+                        ? "Read their card · \(pairing.collected.have) of \(pairing.collected.of)"
+                        : "Read their card",
                      done: pairing.stage == .confirming || pairing.stage == .paired, active: pairing.stage == .receiving)
                 step("They confirm they read ours", done: pairing.stage == .paired, active: pairing.stage == .confirming)
             }
@@ -189,7 +189,7 @@ private struct OrbitStepsPanel: View {
 final class OrbitPairingSession: ObservableObject {
     enum Stage { case looking, receiving, confirming, paired }
 
-    static let frameSeconds = 0.45
+    static let frameSeconds = 0.4
     static let imageSize = 560
 
     @Published private(set) var stage: Stage = .looking
@@ -198,19 +198,21 @@ final class OrbitPairingSession: ObservableObject {
     @Published private(set) var safetyCode: String?
     @Published private(set) var peerName = ""
     @Published private(set) var slow = false
-    var onPaired: ((LightProfile) -> Void)?
+    var onPaired: ((ContactCard) -> Void)?
 
     private let lock = NSLock()
     private var handshake: OrbitHandshake?
     private var shownFrames: [OrbitCode.Frame] = []
+    /// Rendered codes by frame; the loop gains ACK frames later but keeps its card frames.
+    private var imageCache: [OrbitCode.Frame: CGImage] = [:]
     private var busy = false
     private let render = DispatchQueue(label: "app.eptt.orbit.render", qos: .userInitiated)
 
     var progress: Double {
         switch stage {
         case .looking: return 0.03
-        case .receiving: return 0.1 + 0.6 * (collected.of > 0 ? Double(collected.have) / Double(collected.of) : 0)
-        case .confirming: return 0.75 + 0.2 * (collected.of > 0 ? Double(collected.have) / Double(collected.of) : 0)
+        case .receiving: return 0.05 + 0.75 * (collected.of > 0 ? Double(collected.have) / Double(collected.of) : 0)
+        case .confirming: return 0.88
         case .paired: return 1
         }
     }
@@ -238,10 +240,10 @@ final class OrbitPairingSession: ObservableObject {
         }
     }
 
-    func start(profile: LightProfile) {
+    func start(card: ContactCard) {
         lock.lock()
         guard handshake == nil else { lock.unlock(); return }
-        handshake = OrbitHandshake(profile: profile)
+        handshake = OrbitHandshake(card: card)
         lock.unlock()
         refreshImages()
         DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
@@ -258,8 +260,14 @@ final class OrbitPairingSession: ObservableObject {
         lock.unlock()
         guard changed else { return }
         render.async { [weak self] in
-            let images = frames.compactMap { Self.image(OrbitCode.render($0, size: Self.imageSize), size: Self.imageSize) }
-            DispatchQueue.main.async { self?.images = images }
+            guard let self else { return }
+            let images: [CGImage] = frames.compactMap { frame in
+                if let cached = self.imageCache[frame] { return cached }
+                let image = Self.image(OrbitCode.render(frame, size: Self.imageSize), size: Self.imageSize)
+                self.imageCache[frame] = image
+                return image
+            }
+            DispatchQueue.main.async { self.images = images }
         }
     }
 
@@ -297,17 +305,17 @@ final class OrbitPairingSession: ObservableObject {
     }
 
     @MainActor
-    private func update(event: OrbitHandshake.Event?, collected: (have: Int, of: Int), complete: Bool, peer: LightProfile?) {
+    private func update(event: OrbitHandshake.Event?, collected: (have: Int, of: Int), complete: Bool, peer: ContactCard?) {
         guard stage != .paired else { return }
         self.collected = collected
         if let peer, !peer.name.isEmpty { peerName = peer.name }
         switch event {
         case .gotOffer?:
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        case .completed(let profile, let code)?:
+        case .completed(let card, let code)?:
             safetyCode = code
             UINotificationFeedbackGenerator().notificationOccurred(.success)
-            onPaired?(profile)
+            onPaired?(card)
         default:
             break
         }

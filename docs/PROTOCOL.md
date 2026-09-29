@@ -464,9 +464,10 @@ The 31 data bytes:
 
 | Bytes | Content |
 | --- | --- |
-| 0 | `kind(1) ‖ index(3) ‖ total(3) ‖ 0(1)` |
-| 1 | Session: a random byte per pairing, so a phone can ignore its own reflection |
-| 2–28 | 27 payload bytes, zero-padded |
+| 0 | `kind(1) ‖ index(7)`: frame 0–126 of the message |
+| 1 | Total frames in the message, 1–127 |
+| 2 | Session: a random byte per pairing, so a phone can ignore its own reflection |
+| 3–28 | 26 payload bytes, zero-padded |
 | 29–30 | CRC-16-CCITT (initial value 0xFFFF, polynomial 0x1021) of bytes 0–28, big-endian |
 
 **Reading.** The reader has no help from the system.
@@ -483,25 +484,23 @@ The 31 data bytes:
 7. It samples every cell, then corrects the result with Reed–Solomon and checks
    the CRC.
 
-**Handshake.** Each phone shows its frames in a loop, 0.45 s each, and each frame
-is drawn at a new angle.
+**Handshake.** Each phone shows its frames in a loop, 0.4 s each, and each frame
+is drawn at a new angle. What travels is each side's whole signed contact card
+(§4). It holds the keys, name, push tokens, network addresses, relay mailbox and
+the current signed prekey (§3.1). About 300–550 bytes, so 12–22 frames.
 
-1. **OFFER** (kind 0): our `LightProfile` (below: with our display name, 82–106
-   bytes) in 27-byte frames.
-2. **ACK** (kind 1): once we hold the whole offer from the other phone, we show
-   ACK frames instead. They carry the first 8 bytes of SHA-256 of the offer we
-   read, then our profile again.
-3. **Done:** a phone completes when it reads an ACK whose hash matches its own
-   offer. The other phone then provably holds our real profile, and we hold
-   theirs, since the ACK carries it too. A phone that completes keeps showing
-   its ACK, so the other phone can finish.
+1. **OFFER** (kind 0): our card, in 26-byte frames. Frames are collected across
+   loops, so a missed one is simply read next time round.
+2. **ACK** (kind 1, one frame): once we hold the other phone's whole card and its
+   signature verifies, we add an ACK before every 4th card frame. It carries the
+   first 8 bytes of SHA-256 of their card, then 8 bytes of SHA-256 of ours.
+3. **Done:** a phone completes when it holds the other's card and reads an ACK
+   naming our card and that card. Each phone then provably holds the other's
+   exact card. A phone that has completed shows only its ACK, so the other phone
+   can finish.
 
-Frames with our own session byte are ignored. An ACK that hashes some other offer
-is rejected.
-
-**Profile.**
-
-`version(1) ‖ Ed25519 key(32) ‖ X25519 key(32) ‖ relay mailbox(16) ‖ name length(1) ‖ name(≤ 24)`
+Frames with our own session byte are ignored. An ACK naming another card is
+rejected, as is a card whose signature doesn't verify.
 
 **Adding to a group.** Face to face can start from a talk group's invite screen.
 When the pairing completes there, that phone adds the new contact to the group and
@@ -509,15 +508,14 @@ sends GROUP_INVITE (§6.3) to every member. The other phone only pairs; the grou
 reaches it sealed to its own keys.
 
 
-**After pairing.** Each side creates the contact from the profile and sends a
-`CARD` message (type `0x12`) to the peer: its full signed contact card, sealed on
-the new direct channel. It goes over any direct path and to the relay mailbox
-the peer just showed. The CARD fills in push tokens, prekey, addresses and the
-card used for group invites.
+**After pairing.** Each side adds the contact straight from the card it read and
+sends a HELLO (§6.1) to the addresses the card lists. Both phones already hold each
+other's prekey, push tokens and addresses. So the first transmission can go
+directly, sealed to the prekey (forward secrecy, §3.1 and §6.2), without waiting on the relay.
 
 **Safety code.** Both phones show six digits: the first 4 bytes of
 `SHA-256("ePTT/1 face-pairing" ‖ lower ‖ higher)` modulo 10⁶, where `lower` and
-`higher` are the two profiles in byte order.
+`higher` are the two cards' exact bytes in byte order.
 
 The optical channel is the trust boundary: only a screen in front of the camera
 can pair.

@@ -15,7 +15,7 @@ import Foundation
 /// - light gap to 1.01, a solid dark ring to 1.06 and 24 dashes to 1.12 at known angles. The
 ///   dashes give 24 reference points for a full perspective (homography) fit; margin to 1.20.
 ///
-/// The 31 data bytes: [kind:1 index:3 total:3 0:1] [session] [27 payload] [CRC-16].
+/// The 31 data bytes: [kind:1 index:7] [total] [session] [26 payload] [CRC-16].
 public enum OrbitCode {
     public static let disc = 0.18, whiteRing = 0.24, blackRing = 0.30, quiet = 0.36
     public static let ringThickness = 0.075, rings = 8
@@ -27,7 +27,9 @@ public enum OrbitCode {
     /// Half the width of the bar that runs straight up from the bullseye to the outer ring.
     public static let barHalfWidth = 0.035
     static let codewordBytes = 49, parityBytes = 18, dataBytes = 31
-    public static let payloadBytes = 27
+    public static let payloadBytes = 26
+    /// Frames one message can span.
+    public static let maxFrames = 127
 
     static func ringMid(_ k: Int) -> Double { quiet + ringThickness * (Double(k) + 0.5) }
 
@@ -58,12 +60,12 @@ public enum OrbitCode {
     }
 
     /// One code's content.
-    public struct Frame: Equatable {
+    public struct Frame: Hashable {
         public var kind: UInt8        // 0 or 1
-        public var index: Int         // 0…7
-        public var total: Int         // 1…7
+        public var index: Int         // 0…126
+        public var total: Int         // 1…127
         public var session: UInt8
-        public var payload: [UInt8]   // 28 bytes
+        public var payload: [UInt8]   // 26 bytes
 
         public init(kind: UInt8, index: Int, total: Int, session: UInt8, payload: [UInt8]) {
             self.kind = kind
@@ -74,8 +76,8 @@ public enum OrbitCode {
         }
 
         var bytes: [UInt8] {
-            let head: UInt8 = kind << 7 | UInt8(index) << 4 | UInt8(total) << 1
-            var b: [UInt8] = [head, session] + payload
+            let head: UInt8 = kind << 7 | UInt8(index)
+            var b: [UInt8] = [head, UInt8(total), session] + payload
             let crc = OrbitCode.crc16(b[...])
             b += [UInt8(crc >> 8), UInt8(crc & 0xFF)]
             return b
@@ -85,11 +87,11 @@ public enum OrbitCode {
             guard b.count == OrbitCode.dataBytes,
                   OrbitCode.crc16(b[0..<29]) == UInt16(b[29]) << 8 | UInt16(b[30]) else { return nil }
             kind = b[0] >> 7
-            index = Int(b[0] >> 4 & 7)
-            total = Int(b[0] >> 1 & 7)
-            session = b[1]
-            payload = Array(b[2..<29])
-            guard total > 0, index < total else { return nil }
+            index = Int(b[0] & 0x7F)
+            total = Int(b[1])
+            session = b[2]
+            payload = Array(b[3..<29])
+            guard total > 0, total <= OrbitCode.maxFrames, index < total else { return nil }
         }
     }
 
