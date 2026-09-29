@@ -36,15 +36,6 @@ struct EngineSnapshot {
     var receivingRoute: Route?
     /// The path each connected contact is reachable on right now.
     var peerRoutes: [IdentityID: Route] = [:]
-    /// The last message received, while it can still be replayed (for an hour).
-    var lastMessage: LastMessageInfo?
-}
-
-struct LastMessageInfo: Equatable {
-    var talker: String
-    var seconds: Double
-    var date: Date
-    var expires: Date { date.addingTimeInterval(PTTEngine.replayLifetime) }
 }
 
 /// Where a peer was last heard: a UDP endpoint or a MultipeerConnectivity peer.
@@ -70,8 +61,6 @@ final class PTTEngine {
     static let maxBurstDuration: TimeInterval = 60   // like Nextel, a stuck key times out
     static let linkFreshness: TimeInterval = 30
     static let framesPerPacket = 3
-    /// Only the last message received can be replayed, and only for this long.
-    static let replayLifetime: TimeInterval = 3600
 
     var onSnapshot: ((EngineSnapshot) -> Void)?
     var onEvent: ((EngineEvent) -> Void)?
@@ -159,31 +148,8 @@ final class PTTEngine {
         var jitter = JitterBuffer()
         /// BURST_END arrived: play out what is buffered, then stop.
         var draining = false
-        var codec: VoiceCodecID = .opus
-        var sampleRate: UInt32 = 48_000
-        /// Frames as played (nil = lost), kept so the message can be replayed.
-        var recorded: [Data?] = []
-        /// Playing back the last message rather than receiving one.
-        var isReplay = false
-        /// Replaying a notification sound file instead of frames; set when it started.
-        var file: URL?
-        var fileEnds: Date?
     }
     private var rx: Reception?
-
-    /// The last message received, kept in memory for replay.
-    private struct LastMessage {
-        let channel: Channel
-        let sender: SenderID
-        let talker: String
-        let date: Date
-        let codec: VoiceCodecID
-        let sampleRate: UInt32
-        let frameMilliseconds: Int
-        let frames: [Data?]
-        var seconds: Double { Double(frames.count * frameMilliseconds) / 1000 }
-    }
-    private var lastMessage: LastMessage?
     private var playoutTimer: DispatchSourceTimer?
     private var earlyVoice = ExpiringQueue<MessageID, (UInt32, [Data])>()
     /// Burst packets that arrived before their BURST_START could be opened.
@@ -752,8 +718,6 @@ final class PTTEngine {
         let talker = channel.kind == .group ? "\(contact.name) · \(channel.name)" : contact.name
         var r = Reception(channel: channel, burst: burst, sender: sender, talker: talker, route: route)
         r.frameMilliseconds = Int(start?.frameMilliseconds ?? 20)
-        r.codec = start?.codec ?? .opus
-        r.sampleRate = start?.sampleRate ?? 48_000
         for (index, frames) in earlyVoice.take(burst) {
             for (offset, frame) in frames.enumerated() { r.jitter.insert(index: index + UInt32(offset), frame: frame) }
         }
@@ -777,15 +741,8 @@ final class PTTEngine {
     private func stopReception(playEndTone: Bool = true) {
         guard let finished = rx else { return }
         rx = nil
-        if !finished.isReplay {
-            processor.forgetBurst(sender: finished.sender, burst: finished.burst)
-            if !finished.recorded.isEmpty {
-                lastMessage = LastMessage(channel: finished.channel, sender: finished.sender, talker: finished.talker, date: Date(),
-                                          codec: finished.codec, sampleRate: finished.sampleRate,
-                                          frameMilliseconds: finished.frameMilliseconds, frames: finished.recorded)
-            }
-        }
-        if finished.framesPlayed > 0 && !finished.isReplay {
+        processor.forgetBurst(sender: finished.sender, burst: finished.burst)
+        if finished.framesPlayed > 0 {
             logTransfer(TransferRecord(date: Date(), outgoing: false, channel: displayName(of: finished.channel),
                                        seconds: Double(finished.framesPlayed * finished.frameMilliseconds) / 1000,
                                        legs: [.init(peer: self.contact(finished.sender)?.name ?? "?", route: finished.route)]))
@@ -829,101 +786,17 @@ final class PTTEngine {
         // Until iOS hands us the audio session, keep buffering: the listener hears the burst
         // time-shifted rather than clipped.
         guard audioActive, Date() >= playoutHold, var r = rx else { return }
-        if let file = r.file {
-            if let ends = r.fileEnds {
-                if Date() >= ends { stopReception() }
-            } else if let seconds = audio.playRecording(file) {
-                rx?.fileEnds = Date().addingTimeInterval(seconds + 0.2)
-            } else {
-                stopReception(playEndTone: false)
-            }
-            return
-        }
         let pulled = r.jitter.pull()
         rx = r
         switch pulled {
         case .frame(let frame):
             audio.playFrame(frame)
             rx?.framesPlayed += 1
-            if rx?.isReplay == false { rx?.recorded.append(frame) }
         case .missing:
             audio.playFrame(nil)
             rx?.framesPlayed += 1
-            if rx?.isReplay == false { rx?.recorded.append(nil) }
         case .waiting: break
         case .finished: stopReception()
-        }
-    }
-
-    // MARK: - Replay
-
-    /// The newest message that can still be replayed: one the app played itself, or one a
-    /// notification played while the app was suspended (its sound file).
-    private enum Replayable {
-        case frames(LastMessage)
-        case file(RelayInbox.Heard, URL, Channel)
-        var info: LastMessageInfo {
-            switch self {
-            case .frames(let m): return LastMessageInfo(talker: m.talker, seconds: m.seconds, date: m.date)
-            case .file(let h, _, _): return LastMessageInfo(talker: h.talker, seconds: h.seconds, date: h.date)
-            }
-        }
-    }
-
-    private func latestReplayable() -> Replayable? {
-        let cutoff = Date().addingTimeInterval(-Self.replayLifetime)
-        var best: Replayable?
-        if let m = lastMessage, m.date > cutoff { best = .frames(m) }
-        if let dir = RelayInbox.soundsDirectory,
-           let heard = RelayInbox.heard()
-               .filter({ $0.sound.hasPrefix("rx-") && $0.seconds > 0 && $0.date > cutoff && $0.date > (best?.info.date ?? .distantPast) })
-               .max(by: { $0.date < $1.date }) {
-            let url = dir.appendingPathComponent(heard.sound)
-            let channel = state.channels.first { displayName(of: $0) == heard.channel }
-                ?? state.settings.selectedChannel.flatMap { self.channel($0) }
-                ?? state.channels.first
-            if FileManager.default.fileExists(atPath: url.path), let channel {
-                best = .file(heard, url, channel)
-            }
-        }
-        return best
-    }
-
-    /// Plays the last message received again, if it is less than an hour old.
-    func replayLast() {
-        queue.async { [self] in
-            guard rx == nil, tx == nil, let item = latestReplayable() else { return }
-            let talker = "Replay · " + item.info.talker
-            let replayID = MessageID.random()
-            switch item {
-            case .frames(let m):
-                var r = Reception(channel: m.channel, burst: replayID, sender: m.sender, talker: talker, route: .internet)
-                r.isReplay = true
-                r.jitter = JitterBuffer(capacity: m.frames.count + 1)
-                r.frameMilliseconds = m.frameMilliseconds
-                for (i, frame) in m.frames.enumerated() {
-                    if let frame { r.jitter.insert(index: UInt32(i), frame: frame) }
-                }
-                r.jitter.markEnded(frameCount: UInt32(m.frames.count))
-                rx = r
-                audio.beginPlayback(codec: m.codec, sampleRate: m.sampleRate,
-                                    frameMilliseconds: UInt8(clamping: m.frameMilliseconds))
-            case .file(_, let url, let channel):
-                var r = Reception(channel: channel, burst: replayID, sender: try! SenderID(bytes: Data(count: 8)),
-                                  talker: talker, route: .internet)
-                r.isReplay = true
-                r.file = url
-                rx = r
-            }
-            if usesPushToTalk {
-                ptt.setActiveRemoteParticipant(talker)
-                if audioActive { playIncomingTone() }
-            } else {
-                if !audioActive { startManualAudio() }
-                playIncomingTone()
-            }
-            startPlayout()
-            publish()
         }
     }
 
@@ -1653,7 +1526,6 @@ final class PTTEngine {
         snapshot.lastWakeSent = lastWakeSent
         snapshot.hasPushToken = state.pttToken != nil
         snapshot.lastWakeReceived = lastWakeReceived
-        snapshot.lastMessage = latestReplayable()?.info
         DispatchQueue.main.async { [weak self] in self?.onSnapshot?(snapshot) }
     }
 

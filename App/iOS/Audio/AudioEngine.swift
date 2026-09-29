@@ -327,25 +327,6 @@ final class AudioEngine {
         }
     }
 
-    /// Plays a recorded message (a notification sound file) through the voice player.
-    /// Returns its length in seconds, or nil if it can't be read.
-    func playRecording(_ url: URL) -> TimeInterval? {
-        guard let file = try? AVAudioFile(forReading: url), file.length > 0 else { return nil }
-        let seconds = Double(file.length) / file.processingFormat.sampleRate
-        queue.async {
-            guard self.engine.isRunning else { return }
-            let format = file.processingFormat
-            if self.voicePlayerFormat != format {
-                self.voicePlayer.stop()
-                self.engine.connect(self.voicePlayer, to: self.engine.mainMixerNode, format: format)
-                self.voicePlayerFormat = format
-            }
-            self.voicePlayer.scheduleFile(file, at: nil, completionHandler: nil)
-            self.startVoicePlayerIfPossible()
-        }
-        return seconds
-    }
-
     private func startVoicePlayerIfPossible() {
         // play() raises an Objective-C exception if the engine is not running.
         guard engine.isRunning, !voicePlayer.isPlaying else { return }
