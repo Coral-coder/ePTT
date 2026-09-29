@@ -29,6 +29,7 @@
 		47ACF6FC07FE0A76E89EA433 /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3871A34AA3E7E3696FC46F78 /* Store.swift */; };
 		49CA6D53FC22E4299659E35C /* APNsClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4D548C686BBCEBBDBC6FA48 /* APNsClient.swift */; };
 		4AC2847B0A9BFCAEBB5773DB /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84B06BD68E2E389EF003458D /* Theme.swift */; };
+		4C2714092CE55A4182662055 /* OrbitPairView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD7AD74250234448DCDCEEA1 /* OrbitPairView.swift */; };
 		4D72E8B6C1B4B63A4AA1542A /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F6736A86DBDC21FCC5FD41 /* Keychain.swift */; };
 		4E522EABE049107F3A5FA677 /* Michroma-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 491106D4D4A4C379330E7D8F /* Michroma-Regular.ttf */; };
 		52394BA8F3DCAF5E21811192 /* Tones.swift in Sources */ = {isa = PBXBuildFile; fileRef = C66904B734B15FAC62F2080B /* Tones.swift */; };
@@ -184,6 +185,7 @@
 		B87B1D6A78B0BF42AB8164DA /* WatchTalkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchTalkView.swift; sourceTree = "<group>"; };
 		B9337F442BFF9EF1F84AAD59 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
 		BB5C66B7F082C04F7C676223 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
+		BD7AD74250234448DCDCEEA1 /* OrbitPairView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbitPairView.swift; sourceTree = "<group>"; };
 		C2C1D5CDE2BD22B2DE1968CE /* NXTPTTWatch.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = NXTPTTWatch.entitlements; sourceTree = "<group>"; };
 		C66904B734B15FAC62F2080B /* Tones.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tones.swift; sourceTree = "<group>"; };
 		CF0F72AD79C914F4229FE377 /* ActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityView.swift; sourceTree = "<group>"; };
@@ -410,6 +412,7 @@
 				71F9D559EAE5E7FAF3FC7438 /* Components.swift */,
 				48CA78A2036DC171165B7EF2 /* FacePairView.swift */,
 				FF14FF95427D6CC114A44733 /* OnboardingView.swift */,
+				BD7AD74250234448DCDCEEA1 /* OrbitPairView.swift */,
 				36E3EB4EF56C3AF302C8490C /* PairView.swift */,
 				F0220AFF770A796A696493B8 /* SettingsView.swift */,
 				90A31E58691124529D39C377 /* SoundsView.swift */,
@@ -612,6 +615,7 @@
 				6090112260B68C097D107408 /* NXTPTTApp.swift in Sources */,
 				D5400801694C95121C6BC662 /* NearbyTransport.swift in Sources */,
 				DB0680E9C743F4A7656940A3 /* OnboardingView.swift in Sources */,
+				4C2714092CE55A4182662055 /* OrbitPairView.swift in Sources */,
 				140445E2C96F7A09C8021C87 /* PTTEngine.swift in Sources */,
 				F0B4EE11E20B998AF99A23FD /* PairView.swift in Sources */,
 				C3C698E53D06432948E6857C /* PushToTalkManager.swift in Sources */,
