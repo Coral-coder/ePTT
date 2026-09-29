@@ -1,0 +1,476 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>NXTPTT App Store screens</title>
+<style>
+@font-face { font-family: Michroma; src: url(../../../App/Shared/Fonts/Michroma-Regular.ttf); }
+@font-face { font-family: Exo2; font-weight: 500; src: url(../../../App/Shared/Fonts/Exo2-Medium.ttf); }
+@font-face { font-family: Exo2; font-weight: 600; src: url(../../../App/Shared/Fonts/Exo2-SemiBold.ttf); }
+@font-face { font-family: Exo2; font-weight: 700; src: url(../../../App/Shared/Fonts/Exo2-Bold.ttf); }
+@font-face { font-family: Hind; font-weight: 400; src: url(../../../App/Shared/Fonts/Hind-Regular.ttf); }
+@font-face { font-family: Hind; font-weight: 500; src: url(../../../App/Shared/Fonts/Hind-Medium.ttf); }
+@font-face { font-family: Hind; font-weight: 600; src: url(../../../App/Shared/Fonts/Hind-SemiBold.ttf); }
+
+:root {
+  --cyan: #00E5FF; --ice: #6FF6FF; --frost: #BFF9FF; --whiteHot: #E6FFFF;
+  --text: #E6FBFF; --textDim: #9FE9F5; --textMuted: #8FCFDB; --ink: #022238;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #01040A; overflow: hidden; }
+body { font-family: Hind, sans-serif; color: var(--text); -webkit-font-smoothing: antialiased; }
+
+/* ---------- marketing canvas ---------- */
+.canvas { position: relative; overflow: hidden;
+  background: radial-gradient(120% 60% at 20% 0%, #0B3A5C 0%, transparent 60%),
+              radial-gradient(90% 50% at 90% 10%, rgba(0,255,214,.18) 0%, transparent 60%),
+              linear-gradient(#06223A, #03111F 40%, #020812 70%, #01040A); }
+.caption { position: absolute; left: 0; right: 0; text-align: center; }
+.caption h1 { font-family: Exo2; font-weight: 700; color: #fff; letter-spacing: .02em;
+  text-shadow: 0 0 18px rgba(0,229,255,.55); line-height: 1.05; }
+.caption p { font-family: Hind; font-weight: 500; color: var(--textDim); margin-top: .45em; line-height: 1.25; }
+.device { position: absolute; left: 50%; overflow: hidden;
+  box-shadow: 0 0 0 2px rgba(191,249,255,.35), 0 0 60px rgba(0,229,255,.35), 0 30px 80px rgba(0,0,0,.7); }
+
+/* ---------- app screen ---------- */
+.screen { position: absolute; left: 0; top: 0; overflow: hidden; background: #01040A; }
+.grid { position: absolute; inset: 0; }
+.statusbar { position: absolute; left: 0; right: 0; top: 0; height: 54px; display: flex; align-items: center;
+  justify-content: space-between; padding: 14px 34px 0 46px; font-family: -apple-system, "Helvetica Neue", Arial, sans-serif;
+  font-weight: 600; font-size: 17px; color: #fff; z-index: 5; }
+.statusbar .icons { display: flex; gap: 7px; align-items: center; }
+.island { position: absolute; top: 11px; left: 50%; transform: translateX(-50%); width: 126px; height: 37px;
+  border-radius: 20px; background: #000; z-index: 6; }
+.content { position: absolute; left: 0; right: 0; top: 62px; bottom: 0; display: flex; flex-direction: column; }
+.pad { padding: 0 22px; }
+
+.glass { position: relative; border: 1px solid rgba(191,249,255,.55);
+  background: linear-gradient(rgba(120,220,255,.22), rgba(40,120,159,.12) 50%, rgba(10,40,70,.32));
+  box-shadow: 0 0 12px rgba(0,229,255,.18); }
+.glass::before { content: ""; position: absolute; left: 10px; right: 10px; top: 3px; height: min(46%, 34px);
+  border-radius: inherit; background: linear-gradient(rgba(255,255,255,.28), rgba(255,255,255,0)); pointer-events: none; }
+.glass.strong { background: linear-gradient(rgba(140,230,255,.30), rgba(10,50,80,.35)); box-shadow: 0 0 14px rgba(0,229,255,.3); }
+
+.wordmark { font-family: Michroma; font-size: 22px; letter-spacing: 7px; color: #EAFFFF;
+  text-shadow: 0 0 5px var(--cyan), 0 0 10px rgba(0,229,255,.6); }
+.iconbtn { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; color: var(--frost); }
+.gelbead { width: 44px; height: 44px; border-radius: 50%; position: relative; display: grid; place-items: center;
+  color: var(--ink); background: radial-gradient(circle at 40% 30%, #BDFCFF, #19C6EC 45%, #04506F 90%);
+  box-shadow: 0 0 6px rgba(0,229,255,.7); }
+.gelbead::after { content: ""; position: absolute; width: 62%; height: 38%; top: 8%; left: 19%; border-radius: 50%;
+  background: linear-gradient(rgba(255,255,255,.75), rgba(255,255,255,0)); }
+.gelbead svg { position: relative; z-index: 1; }
+.capsule { border-radius: 999px; }
+.label { font-family: Exo2; font-weight: 700; }
+.caps { text-transform: uppercase; }
+.section { font-family: Exo2; font-weight: 600; font-size: 12px; letter-spacing: 4px; color: var(--ice); text-transform: uppercase; }
+.title { font-family: Exo2; font-weight: 700; font-size: 26px; letter-spacing: 2px; color: var(--text); text-transform: uppercase; }
+.breathing { font-family: Exo2; font-weight: 600; font-size: 13px; letter-spacing: 5.5px; color: #8FF3FF; text-align: center; }
+.chip { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 11px; border-radius: 999px;
+  font-family: Hind; font-weight: 500; font-size: 12px; color: #C6FBFF; background: rgba(0,60,90,.35);
+  border: 1px solid rgba(0,229,255,.45); }
+.chip.dim { color: var(--textMuted); background: rgba(0,40,60,.25); border-color: rgba(0,229,255,.22); }
+.ring { border-radius: 50%; display: grid; place-items: center; font-family: Michroma; color: #EAFFFF;
+  background: radial-gradient(circle at 40% 30%, rgba(160,245,255,.5), rgba(0,60,90,.6) 70%);
+  border: 2px solid var(--cyan); box-shadow: 0 0 6px rgba(0,229,255,.8); }
+.ring.off { border-color: #45707C; box-shadow: none; }
+.btn { height: 50px; border-radius: 999px; display: flex; align-items: center; justify-content: center; gap: 8px;
+  font-family: Exo2; font-weight: 700; font-size: 14px; letter-spacing: 2px; }
+.btn.glass { color: #CFFBFF; }
+.btn.gel { color: var(--ink); position: relative; overflow: hidden;
+  background: radial-gradient(120px 70px at 50% 0%, #C9FDFF, #29CDF2 55%, #076A98);
+  border: 1px solid rgba(200,250,255,.85); box-shadow: 0 0 10px rgba(0,229,255,.5); }
+.btn.gel::before { content: ""; position: absolute; left: 12px; right: 12px; top: 2px; height: 24px; border-radius: 999px;
+  background: linear-gradient(rgba(255,255,255,.55), rgba(255,255,255,0)); }
+.btn.gel span { position: relative; }
+.toggle { width: 56px; height: 32px; border-radius: 999px; position: relative; flex: none;
+  background: linear-gradient(#7FF6FF, #0AA6D6); border: 1px solid rgba(200,250,255,.9); box-shadow: 0 0 6px rgba(0,229,255,.7); }
+.toggle::after { content: ""; position: absolute; width: 24px; height: 24px; top: 3px; right: 3px; border-radius: 50%;
+  background: radial-gradient(circle at 40% 30%, #fff, #BDEFFF 60%, #6FB8CC); box-shadow: 0 1px 1.5px rgba(0,0,0,.4); }
+.toggle.off { background: rgba(10,40,60,.7); border-color: rgba(120,180,200,.4); box-shadow: none; }
+.toggle.off::after { right: auto; left: 3px; }
+
+.tabbar { position: absolute; left: 14px; right: 14px; bottom: 38px; height: 66px; border-radius: 26px; display: flex;
+  align-items: center; background: rgba(8,30,48,.55); backdrop-filter: blur(20px); }
+.tab { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; color: #6FA9B8;
+  font-family: Exo2; font-weight: 600; font-size: 11px; letter-spacing: .6px; }
+.tab.on { color: #AEFCFF; filter: drop-shadow(0 0 6px var(--cyan)); }
+.home { position: absolute; left: 50%; bottom: 8px; width: 140px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.85); transform: translateX(-50%); }
+
+.bars { display: flex; align-items: center; justify-content: center; gap: 3px; filter: drop-shadow(0 0 3px var(--cyan)); }
+.bars i { width: 4px; border-radius: 2px; background: linear-gradient(#fff, var(--cyan)); display: block; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const Q = new URLSearchParams(location.search);
+const SCREEN = Q.get('screen') || 'talk';
+const DEVICE = Q.get('device') || 'iphone';
+const QR_SVG = Q.get('qr') || '';
+
+// ---------- icons (SF Symbols stand-ins) ----------
+const I = {
+  mic: (s, c='currentColor', f=false) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="1.8" stroke-linecap="round"><rect x="8.5" y="2.5" width="7" height="12" rx="3.5" ${f ? `fill="${c}"` : ''}/><path d="M5 11a7 7 0 0 0 14 0M12 18v3.5M8.5 21.5h7"/></svg>`,
+  speaker: (s, c='currentColor') => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5h4l5-4.5v14l-5-4.5H3z" fill="${c}"/><path d="M15.5 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11"/></svg>`,
+  gear: (s) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8l1.6 2.3 2.7-.7.6 2.7 2.6 1-.9 2.6 1.9 2-1.9 2 .9 2.6-2.6 1-.6 2.7-2.7-.7L12 21.2l-1.6-2.3-2.7.7-.6-2.7-2.6-1 .9-2.6L3.5 12l1.9-2-.9-2.6 2.6-1 .6-2.7 2.7.7z" stroke-linejoin="round"/></svg>`,
+  person: (s) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="8" r="4.2"/><path d="M3.5 21c.6-4.6 4.1-7 8.5-7s7.9 2.4 8.5 7z"/></svg>`,
+  people: (s) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="8" r="3.8"/><circle cx="17" cy="9" r="3"/><path d="M1.5 20.5c.5-4 3.6-6.3 7.5-6.3s7 2.3 7.5 6.3z"/><path d="M17.5 20.5c-.2-2.4-1.1-4.2-2.6-5.4.7-.3 1.4-.4 2.1-.4 3 0 5.2 1.9 5.5 5.8z"/></svg>`,
+  updown: (s) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 9l5-5 5 5M7 15l5 5 5-5"/></svg>`,
+  list: (s) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M9 6h12M9 12h12M9 18h12"/><circle cx="4" cy="6" r="1.2" fill="currentColor"/><circle cx="4" cy="12" r="1.2" fill="currentColor"/><circle cx="4" cy="18" r="1.2" fill="currentColor"/></svg>`,
+  qrcode: (s) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM18 18h3v3h-3zM18 14h3M14 18v3" /></svg>`,
+  wave: (s) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h4l2.5-6 4 12 3-9 2 3H22"/></svg>`,
+  sliders: (s) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/><circle cx="8" cy="6" r="2.2" fill="#0a1d2c"/><circle cx="16" cy="12" r="2.2" fill="#0a1d2c"/><circle cx="10" cy="18" r="2.2" fill="#0a1d2c"/></svg>`,
+  bell: (s) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M6 17V11a6 6 0 0 1 12 0v6l1.5 2h-15z"/><path d="M10 21h4" stroke-linecap="round"/></svg>`,
+  globe: (s) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.2 3 14.8 0 18M12 3c-3 3.2-3 14.8 0 18"/></svg>`,
+  radio: (s) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="1.6" fill="currentColor"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.5 5.5a9.2 9.2 0 0 0 0 13M18.5 5.5a9.2 9.2 0 0 1 0 13"/></svg>`,
+  cloud: (s) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M7 18.5h10.5a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.6 9.2 4.7 4.7 0 0 0 7 18.5z"/></svg>`,
+  up: (s) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7M9 7h8v8"/></svg>`,
+  down: (s) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M17 7L7 17M15 17H7V9"/></svg>`,
+  replay: (s) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3"/><path d="M4 4v4.5h4.5"/></svg>`,
+  replayCircle: (s, filled) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9.5" ${filled ? 'fill="currentColor"' : ''}/><path d="M8 12a4 4 0 1 0 1.2-2.8" stroke="${filled ? '#01344a' : 'currentColor'}"/><path d="M8.6 7v2.4H11" stroke="${filled ? '#01344a' : 'currentColor'}"/></svg>`,
+  plus: (s) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>`,
+  check: (s) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`,
+  chevron: (s) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>`,
+  phones: (s) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="8" y="3" width="8" height="18" rx="2"/><path d="M4.5 8.5a5 5 0 0 0 0 7M19.5 8.5a5 5 0 0 1 0 7"/></svg>`,
+};
+
+const statusIcons = `<svg width="19" height="12" viewBox="0 0 19 12" fill="#fff"><rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="5.5" width="3" height="6.5" rx="1"/><rect x="10" y="3" width="3" height="9" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/></svg>
+<svg width="17" height="12" viewBox="0 0 17 12" fill="#fff"><path d="M8.5 2.2c2.4 0 4.6.9 6.2 2.5l1.2-1.2A10.4 10.4 0 0 0 8.5.5 10.4 10.4 0 0 0 1.1 3.5l1.2 1.2a8.8 8.8 0 0 1 6.2-2.5zm0 3.4c1.5 0 2.8.6 3.8 1.5l1.2-1.2a7 7 0 0 0-10 0l1.2 1.2c1-.9 2.3-1.5 3.8-1.5zm0 3.4c.6 0 1.1.2 1.5.6L8.5 11.1 7 9.6c.4-.4.9-.6 1.5-.6z"/></svg>
+<svg width="27" height="13" viewBox="0 0 27 13"><rect x=".5" y=".5" width="23" height="12" rx="3.5" fill="none" stroke="#fff" stroke-opacity=".4"/><rect x="2" y="2" width="20" height="9" rx="2" fill="#fff"/><path d="M25 4.5v4c.8-.3 1.3-1.1 1.3-2s-.5-1.7-1.3-2z" fill="#fff" fill-opacity=".5"/></svg>`;
+
+// ---------- the light grid (GridBackground.drawGrid at rest) ----------
+function drawGrid(canvas, w, h, horizon, energy) {
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
+  const c = canvas.getContext('2d'); c.scale(dpr, dpr);
+  let g = c.createLinearGradient(0, 0, 0, h);
+  g.addColorStop(0, '#06223A'); g.addColorStop(.38, '#03111F'); g.addColorStop(.62, '#020812'); g.addColorStop(1, '#01040A');
+  c.fillStyle = g; c.fillRect(0, 0, w, h);
+  const rad = (x, y, r, col) => { const gr = c.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, col); gr.addColorStop(1, 'rgba(0,0,0,0)'); c.fillStyle = gr; c.fillRect(0, 0, w, h); };
+  rad(w * .18, h * .08, w * .75, 'rgba(0,190,255,.40)');
+  rad(w * .88, h * .2, w * .6, 'rgba(0,255,214,.20)');
+  rad(w * .5, h * horizon, w * .9, `rgba(60,240,255,${.12 * energy})`);
+  const hy = h * horizon, floor = h - hy, strength = Math.min(1, .55 * energy);
+  const rungs = 14, offset = .35;
+  for (let i = 0; i < rungs; i++) {
+    const z = (i + offset) / rungs; if (z <= 0 || z > 1) continue;
+    const y = hy + floor * Math.pow(z, 2.2);
+    c.strokeStyle = `rgba(0,229,255,${strength * z})`; c.lineWidth = 1;
+    c.beginPath(); c.moveTo(0, y); c.lineTo(w, y); c.stroke();
+  }
+  const rails = 13, spread = w * 2.6;
+  for (let i = 0; i <= rails; i++) {
+    const x = w / 2 - spread / 2 + spread * i / rails;
+    const lg = c.createLinearGradient(w / 2, hy, x, h);
+    lg.addColorStop(0, 'rgba(0,229,255,0)'); lg.addColorStop(1, `rgba(0,229,255,${strength})`);
+    c.strokeStyle = lg; c.beginPath(); c.moveTo(w / 2, hy); c.lineTo(x, h); c.stroke();
+  }
+  c.save(); c.filter = 'blur(8px)'; c.fillStyle = `rgba(0,229,255,${.7 * Math.min(1.4, energy)})`;
+  c.fillRect(0, hy - 4, w, 8); c.restore();
+  const hg = c.createLinearGradient(0, hy, w, hy);
+  hg.addColorStop(0, 'rgba(0,229,255,0)'); hg.addColorStop(.25, '#00E5FF'); hg.addColorStop(.5, '#fff'); hg.addColorStop(.75, '#00E5FF'); hg.addColorStop(1, 'rgba(0,229,255,0)');
+  c.fillStyle = hg; c.fillRect(0, hy - 1, w, 2);
+}
+
+// ---------- the talk orb ----------
+function orb(d, mode) {
+  const hot = mode === 'tx', orbS = d * .667, glow = { idle: .45, rx: .7, tx: .9 }[mode];
+  const ringColor = hot ? '#E6FFFF' : '#00E5FF', k = d / 300;
+  const dash = [120, 18, 24, 18, 60, 18].map(v => v * k).join(' ');
+  const r1 = d / 2 - 3 - (hot ? 1.5 : 1), r2 = d / 2 - d * .073;
+  const rot = mode === 'tx' ? 38 : mode === 'rx' ? 20 : 8;
+  const marks = [0, 1, 2, 3].map(i => `<rect x="${d / 2 - 1}" y="${d * .06 - d * .03}" width="2" height="${d * .06}" rx="1" fill="${ringColor}" transform="rotate(${i * 90 - rot * .65} ${d / 2} ${d / 2})"/>`).join('');
+  const body = hot ? '#fff, #E6FFFF 18%, #7FF7FF 40%, #00D4F5 60%, #0077A8 82%, #012A44'
+                   : '#DFFEFF, #6EE8FF 22%, #10B3E6 45%, #075C8A 72%, #02223A';
+  const icon = mode === 'rx' ? I.speaker(orbS * .2, hot ? '#012A44' : '#022238') : I.mic(orbS * .2, hot ? '#012A44' : '#022238', hot);
+  const caption = { idle: 'HOLD TO TALK', rx: 'RECEIVING', tx: 'RELEASE' }[mode];
+  return `<div style="position:relative;width:${d}px;height:${d}px">
+    <div style="position:absolute;inset:0;border-radius:50%;filter:blur(${d * .04}px);
+      background:radial-gradient(circle, rgba(0,229,255,${glow}) ${orbS * .3 / (d / 2) * 50}%, rgba(0,160,255,${glow * .35}) 75%, transparent 100%)"></div>
+    <svg width="${d}" height="${d}" style="position:absolute;inset:0;filter:drop-shadow(0 0 ${hot ? 5 : 3}px #00E5FF) drop-shadow(0 0 ${hot ? 10 : 6}px rgba(0,229,255,.6))">
+      <circle cx="${d / 2}" cy="${d / 2}" r="${r1}" fill="none" stroke="${ringColor}" stroke-width="${hot ? 3 : 2}" stroke-dasharray="${dash}" transform="rotate(${rot} ${d / 2} ${d / 2})"/>
+      <circle cx="${d / 2}" cy="${d / 2}" r="${r2}" fill="none" stroke="rgba(191,249,255,${hot ? .9 : .55})" stroke-width="1" stroke-dasharray="3 9" transform="rotate(${-rot * .65} ${d / 2} ${d / 2})"/>
+      ${marks}
+    </svg>
+    <div style="position:absolute;left:${(d - orbS) / 2}px;top:${(d - orbS) / 2}px;width:${orbS}px;height:${orbS}px;border-radius:50%;overflow:hidden;
+      transform:scale(${hot ? .96 : 1});box-shadow:0 10px 28px rgba(0,0,0,.5);
+      background:radial-gradient(circle at 50% ${hot ? 38 : 30}%, ${body});">
+      <div style="position:absolute;inset:0;background:linear-gradient(transparent 50%, rgba(0,20,48,.45))"></div>
+      <div style="position:absolute;left:15%;top:${50 - 25.5 - 19.5}%;width:70%;height:39%;border-radius:50%;
+        background:linear-gradient(rgba(255,255,255,.92), rgba(255,255,255,.15))"></div>
+      <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+        gap:${orbS * .04}px;transform:translateY(${orbS * .07}px);color:${hot ? '#012A44' : '#022238'}">
+        ${icon}
+        <div style="font-family:Exo2;font-weight:700;white-space:nowrap;font-size:${d < 130 ? 8.5 : Math.max(10, orbS * .065)}px;letter-spacing:${d < 130 ? .6 : orbS * .016}px">${caption}</div>
+      </div>
+      <div style="position:absolute;inset:0;border-radius:50%;border:2px solid ${hot ? '#fff' : 'rgba(200,250,255,.85)'}"></div>
+    </div>
+  </div>`;
+}
+
+function bars(n, maxH) {
+  let s = '';
+  for (let i = 0; i < n; i++) {
+    const w = Math.abs(Math.sin(2.1 + i * .9) * .5 + Math.sin(1.3 + i * .37) * .5);
+    s += `<i style="height:${maxH * (.25 + .75 * w)}px"></i>`;
+  }
+  return `<div class="bars" style="height:${maxH}px">${s}</div>`;
+}
+
+function tabbar(active) {
+  const tabs = [['talk', 'Talk', I.mic], ['channels', 'Channels', I.list], ['pair', 'Pair', I.qrcode], ['activity', 'Activity', I.wave], ['settings', 'Settings', I.sliders]];
+  return `<div class="tabbar glass">${tabs.map(([k, t, ic]) => `<div class="tab ${k === active ? 'on' : ''}">${ic(21)}<span>${t}</span></div>`).join('')}</div>`;
+}
+
+function capsule(name, sub, group) {
+  return `<div class="glass strong capsule" style="display:flex;align-items:center;gap:12px;min-height:64px;padding:0 18px 0 10px">
+    <div class="gelbead">${group ? I.people(19) : I.person(17)}</div>
+    <div style="flex:1;min-width:0">
+      <div class="label caps" style="font-size:17px;letter-spacing:1px">${name}</div>
+      <div style="font-size:13px;color:var(--textDim);white-space:nowrap">${sub}</div>
+    </div>
+    <div style="color:var(--frost)">${I.updown(16)}</div>
+  </div>`;
+}
+
+function header() {
+  return `<div style="display:flex;align-items:center;justify-content:space-between">
+    <div class="wordmark">NXTPTT</div>
+    <div class="iconbtn glass" style="border-radius:50%">${I.gear(19)}</div>
+  </div>`;
+}
+
+function chips() {
+  return `<div style="display:flex;gap:8px;justify-content:center">
+    <span class="chip">${I.radio(13)} Nearby</span>
+    <span class="chip">${I.globe(13)} Internet</span>
+    <span class="chip">${I.cloud(13)} Relay ready</span></div>`;
+}
+
+function replayRow(allow, active) {
+  return `<div style="display:flex;align-items:center;justify-content:space-between">
+    <div class="capsule" style="display:inline-flex;align-items:center;gap:6px;padding:8px 12px;
+      font-family:Exo2;font-weight:700;font-size:11px;letter-spacing:1.5px;
+      ${allow ? 'background:#00E5FF;color:#022238;border:1px solid rgba(191,249,255,.8);box-shadow:0 0 6px rgba(0,229,255,.6)'
+              : 'background:rgba(20,40,60,.55);color:var(--textDim);border:1px solid rgba(191,249,255,.35)'}">
+      ${I.replayCircle(14, allow)} ${allow ? 'REPLAY OK' : 'NO REPLAY'}</div>
+    <div class="glass" style="width:44px;height:44px;border-radius:50%;display:grid;place-items:center;
+      color:${active ? 'var(--frost)' : 'rgba(143,207,219,.6)'};opacity:${active ? 1 : .45};
+      border-color:${active ? 'rgba(0,229,255,.7)' : 'rgba(255,255,255,.08)'};${active ? 'box-shadow:0 0 8px rgba(0,229,255,.5)' : ''}">${I.replay(17)}</div>
+  </div>`;
+}
+
+function history(rows) {
+  return `<div class="glass" style="border-radius:16px;padding:10px 14px;box-shadow:0 0 12px rgba(0,229,255,.08)">
+    <div class="section" style="margin-bottom:6px">Recent</div>
+    ${rows.map(([out, name, len, age]) => `<div style="display:flex;align-items:center;gap:10px;height:24px">
+      <span style="width:14px;color:${out ? 'var(--ice)' : 'var(--cyan)'}">${out ? I.up(11) : I.down(11)}</span>
+      <span style="font-weight:500;font-size:14px;flex:1">${name}</span>
+      <span style="font-size:12px;color:var(--textDim)">${len} · ${age}</span></div>`).join('')}
+  </div>`;
+}
+
+// ---------- screens ----------
+function talkScreen(w, h, variant) {
+  const group = variant !== 'rx';
+  const orbD = Math.max(150, Math.min(300, w - 60, (h - 62 - 104) * (group ? .34 : .44)));
+  let status, footer, orbMode = 'idle', energy = 1;
+  if (variant === 'idle') {
+    status = `<div style="display:flex;flex-direction:column;gap:10px;padding-top:6px">
+      <div class="breathing">CONNECTED · INTERNET</div>${chips()}
+      ${history([[false, 'Sam', '6s', '2m ago'], [true, 'Riley (you)', '4s', '3m ago'], [false, 'Alex', '11s', '9m ago']])}</div>`;
+    footer = `<div style="text-align:center;font-size:13px;color:var(--textMuted);min-height:50px;display:grid;place-items:center">Hold the orb to key up</div>`;
+  } else if (variant === 'rx') {
+    orbMode = 'rx'; energy = 1.3;
+    status = `<div style="display:flex;flex-direction:column;gap:12px">
+      <div class="glass strong" style="border-radius:22px;display:flex;align-items:center;gap:14px;padding:14px 16px;box-shadow:0 0 14px rgba(0,229,255,.3)">
+        <div class="ring" style="width:52px;height:52px;font-size:14.5px">S</div>
+        <div style="flex:1"><div class="label" style="font-size:18px">Sam</div>
+          <div style="font-size:13px;color:var(--textDim);display:flex;gap:6px;align-items:center">${I.globe(14)} Internet (direct)</div></div>
+        <div style="font-family:Michroma;font-size:14px;color:var(--frost)">0:04</div></div>
+      ${bars(30, 32)}</div>`;
+    footer = `<div style="text-align:center;font-size:13px;color:var(--textMuted);min-height:50px;display:grid;place-items:center">End-to-end encrypted · fresh key for this transmission</div>`;
+  } else {
+    orbMode = 'tx'; energy = 1.8;
+    status = `<div style="display:flex;flex-direction:column;align-items:center;gap:6px">
+      <div style="font-family:Exo2;font-weight:700;font-size:13px;letter-spacing:5.5px;color:#BFFCFF;text-shadow:0 0 5px #00E5FF,0 0 10px rgba(0,229,255,.6)">TALK PERMIT</div>
+      <div style="font-family:Michroma;font-size:30px;color:#fff;text-shadow:0 0 7px #00E5FF,0 0 14px rgba(0,229,255,.6)">00:07</div>
+      ${bars(18, 26)}</div>`;
+    footer = `<div style="text-align:center;font-size:13px;color:#CFFBFF;min-height:50px;display:grid;place-items:center">Live on Crew · end-to-end encrypted · replay allowed</div>`;
+  }
+  const cap = variant === 'rx' ? capsule('Sam', 'Private · on the grid', false) : capsule('Crew', 'Talk group · 4 of 5 on the grid', true);
+  return { energy, horizon: .64, html: `<div class="content pad" style="gap:16px;padding-top:8px;padding-bottom:${104 + 12}px">
+      ${header()}${cap}${status}
+      <div style="flex:1"></div>
+      <div style="display:flex;justify-content:center">${orb(orbD, orbMode)}</div>
+      <div style="flex:1"></div>
+      ${footer}${replayRow(variant === 'tx', variant === 'idle')}
+    </div>${tabbar('talk')}` };
+}
+
+function channelsScreen() {
+  const group = (name, detail, sel, on) => `<div class="glass ${sel ? 'strong' : ''}" style="border-radius:20px;min-height:72px;display:flex;align-items:center;gap:12px;padding:0 14px;
+      ${sel ? 'border-color:rgba(111,246,255,.85);box-shadow:0 0 14px rgba(0,229,255,.35)' : ''}">
+    <div class="ring ${on ? '' : 'off'}" style="width:42px;height:42px;font-size:11.8px">${name.split(' ').slice(0, 2).map(p => p[0]).join('')}</div>
+    <div style="flex:1"><div class="label" style="font-size:16px">${name}</div><div style="font-size:13px;color:var(--textDim)">${detail}</div></div>
+    <div class="glass" style="width:40px;height:40px;border-radius:50%;display:grid;place-items:center;color:var(--frost)">${I.qrcode(18)}</div>
+    <div class="toggle ${on ? '' : 'off'}"></div></div>`;
+  const row = (name, status, online, sel) => `<div style="display:flex;align-items:center;gap:12px;min-height:52px;border-bottom:1px solid rgba(0,229,255,.18)">
+    <span style="width:10px;height:10px;border-radius:50%;background:${online ? '#00E5FF' : '#45707C'};${online ? 'box-shadow:0 0 5px #00E5FF' : ''}"></span>
+    <span style="font-weight:500;font-size:16px;flex:1">${name}</span>
+    <span style="font-size:12px;color:var(--textMuted)">${status}</span>${sel ? `<span style="color:var(--cyan)">${I.check(15)}</span>` : ''}</div>`;
+  return { energy: .8, horizon: .9, html: `<div class="content pad" style="gap:14px;padding-top:12px">
+    <div style="display:flex;align-items:flex-end;justify-content:space-between"><div class="title">Channels</div><div class="gelbead">${I.plus(18)}</div></div>
+    <div class="section">Talk groups · scan</div>
+    ${group('Crew', '5 members · selected', true, true)}
+    ${group('Search Team', '8 members · scanning', false, true)}
+    ${group('Family', '4 members · muted', false, false)}
+    <div class="section" style="margin-top:8px">Private</div>
+    <div>${row('Sam', 'Connected · Internet', true, false)}${row('Alex', 'Connected · Wi-Fi', true, false)}
+         ${row('Jordan', 'Connected · Nearby', true, false)}${row('Casey', 'Not connected · will use iCloud relay', false, false)}</div>
+  </div>${tabbar('channels')}` };
+}
+
+function inviteScreen() {
+  return { energy: .6, horizon: .94, html: `<div class="content pad" style="gap:16px;padding-top:20px">
+    <div style="display:flex;align-items:center;justify-content:space-between"><div class="title">Invite</div>
+      <div style="font-weight:500;font-size:16px;color:var(--frost)">Done</div></div>
+    <div class="label" style="font-size:17px">Scan to join Crew</div>
+    <div style="display:flex;justify-content:center"><div style="position:relative;width:280px;height:280px;border-radius:30px;
+      background:linear-gradient(rgba(255,255,255,.96), rgba(214,246,255,.93));border:1px solid #C8FAFF;box-shadow:0 0 20px rgba(0,229,255,.45)">
+      <img src="${QR_SVG}" style="position:absolute;inset:22px;width:236px;height:236px;image-rendering:pixelated">
+      <div style="position:absolute;left:12px;right:12px;top:150px;height:3px;border-radius:2px;
+        background:linear-gradient(90deg,transparent,#00E5FF,#fff,#00E5FF,transparent);box-shadow:0 0 8px #00E5FF"></div>
+      <svg width="280" height="280" style="position:absolute;inset:0;filter:drop-shadow(0 0 3px #00E5FF)" fill="none" stroke="#00E5FF" stroke-width="3" stroke-linecap="round">
+        <path d="M-8 26V6Q-8 -8 6 -8H26" transform="translate(9 9)"/><path d="M-8 26V6Q-8 -8 6 -8H26" transform="translate(271 271) rotate(180)"/></svg>
+    </div></div>
+    <div style="font-size:13px;color:var(--textDim)">Works until 9:41 PM tomorrow. Anyone who scans it before then can join, so only show it to people you want in the group.</div>
+    <div style="font-size:13px;color:var(--textMuted)">They'll be added when your phone gets their request: straight away nearby or online, otherwise the next time you open NXTPTT. Everyone in the group then gets their key, sealed to their device.</div>
+    <div style="display:flex;gap:12px"><div class="btn glass" style="flex:1">SHARE LINK</div><div class="btn glass" style="flex:1">NEW CODE</div></div>
+  </div>` };
+}
+
+function facePairScreen(w, h) {
+  // The light ring as FacePairView draws it: black, glowing blobs, pearl clock.
+  const pal = [[0, .86, 1], [.55, .27, 1], [1, .16, .35], [.51, 1, .16]];
+  const frame = [2, 0, 3, 1, 1, 2, 0, 3, 2, 1, 0, 3];
+  const cx = w / 2, cy = Math.max(w * .5, h * .27), R = w * .37, lobe = w * .066;
+  const blob = (x, y, r, seed) => { let p = ''; const n = 32, pts = [];
+    for (let i = 0; i < n; i++) { const a = i / n * 2 * Math.PI, wob = 1 + .07 * Math.sin(3 * a + seed) + .04 * Math.sin(5 * a + seed * 2);
+      pts.push([x + Math.cos(a) * r * wob, y + Math.sin(a) * r * wob]); }
+    const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; let m = mid(pts[n - 1], pts[0]); p = `M${m}`;
+    for (let i = 0; i < n; i++) { const q = mid(pts[i], pts[(i + 1) % n]); p += `Q${pts[i]} ${q}`; } return p + 'Z'; };
+  let halos = '', bodies = '';
+  for (let s = 0; s < 14; s++) {
+    if (s === 1) continue;
+    const rgb = s === 0 ? [1, 1, 1] : pal[frame[s - 2]];
+    const a = -Math.PI / 2 + s * 2 * Math.PI / 14, x = cx + Math.cos(a) * R, y = cy + Math.sin(a) * R;
+    const col = k => `rgb(${rgb.map(v => Math.round(v * k * 255)).join(',')})`;
+    const tint = `rgb(${rgb.map(v => Math.round((v + (1 - v) * .35) * 255)).join(',')})`;
+    halos += `<path d="${blob(x, y, lobe * 1.25, s + 50)}" fill="${col(.5)}"/>`;
+    bodies += `<path d="${blob(x, y, lobe * (1 + .04 * Math.sin(s)), s)}" fill="${col(1)}"/><path d="${blob(x - lobe * .28, y - lobe * .3, lobe * .32, s + 7)}" fill="${tint}"/>`;
+  }
+  const cr = w * .12;
+  const deep = [0, 1, 2, 3, 4, 5, 6].map(i => { const p = i * .9, a = p + 1.1, r = R * (1 + .45 * Math.sin(p));
+    return `<ellipse cx="${cx + Math.cos(a) * r}" cy="${cy + Math.sin(a * 1.3) * r * 1.2 + w * .2}" rx="${w * .17}" ry="${w * .12}" fill="rgb(5,${Math.round((.1 + .04 * Math.sin(p)) * 255)},56)"/>`; }).join('');
+  const step = (t, done, active) => `<div style="display:flex;align-items:center;gap:10px">
+    <span style="width:18px;height:18px;border-radius:50%;border:1.5px solid rgba(255,255,255,${done || active ? .85 : .3});display:grid;place-items:center">
+      ${done ? `<span style="color:#fff">${I.check(10)}</span>` : active ? '<span style="width:7px;height:7px;border-radius:50%;background:#fff"></span>' : ''}</span>
+    <span style="font-size:14px;font-weight:${active ? 600 : 400};color:rgba(255,255,255,${done || active ? .95 : .45})">${t}</span></div>`;
+  return { black: true, html: `<svg width="${w}" height="${h}" style="position:absolute;inset:0">
+      <defs><filter id="deep"><feGaussianBlur stdDeviation="${w * .07}"/></filter><filter id="halo"><feGaussianBlur stdDeviation="${lobe * .55}"/></filter>
+      <filter id="ch"><feGaussianBlur stdDeviation="${cr * .35}"/></filter></defs>
+      <rect width="${w}" height="${h}" fill="#000"/>
+      <g filter="url(#deep)">${deep}</g><g filter="url(#halo)">${halos}</g>${bodies}
+      <path d="${blob(cx, cy, cr * 1.25, 98)}" fill="rgb(102,102,102)" filter="url(#ch)"/><path d="${blob(cx, cy, cr, 99)}" fill="#fff"/>
+    </svg>
+    <div class="content" style="padding:0 22px;justify-content:space-between;padding-bottom:48px">
+      <div style="font-family:Exo2;font-weight:600;font-size:15px;color:rgba(255,255,255,.8)">Close</div>
+      <div style="background:rgb(15,15,15);border:1px solid rgba(255,255,255,.12);border-radius:22px;padding:18px;display:flex;flex-direction:column;gap:12px">
+        <div style="font-family:Exo2;font-weight:700;font-size:15px;letter-spacing:1.5px;color:#fff">RECEIVING THEIR KEYS</div>
+        <div style="font-size:13px;color:rgba(255,255,255,.6)">Keep them still until both finish.</div>
+        <div style="height:8px;border-radius:4px;background:rgba(255,255,255,.12)"><div style="width:57%;height:8px;border-radius:4px;background:rgba(255,255,255,.9)"></div></div>
+        <div style="display:flex;flex-direction:column;gap:7px">${step('See the other phone', true, false)}${step('Receive their keys · 67%', false, true)}
+          ${step('They receive yours', false, false)}${step('Compare the safety code', false, false)}</div>
+      </div></div>` };
+}
+
+function watchScreen(w, h, variant) {
+  const rx = variant === 'rx';
+  return { energy: rx ? 1.3 : 1, horizon: .78, watch: true, html: `<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;gap:4px;padding-top:30px">
+    <div style="position:absolute;top:8px;right:14px;font-family:-apple-system,Arial;font-weight:600;font-size:15px;color:#fff">9:41</div>
+    <div class="glass capsule" style="padding:0 12px;min-height:30px;display:flex;align-items:center;font-family:Exo2;font-weight:700;font-size:13px;letter-spacing:1.2px">${rx ? 'SAM' : 'CREW'}</div>
+    <div style="font-weight:500;font-size:12px;color:${rx ? 'var(--frost)' : 'var(--textDim)'}">${rx ? 'Sam' : 'Hold to talk'}</div>
+    <div style="margin-top:8px">${orb(118, rx ? 'rx' : 'idle')}</div></div>` };
+}
+
+// ---------- compose ----------
+const DEVICES = {
+  iphone: { w: 440, h: 956, screenScale: .74, radius: 50, capTop: 48, h1: 36, p: 18 },
+  ipad: { w: 1032, h: 1376, screenScale: .76, radius: 30, capTop: 52, h1: 50, p: 24 },
+  watch: { w: 208, h: 248 },
+};
+const CAPTIONS = {
+  talk: ['Push to talk.<br>Instantly.', 'Hold the orb. Your crew hears you live.'],
+  rx: ['Hear them instantly', 'The moment they key up, even when your phone is locked.'],
+  tx: ['The chirp is back', 'Classic push to talk, rebuilt for iPhone.'],
+  channels: ['Private lines and<br>talk groups', 'Scan the groups you care about.'],
+  invite: ['Invite with a QR code', 'Keys go straight to each member’s device.'],
+  face: ['Pair face to face,<br>by light', 'No servers. No accounts. No phone numbers.'],
+};
+
+function build() {
+  const dev = DEVICES[DEVICE];
+  const appW = DEVICE === 'ipad' ? 1032 : DEVICE === 'watch' ? 208 : 440;
+  const appH = DEVICE === 'ipad' ? 1376 : DEVICE === 'watch' ? 248 : 956;
+  let scr;
+  switch (SCREEN) {
+    case 'talk': scr = talkScreen(appW, appH, 'idle'); break;
+    case 'rx': scr = talkScreen(appW, appH, 'rx'); break;
+    case 'tx': scr = talkScreen(appW, appH, 'tx'); break;
+    case 'channels': scr = channelsScreen(); break;
+    case 'invite': scr = inviteScreen(); break;
+    case 'face': scr = facePairScreen(appW, appH); break;
+    case 'watch-idle': scr = watchScreen(appW, appH, 'idle'); break;
+    case 'watch-rx': scr = watchScreen(appW, appH, 'rx'); break;
+  }
+  const screen = document.createElement('div');
+  screen.className = 'screen';
+  screen.style.width = appW + 'px'; screen.style.height = appH + 'px';
+  if (!scr.black) {
+    const cv = document.createElement('canvas'); cv.className = 'grid'; screen.appendChild(cv);
+    drawGrid(cv, appW, appH, scr.horizon, scr.energy);
+  }
+  screen.insertAdjacentHTML('beforeend', scr.html);
+  if (DEVICE !== 'watch') {
+    screen.insertAdjacentHTML('beforeend', `<div class="statusbar"><span>9:41</span><span class="icons">${statusIcons}</span></div>
+      ${DEVICE === 'iphone' ? '<div class="island"></div>' : ''}<div class="home"></div>`);
+    if (DEVICE === 'ipad') screen.querySelector('.statusbar').style.padding = '8px 28px 0 30px';
+  }
+  const root = document.getElementById('root');
+  if (DEVICE === 'watch' || Q.get('raw')) {
+    root.style.width = appW + 'px'; root.style.height = appH + 'px'; root.style.position = 'relative';
+    if (DEVICE === 'watch') screen.style.borderRadius = '0';
+    root.appendChild(screen); return;
+  }
+  const canvas = document.createElement('div'); canvas.className = 'canvas';
+  canvas.style.width = dev.w + 'px'; canvas.style.height = dev.h + 'px';
+  const [h1, p] = CAPTIONS[SCREEN];
+  canvas.innerHTML = `<div class="caption" style="top:${dev.capTop}px;padding:0 24px">
+    <h1 style="font-size:${dev.h1}px">${h1}</h1><p style="font-size:${dev.p}px">${p}</p></div>`;
+  const device = document.createElement('div'); device.className = 'device';
+  const s = dev.screenScale;
+  device.style.width = appW * s + 'px'; device.style.height = appH * s + 'px';
+  device.style.borderRadius = dev.radius + 'px';
+  device.style.marginLeft = -(appW * s) / 2 + 'px';
+  device.style.top = (dev.h - appH * s - (DEVICE === 'ipad' ? 40 : 30)) + 'px';
+  screen.style.transform = `scale(${s})`; screen.style.transformOrigin = '0 0';
+  device.appendChild(screen); canvas.appendChild(device); root.appendChild(canvas);
+}
+build();
+Promise.all([...document.fonts].map(f => f.load())).then(() => document.fonts.ready).then(() => { document.body.dataset.ready = '1'; });
+</script>
+</body>
+</html>
