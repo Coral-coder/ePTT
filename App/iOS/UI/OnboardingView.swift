@@ -39,7 +39,7 @@ struct OnboardingView: View {
                         .padding(.horizontal, 18)
                         .frame(minHeight: 56)
                         .glass(cornerRadius: 18, glow: focused ? 0.35 : 0.15, strong: focused)
-                    Text("Shown on your contact code and to everyone you talk to. You can change it later in Settings.")
+                    Text("Shown to everyone you pair and talk with. You can change it later in Settings.")
                         .font(NX.body(13))
                         .foregroundStyle(NX.textMuted)
                 }

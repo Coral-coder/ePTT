@@ -142,7 +142,7 @@ final class AppModel: ObservableObject {
     func addContact(uri: String) {
         do {
             try engine.addContact(uri: uri.trimmingCharacters(in: .whitespacesAndNewlines))
-            banner = "Added. Now let them scan your code too"
+            banner = "Added. Send them your link too, so they can add you back"
         } catch {
             banner = "That isn't a valid NXTPTT contact code"
         }

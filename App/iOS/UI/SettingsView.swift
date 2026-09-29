@@ -184,7 +184,7 @@ struct PushKeyView: View {
             } header: {
                 Text("Enter a key")
             } footer: {
-                Text("Paste the contents of the AuthKey_XXXXXXXXXX.p8 file, or scan a friend's push key QR code from Contacts → Add.")
+                Text("Paste the contents of the AuthKey_XXXXXXXXXX.p8 file, or scan a friend's push key QR code with Pair → Join a group.")
                     .textSelection(.enabled)
             }
             .nxRows()

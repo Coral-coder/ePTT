@@ -47,7 +47,7 @@ PRIVATE BY DESIGN
 • No accounts, no phone numbers, no sign-up.
 • Connects directly: nearby over peer-to-peer Wi-Fi and Bluetooth, or across the internet phone to phone.
 • If someone can't be reached, the message waits for them encrypted in iCloud and is deleted after pickup or within a day.
-• Pair by scanning a code, or hold two phones screen to screen and pair by light.
+• Pair face to face: hold two phones screen to screen and they swap keys by light, both ways at once. Or send a link.
 
 YOUR MESSAGES, YOUR CALL
 • Choose whether the people you talk to may replay your message. Replays are limited to the last message and expire after an hour.
@@ -106,7 +106,7 @@ NXTPTT is a push-to-talk walkie-talkie. There is no account or sign-in.
 
 Testing needs two devices with NXTPTT installed (two iPhones, or an iPhone and an iPad):
 1. On first launch, enter any name.
-2. Pair them: on device A open the Pair tab; on device B tap Pair → SCAN A CODE and scan A's code. Then scan B's code from A the same way. (Or tap FACE TO FACE on both and hold the screens together.)
+2. Pair them: on both devices open Pair → FACE TO FACE and hold the screens together, tops touching, about 15–20 cm apart, until both show the same safety code.
 3. Go to Talk, hold the orb on one device and speak; the other device plays it live with a chirp. It also plays when the receiving device is locked, through the Push to Talk framework.
 4. Channels → + creates a talk group; the QR button on a group invites others.
 
@@ -114,7 +114,7 @@ Background modes:
 - push-to-talk and audio: used only to receive and play a transmission through Apple's PushToTalk framework, and while the user holds the talk button.
 - remote-notification: receive end-to-end encrypted messages left in the iCloud relay when a device was unreachable.
 
-Permissions: the microphone is used only while the talk button is held. The camera is used only to scan pairing codes and for face-to-face pairing, processed on the device.
+Permissions: the microphone is used only while the talk button is held. The camera is used only for face-to-face pairing and to scan talk group codes, processed on the device.
 
 Encryption: all cryptography is Apple's CryptoKit; see the export compliance answer in the build.
 

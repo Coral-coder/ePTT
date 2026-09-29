@@ -65,9 +65,10 @@ struct FacePairView: View {
     }
 }
 
-/// The code, redrawn with the next frame every 0.45 s, inside a glowing ring like the talk orb.
-/// Each frame is turned a little from the last, so the code seems to orbit (the reader doesn't
-/// care which way round it is). The ring sits well outside the code's black surround.
+/// The code inside a glowing ring like the talk orb. The next frame swaps in every
+/// `frameSeconds` while the whole code turns smoothly (18°/s: about a pixel of blur per camera
+/// exposure, which the reader shrugs off). A satellite circles the ring and an arc fills with
+/// progress. Both sit outside the code's black surround, where the reader doesn't look.
 private struct OrbitDisplay: View {
     @ObservedObject var pairing: OrbitPairingSession
     let diameter: CGFloat
@@ -75,21 +76,35 @@ private struct OrbitDisplay: View {
     var body: some View {
         // The code's margin disc (radius 1.20) fills 78 % of the space; the ring sits at 1.5.
         let codeSize = diameter * 0.78
-        TimelineView(.periodic(from: .now, by: OrbitPairingSession.frameSeconds)) { context in
-            let tick = Int(context.date.timeIntervalSinceReferenceDate / OrbitPairingSession.frameSeconds)
+        let ring = diameter * 0.98
+        TimelineView(.animation) { context in
+            let t = context.date.timeIntervalSinceReferenceDate
+            let tick = Int(t / OrbitPairingSession.frameSeconds)
             ZStack {
                 Circle()
-                    .strokeBorder(NX.cyan.opacity(pairing.stage == .paired ? 0.9 : 0.55), lineWidth: 2)
+                    .strokeBorder(NX.cyan.opacity(pairing.stage == .paired ? 0.9 : 0.45), lineWidth: 2)
                     .shadow(color: NX.cyan.opacity(0.8), radius: 10)
-                    .frame(width: diameter * 0.98, height: diameter * 0.98)
+                    .frame(width: ring, height: ring)
+                Circle()
+                    .trim(from: 0, to: pairing.progress)
+                    .stroke(NX.ice, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .shadow(color: NX.cyan, radius: 8)
+                    .frame(width: ring, height: ring)
+                    .animation(.easeOut(duration: 0.3), value: pairing.progress)
+                Circle()
+                    .fill(NX.whiteHot)
+                    .frame(width: 9, height: 9)
+                    .shadow(color: NX.cyan, radius: 6)
+                    .offset(y: -ring / 2)
+                    .rotationEffect(.degrees(t * 90))
                 if !pairing.images.isEmpty {
-                    let index = tick % pairing.images.count
-                    Image(decorative: pairing.images[index], scale: 1)
+                    Image(decorative: pairing.images[tick % pairing.images.count], scale: 1)
                         .resizable()
                         .interpolation(.none)
                         .frame(width: codeSize, height: codeSize)
                         .clipShape(Circle())
-                        .rotationEffect(.degrees(Double(tick % 24) * 37))
+                        .rotationEffect(.degrees((t * 18).truncatingRemainder(dividingBy: 360)))
                 } else {
                     ProgressView().tint(.white)
                 }
@@ -189,7 +204,7 @@ private struct OrbitStepsPanel: View {
 final class OrbitPairingSession: ObservableObject {
     enum Stage { case looking, receiving, confirming, paired }
 
-    static let frameSeconds = 0.4
+    static let frameSeconds = 0.25
     static let imageSize = 560
 
     @Published private(set) var stage: Stage = .looking
