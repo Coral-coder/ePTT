@@ -25,9 +25,9 @@ jobs:
       - name: Make the certificate and store it as secrets
         env:
           ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
-          SECRETS_TOKEN: ${{ secrets.SECRETS_TOKEN }}
+          SECRETS_TOKEN: ${{ secrets.SECRETS_TOKEN || secrets.SECRET_TOKEN }}
         run: |
-          if [ -z "$SECRETS_TOKEN" ]; then echo "::error::Add a SECRETS_TOKEN secret to the Coral environment first"; exit 1; fi
+          if [ -z "$SECRETS_TOKEN" ]; then echo "::error::Add a SECRETS_TOKEN (or SECRET_TOKEN) secret to the Coral environment first"; exit 1; fi
           umask 077
           key_dir=$(mktemp -d)
           printf '%s\n' "$ASC_KEY_P8" > "$key_dir/AuthKey.p8"
