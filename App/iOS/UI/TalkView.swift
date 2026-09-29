@@ -90,9 +90,10 @@ struct TalkView: View {
                     orb(diameter: max(150, min(300, geo.size.width - 60, geo.size.height * (model.selectedChannel?.kind == .group ? 0.34 : 0.44))))
                     Spacer(minLength: 0)
                     footer
-                    HStack(alignment: .center) {
-                        AllowReplayToggle()
+                    // Replay controls sit together in the bottom right, under the orb.
+                    HStack(alignment: .center, spacing: 10) {
                         Spacer()
+                        AllowReplayToggle()
                         ReplayButton(enabled: talk == .idle)
                     }
                 }
