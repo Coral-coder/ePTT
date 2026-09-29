@@ -71,4 +71,20 @@ final class LightCodeTests: XCTestCase {
         }
         XCTAssertEqual(result, payload)
     }
+
+    func testAckFrameConfirmsOnlyTheMessageThatArrived() throws {
+        let mine = Data("alice's profile".utf8), theirs = Data("bob's profile".utf8)
+        let ack = LightCode.ackFrame(for: mine)          // bob got alice's message
+        XCTAssertTrue(LightCode.isAck(ack, for: mine))
+        XCTAssertFalse(LightCode.isAck(ack, for: theirs))
+        XCTAssertFalse(LightCode.isAck(LightCode.frames(for: mine)[0], for: mine))
+        // An assembler ignores ack frames mixed in with data.
+        var assembler = LightCode.Assembler()
+        var result: Data?
+        for frame in LightCode.frames(for: theirs) {
+            XCTAssertNil(assembler.add(ack))
+            result = assembler.add(frame) ?? result
+        }
+        XCTAssertEqual(result, theirs)
+    }
 }

@@ -444,6 +444,12 @@ The frames loop.
 It accepts one reading per clock phase, once two readings agree. It votes on
 each chunk across passes, and finishes when the whole message passes its CRC.
 
+**Got yours.** Once a phone has the whole message, every third frame it shows is
+an acknowledgement instead of data: chunk index 127 (never used by a message)
+carrying the low 16 bits of the CRC-32 of the profile it received. When a phone
+reads an acknowledgement matching its own profile, it knows the other phone has
+its keys, and the handshake is complete on both sides.
+
 **After pairing.** Each side creates the contact from the profile and sends a
 `CARD` message (type `0x12`) to the peer: its full signed contact card, sealed on
 the new direct channel. It goes over any direct path and to the relay mailbox

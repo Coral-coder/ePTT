@@ -3,9 +3,12 @@ import SwiftUI
 import EPTTCore
 
 /// Face-to-face pairing over light only (PROTOCOL.md §12). Hold two phones screen to screen,
-/// tops together: each shows a ring of flowing colour lobes near the top, where the other
+/// tops together: each shows a ring of glowing light blobs near the top, where the other
 /// phone's front camera is, and reads the other's ring. Keys, name and relay mailbox travel as
 /// light; the full signed cards follow through the encrypted relay.
+///
+/// Everything else on screen stays black, white or grey: the other camera only reads colour
+/// as data, so no coloured UI may appear while pairing.
 struct FacePairView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
@@ -15,7 +18,7 @@ struct FacePairView: View {
     var body: some View {
         ZStack {
             LightRing(frame: pairing.shownFrame, clock: pairing.clock, pulse: pairing.pulse,
-                      progress: pairing.progress, done: pairing.done != nil)
+                      seesPeer: pairing.seesPeer, done: pairing.stage == .paired)
                 .ignoresSafeArea()
 
             LightCamera { pairing.reading($0) }
@@ -27,35 +30,14 @@ struct FacePairView: View {
                 HStack {
                     Button("Close") { dismiss() }
                         .font(NX.label(15, .semibold))
-                        .foregroundStyle(NX.frost)
+                        .foregroundStyle(.white.opacity(0.8))
                     Spacer()
                 }
                 .padding(.horizontal, 22)
                 Spacer()
-                VStack(spacing: 8) {
-                    Text(pairing.status.uppercased())
-                        .font(NX.label(15, .bold))
-                        .tracking(2)
-                        .foregroundStyle(NX.text)
-                    Text(pairing.detail)
-                        .font(NX.body(13))
-                        .foregroundStyle(NX.textDim)
-                    if let done = pairing.done {
-                        Text(done.code)
-                            .font(NX.display(30))
-                            .tracking(4)
-                            .foregroundStyle(.white)
-                            .neonGlow(NX.cyan, radius: 12)
-                            .padding(.top, 4)
-                            .accessibilityLabel("Safety code \(done.code)")
-                        Button("DONE") { dismiss() }
-                            .buttonStyle(NXButtonStyle(kind: .gel))
-                            .padding(.top, 6)
-                    }
-                }
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 26)
-                .padding(.bottom, 18)
+                HandshakePanel(pairing: pairing) { dismiss() }
+                    .padding(.horizontal, 22)
+                    .padding(.bottom, 14)
             }
         }
         .preferredColorScheme(.dark)
@@ -65,7 +47,6 @@ struct FacePairView: View {
             UIApplication.shared.isIdleTimerDisabled = true
             pairing.onPaired = { profile in
                 model.engine.addLightPaired(profile)
-                model.banner = "Paired with \(profile.name) both ways"
             }
             model.engine.lightProfile { data in
                 guard let data else { return }
@@ -80,17 +61,111 @@ struct FacePairView: View {
     }
 }
 
+/// Where the handshake is, as steps and a progress bar. White and grey only.
+private struct HandshakePanel: View {
+    @ObservedObject var pairing: LightPairingSession
+    let close: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(pairing.headline.uppercased())
+                .font(NX.label(15, .bold))
+                .tracking(1.5)
+                .foregroundStyle(.white)
+            Text(pairing.hint)
+                .font(NX.body(13))
+                .foregroundStyle(.white.opacity(0.6))
+                .fixedSize(horizontal: false, vertical: true)
+
+            // Overall progress: finding each other, their keys arriving, ours confirmed.
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.white.opacity(0.12))
+                    Capsule().fill(.white.opacity(0.9))
+                        .frame(width: max(8, geo.size.width * pairing.overallProgress))
+                        .animation(.easeOut(duration: 0.25), value: pairing.overallProgress)
+                }
+            }
+            .frame(height: 8)
+            .accessibilityElement()
+            .accessibilityLabel("Pairing progress")
+            .accessibilityValue("\(Int(pairing.overallProgress * 100)) percent")
+
+            VStack(alignment: .leading, spacing: 7) {
+                step("See the other phone", done: pairing.hasSeenPeer, active: pairing.stage == .looking)
+                step(pairing.stage == .receiving
+                        ? "Receive their keys · \(Int(pairing.receivedProgress * 100))%"
+                        : "Receive their keys",
+                     done: pairing.receivedProgress >= 1, active: pairing.stage == .receiving)
+                step("They receive yours", done: pairing.peerHasMine,
+                     active: pairing.stage == .waitingForPeer)
+                step("Compare the safety code", done: false, active: pairing.stage == .paired)
+            }
+
+            if let code = pairing.safetyCode {
+                Text(code)
+                    .font(NX.display(30))
+                    .tracking(4)
+                    .foregroundStyle(.white)
+                    .shadow(color: .white.opacity(0.5), radius: 10)
+                    .frame(maxWidth: .infinity)
+                    .accessibilityLabel("Safety code \(code)")
+            }
+            if pairing.stage == .paired {
+                Button(action: close) {
+                    Text("DONE")
+                        .font(NX.label(14, .bold))
+                        .tracking(2)
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .overlay(Capsule().strokeBorder(.white.opacity(0.7), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(18)
+        .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(Color(white: 0.06)))
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(.white.opacity(0.12), lineWidth: 1))
+    }
+
+    private func step(_ title: String, done: Bool, active: Bool) -> some View {
+        HStack(spacing: 10) {
+            ZStack {
+                Circle().strokeBorder(.white.opacity(done || active ? 0.85 : 0.3), lineWidth: 1.5)
+                if done {
+                    Image(systemName: "checkmark").font(.system(size: 10, weight: .heavy)).foregroundStyle(.white)
+                } else if active {
+                    Circle().fill(.white).frame(width: 7, height: 7)
+                }
+            }
+            .frame(width: 18, height: 18)
+            Text(title)
+                .font(NX.body(14, active ? .semibold : .regular))
+                .foregroundStyle(.white.opacity(done || active ? 0.95 : 0.45))
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(done ? "Done" : active ? "In progress" : "Not yet")
+    }
+}
+
 // MARK: - Session
 
 @MainActor
 final class LightPairingSession: ObservableObject {
+    enum Stage { case looking, receiving, waitingForPeer, paired }
+
     @Published private(set) var shownFrame: [Int] = Array(repeating: 0, count: LightCode.dataLobes)
     @Published private(set) var clock = false
     @Published private(set) var pulse = 0
-    @Published private(set) var progress = 0.0
-    @Published private(set) var status = "Hold your phones screen to screen"
-    @Published private(set) var detail = "Tops together, about a hand apart, with Face to face open on both."
-    @Published private(set) var done: (name: String, code: String)?
+    @Published private(set) var stage: Stage = .looking
+    /// The other phone's ring is in view right now.
+    @Published private(set) var seesPeer = false
+    @Published private(set) var hasSeenPeer = false
+    @Published private(set) var receivedProgress = 0.0
+    /// The other phone showed that it has our whole message.
+    @Published private(set) var peerHasMine = false
+    @Published private(set) var safetyCode: String?
+    @Published private(set) var peerName: String?
 
     var onPaired: ((LightProfile) -> Void)?
 
@@ -98,25 +173,63 @@ final class LightPairingSession: ObservableObject {
     static let frameSeconds = 0.15
 
     private var myProfile = Data()
+    private var received: Data?
     private var frames: [[Int]] = []
     private var ticker: Task<Void, Never>?
     private var assembler = LightCode.Assembler()
+    private var started = Date()
+    private var lastSeen = Date.distantPast
     // One reading per displayed frame: the clock flips on every frame, and a frame counts once
     // two readings in the same clock phase agree.
     private var phase: Bool?
     private var candidate: [Int]?
     private var acceptedThisPhase = false
 
+    var overallProgress: Double {
+        (hasSeenPeer ? 0.1 : 0) + 0.7 * receivedProgress + (peerHasMine ? 0.2 : 0)
+    }
+
+    var headline: String {
+        switch stage {
+        case .looking: return hasSeenPeer ? "Lost sight of the other phone" : "Looking for the other phone"
+        case .receiving: return seesPeer ? "Receiving their keys" : "Hold still, lost sight of them"
+        case .waitingForPeer: return "Got theirs, sending yours"
+        case .paired: return "Paired with \(peerName ?? "them")"
+        }
+    }
+
+    var hint: String {
+        switch stage {
+        case .looking:
+            return Date().timeIntervalSince(started) > 8
+                ? "Both phones on Face to face, screens facing, tops together about a hand apart. Turn the brightness up."
+                : "Hold the phones screen to screen, tops together, about a hand apart."
+        case .receiving: return "Keep them still until both finish."
+        case .waitingForPeer: return "Keep holding them together so the other phone finishes reading yours."
+        case .paired: return "Both phones should show this code. If they don't, remove the contact and try again."
+        }
+    }
+
     func start(profile: Data) {
         myProfile = profile
         frames = LightCode.frames(for: profile)
+        started = Date()
         ticker = Task { [weak self] in
             var index = 0
             while !Task.isCancelled {
                 guard let self else { return }
-                self.shownFrame = self.frames[index % self.frames.count]
+                // Once we have theirs, every third frame says "got yours".
+                if let received = self.received, index % 3 == 2 {
+                    self.shownFrame = LightCode.ackFrame(for: received)
+                } else {
+                    self.shownFrame = self.frames[index % self.frames.count]
+                }
                 self.clock = index.isMultiple(of: 2)
                 index += 1
+                if self.seesPeer, Date().timeIntervalSince(self.lastSeen) > 1.2 {
+                    self.seesPeer = false
+                    self.refreshStage()
+                }
                 try? await Task.sleep(nanoseconds: UInt64(Self.frameSeconds * 1_000_000_000))
             }
         }
@@ -125,7 +238,13 @@ final class LightPairingSession: ObservableObject {
     func stop() { ticker?.cancel() }
 
     func reading(_ reading: LightCode.Reading?) {
-        guard done == nil, let reading else { return }
+        guard let reading else { return }
+        lastSeen = Date()
+        if !seesPeer || !hasSeenPeer {
+            seesPeer = true
+            hasSeenPeer = true
+            refreshStage()
+        }
         if reading.clock != phase {
             phase = reading.clock
             candidate = nil
@@ -135,33 +254,58 @@ final class LightPairingSession: ObservableObject {
         guard symbols == candidate else { candidate = symbols; return }
         acceptedThisPhase = true
         pulse += 1
-        let payload = assembler.add(symbols)
-        progress = assembler.progress
-        if progress > 0 {
-            status = "Reading… \(Int(progress * 100))%"
-            detail = "Keep still. Hold them together until both finish."
+
+        if LightCode.isAck(symbols, for: myProfile) {
+            if !peerHasMine {
+                peerHasMine = true
+                refreshStage()
+            }
+            return
         }
-        guard let payload, let profile = try? LightProfile(encoded: payload) else { return }
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
-        progress = 1
-        done = (profile.name, LightCode.safetyCode(myProfile, payload))
-        status = "Paired with \(profile.name)"
-        detail = "Keep them together a moment so the other phone finishes too. Both should show:"
+        guard received == nil else { return }
+        let payload = assembler.add(symbols)
+        receivedProgress = assembler.progress
+        guard let payload, let profile = try? LightProfile(encoded: payload) else {
+            refreshStage()
+            return
+        }
+        received = payload
+        receivedProgress = 1
+        peerName = profile.name
+        safetyCode = LightCode.safetyCode(myProfile, payload)
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         onPaired?(profile)
+        refreshStage()
+    }
+
+    private func refreshStage() {
+        let next: Stage
+        if received != nil {
+            next = peerHasMine ? .paired : .waitingForPeer
+        } else if receivedProgress > 0 {
+            next = .receiving
+        } else {
+            next = .looking
+        }
+        if next == .paired && stage != .paired {
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+        }
+        stage = next
     }
 }
 
 // MARK: - Visual
 
-/// The ring of 14 lobes near the top of the screen (where the other phone's front camera is):
-/// slot 0 white, slot 1 dark, slots 2…13 the frame's colours, and a clock disc in the middle.
-/// The lobes keep their places but wobble and breathe, flowing tendrils swirl in the dark
-/// background, and everything kicks when this phone reads a frame from the other.
+/// The ring of 14 light blobs near the top of the screen (where the other phone's front camera
+/// is): slot 0 white, slot 1 dark, slots 2…13 the frame's colours, and a pearl clock in the
+/// middle that flips white/grey each frame. Each blob is liquid light: a glowing halo of its
+/// own colour, a wobbling body and a soft sheen. Colours never mix between blobs, so the other
+/// camera reads them cleanly. Faint deep-blue light drifts behind, too dark to read as data.
 struct LightRing: View {
     let frame: [Int]
     let clock: Bool
     let pulse: Int
-    let progress: Double
+    let seesPeer: Bool
     let done: Bool
     @State private var kick = 0.0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -173,32 +317,28 @@ struct LightRing: View {
                 context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black))
                 let w = size.width
                 let center = CGPoint(x: w / 2, y: max(w * 0.5, size.height * 0.27))
-                let radius = w * 0.37, lobe = w * 0.068
+                let radius = w * 0.37, lobe = w * 0.066
+                let energy = seesPeer ? 1.0 : 0.55
 
-                // Dark flowing tendrils (too dark for the other camera to mistake for a lobe).
+                // Drifting deep light behind everything (max channel under 0.25: never data).
                 context.drawLayer { layer in
-                    layer.addFilter(.blur(radius: w * 0.05))
-                    for i in 0..<9 {
-                        let p = Double(i) * 0.7
-                        let a = t * (0.25 + 0.03 * Double(i)) + p + kick * 0.6
-                        let r = radius * (0.9 + 0.5 * sin(t * 0.4 + p))
-                        let c = CGPoint(x: center.x + cos(a) * r, y: center.y + sin(a * 1.2) * r * 1.3 + w * 0.3)
-                        let s = w * (0.18 + 0.05 * sin(t + p))
-                        layer.fill(Path(ellipseIn: CGRect(x: c.x - s, y: c.y - s * 0.6, width: s * 2, height: s * 1.2)),
-                                   with: .color(Color(red: 0.0, green: 0.13 + 0.05 * sin(p), blue: 0.22)))
+                    layer.addFilter(.blur(radius: w * 0.07))
+                    for i in 0..<7 {
+                        let p = Double(i) * 0.9
+                        let a = t * (0.18 + 0.02 * Double(i)) + p + kick * 0.4
+                        let r = radius * (1.0 + 0.45 * sin(t * 0.35 + p))
+                        let c = CGPoint(x: center.x + cos(a) * r, y: center.y + sin(a * 1.3) * r * 1.2 + w * 0.2)
+                        let s = w * (0.16 + 0.05 * sin(t * 0.8 + p))
+                        layer.fill(Path(ellipseIn: CGRect(x: c.x - s, y: c.y - s * 0.7, width: s * 2, height: s * 1.4)),
+                                   with: .color(Color(red: 0.02, green: 0.10 + 0.04 * sin(p), blue: 0.22)))
                     }
                 }
 
-                // Progress: how much of the other phone's code has been read.
-                var arc = Path()
-                arc.addArc(center: center, radius: radius + lobe * 1.7, startAngle: .degrees(-90),
-                           endAngle: .degrees(-90 + 360 * progress), clockwise: false)
-                // Kept dark (under 30 % brightness) so the other camera never reads it as a lobe.
-                context.stroke(arc, with: .color(Color(red: 0, green: 0.2, blue: 0.27)),
-                               style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                let kickPhase = kick.truncatingRemainder(dividingBy: 1)
+                let kickScale = 1 + 0.08 * max(0, 1 - kickPhase * 3)
 
-                // The lobes.
-                let kickScale = 1 + 0.06 * max(0, 1 - (kick.truncatingRemainder(dividingBy: 1)) * 3)
+                // Blob positions and colours.
+                var blobs: [(CGPoint, (r: Double, g: Double, b: Double), Double)] = []
                 for slot in 0..<LightCode.slots {
                     let rgb: (r: Double, g: Double, b: Double)
                     switch slot {
@@ -207,22 +347,49 @@ struct LightRing: View {
                     default: rgb = LightCode.palette[frame[slot - 2]]
                     }
                     let a = -Double.pi / 2 + Double(slot) * 2 * .pi / Double(LightCode.slots)
-                        + 0.03 * sin(t * 1.7 + Double(slot))
+                        + 0.035 * sin(t * 1.6 + Double(slot))
                     let c = CGPoint(x: center.x + cos(a) * radius, y: center.y + sin(a) * radius)
-                    context.fill(blob(at: c, radius: lobe * kickScale, time: t, seed: Double(slot)),
-                                 with: .color(Color(red: rgb.r, green: rgb.g, blue: rgb.b)))
+                    blobs.append((c, rgb, Double(slot)))
                 }
 
-                // The clock.
+                // Halos: each blob's own colour, dimmed, blurred.
+                context.drawLayer { layer in
+                    layer.addFilter(.blur(radius: lobe * 0.55))
+                    for (c, rgb, seed) in blobs {
+                        let k = 0.5 * energy
+                        layer.fill(blob(at: c, radius: lobe * 1.25 * kickScale, time: t, seed: seed + 50),
+                                   with: .color(Color(red: rgb.r * k, green: rgb.g * k, blue: rgb.b * k)))
+                    }
+                }
+
+                // Bodies, with a sheen of the same hue (lighter, still clearly that colour).
+                for (c, rgb, seed) in blobs {
+                    let breathe = 1 + 0.05 * sin(t * 2.4 + seed * 0.8) * energy
+                    let body = blob(at: c, radius: lobe * kickScale * breathe, time: t, seed: seed)
+                    context.fill(body, with: .color(Color(red: rgb.r, green: rgb.g, blue: rgb.b)))
+                    let sheen = CGPoint(x: c.x - lobe * 0.28, y: c.y - lobe * 0.3)
+                    let tint = (r: rgb.r + (1 - rgb.r) * 0.35, g: rgb.g + (1 - rgb.g) * 0.35, b: rgb.b + (1 - rgb.b) * 0.35)
+                    context.fill(blob(at: sheen, radius: lobe * 0.32, time: t * 1.3, seed: seed + 7),
+                                 with: .color(Color(red: tint.r, green: tint.g, blue: tint.b)))
+                }
+
+                // The clock: a pearl that flips white/grey each frame, with a soft grey halo.
                 let clockRadius = w * 0.12 * (1 + 0.03 * sin(t * 2))
+                context.drawLayer { layer in
+                    layer.addFilter(.blur(radius: clockRadius * 0.35))
+                    layer.fill(blob(at: center, radius: clockRadius * 1.25, time: t, seed: 98),
+                               with: .color(Color(white: clock ? 0.4 : 0.2)))
+                }
                 context.fill(blob(at: center, radius: clockRadius, time: t, seed: 99),
                              with: .color(clock ? .white : Color(white: 0.42)))
+
                 if done {
+                    // Settled: a thin white ring of light around everything.
+                    let r = radius + lobe * 2.3
                     var glow = context
-                    glow.addFilter(.shadow(color: NX.cyan, radius: w * 0.05))
-                    glow.stroke(Path(ellipseIn: CGRect(x: center.x - radius - lobe * 2.2, y: center.y - radius - lobe * 2.2,
-                                                       width: (radius + lobe * 2.2) * 2, height: (radius + lobe * 2.2) * 2)),
-                                with: .color(Color(red: 0, green: 0.2, blue: 0.27)), lineWidth: 3)
+                    glow.addFilter(.shadow(color: .white.opacity(0.6), radius: w * 0.03))
+                    glow.stroke(Path(ellipseIn: CGRect(x: center.x - r, y: center.y - r, width: r * 2, height: r * 2)),
+                                with: .color(Color(white: 0.5)), lineWidth: 2)
                 }
             }
         }
@@ -233,15 +400,21 @@ struct LightRing: View {
         .accessibilityHidden(true)
     }
 
-    /// A wobbling, roughly round blob.
+    /// A wobbling, roughly round liquid blob.
     private func blob(at c: CGPoint, radius: Double, time t: Double, seed: Double) -> Path {
         var path = Path()
-        let points = 28
-        for i in 0...points {
+        let points = 32
+        var pts: [CGPoint] = []
+        for i in 0..<points {
             let a = Double(i) / Double(points) * 2 * .pi
-            let wobble = 1 + 0.06 * sin(3 * a + t * 2.1 + seed) + 0.04 * sin(5 * a - t * 1.4 + seed * 2)
-            let p = CGPoint(x: c.x + cos(a) * radius * wobble, y: c.y + sin(a) * radius * wobble)
-            if i == 0 { path.move(to: p) } else { path.addLine(to: p) }
+            let wobble = 1 + 0.07 * sin(3 * a + t * 2.1 + seed) + 0.04 * sin(5 * a - t * 1.4 + seed * 2)
+            pts.append(CGPoint(x: c.x + cos(a) * radius * wobble, y: c.y + sin(a) * radius * wobble))
+        }
+        // Smooth closed curve through the points (midpoint quadratic).
+        func mid(_ p: CGPoint, _ q: CGPoint) -> CGPoint { CGPoint(x: (p.x + q.x) / 2, y: (p.y + q.y) / 2) }
+        path.move(to: mid(pts[points - 1], pts[0]))
+        for i in 0..<points {
+            path.addQuadCurve(to: mid(pts[i], pts[(i + 1) % points]), control: pts[i])
         }
         path.closeSubpath()
         return path

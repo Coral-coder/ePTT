@@ -67,11 +67,39 @@ public enum LightCode {
         message += Data([UInt8(crc >> 24), UInt8(crc >> 16 & 0xFF), UInt8(crc >> 8 & 0xFF), UInt8(crc & 0xFF)])
         if message.count % 2 == 1 { message.append(0) }
         return stride(from: 0, to: message.count, by: 2).enumerated().map { index, offset in
-            let chunk = UInt32(message[offset]) << 8 | UInt32(message[offset + 1])
-            var bits = UInt32(index) << 17 | chunk << 1
-            bits |= UInt32(bits.nonzeroBitCount & 1)                  // even parity
-            return (0..<dataLobes).map { lobe in Int(bits >> UInt32(2 * (dataLobes - 1 - lobe)) & 3) }
+            symbols(index: index, chunk: UInt16(message[offset]) << 8 | UInt16(message[offset + 1]))
         }
+    }
+
+    /// Chunk index reserved for the "got yours" frame (messages use at most 124 indices).
+    public static let ackIndex = 127
+
+    /// Shown once this phone has the other's whole message: carries 16 bits of the CRC-32 of
+    /// what it received, so the other phone knows its own message arrived intact.
+    public static func ackFrame(for received: Data) -> [Int] {
+        symbols(index: ackIndex, chunk: ackValue(for: received))
+    }
+
+    /// Whether `symbols` is the other phone's "got yours" frame for our `payload`.
+    public static func isAck(_ symbols: [Int], for payload: Data) -> Bool {
+        guard let (index, chunk) = decodeFrame(symbols) else { return false }
+        return index == ackIndex && chunk == ackValue(for: payload)
+    }
+
+    static func ackValue(for payload: Data) -> UInt16 { UInt16(truncatingIfNeeded: crc32(payload)) }
+
+    static func symbols(index: Int, chunk: UInt16) -> [Int] {
+        var bits = UInt32(index) << 17 | UInt32(chunk) << 1
+        bits |= UInt32(bits.nonzeroBitCount & 1)                  // even parity
+        return (0..<dataLobes).map { lobe in Int(bits >> UInt32(2 * (dataLobes - 1 - lobe)) & 3) }
+    }
+
+    /// Index and chunk of a frame, or nil if it fails the parity check.
+    static func decodeFrame(_ symbols: [Int]) -> (index: Int, chunk: UInt16)? {
+        guard symbols.count == dataLobes, symbols.allSatisfy({ (0..<4).contains($0) }) else { return nil }
+        let bits = symbols.reduce(UInt32(0)) { $0 << 2 | UInt32($1) }
+        guard bits.nonzeroBitCount & 1 == 0 else { return nil }
+        return (Int(bits >> 17), UInt16(bits >> 1 & 0xFFFF))
     }
 
     /// Collects frames in any order, with repeats and errors, until the message checks out.
@@ -98,10 +126,7 @@ public enum LightCode {
 
         /// Adds one frame of 12 colour symbols. Returns the payload once it's complete and valid.
         public mutating func add(_ symbols: [Int]) -> Data? {
-            guard symbols.count == LightCode.dataLobes, symbols.allSatisfy({ (0..<4).contains($0) }) else { return nil }
-            let bits = symbols.reduce(UInt32(0)) { $0 << 2 | UInt32($1) }
-            guard bits.nonzeroBitCount & 1 == 0 else { return nil }   // parity
-            let index = Int(bits >> 17), chunk = UInt16(bits >> 1 & 0xFFFF)
+            guard let (index, chunk) = LightCode.decodeFrame(symbols), index != LightCode.ackIndex else { return nil }
             votes[index, default: [:]][chunk, default: 0] += 1
             guard let total = chunkCount, (0..<total).allSatisfy({ votes[$0] != nil }) else { return nil }
             var message = Data()
