@@ -421,9 +421,111 @@ recipients can unwrap (§6.2).
 
 ## 12. Face-to-face pairing
 
-Two phones held screen to screen, tops together, exchange identities over light
-only. There is no radio. The code is in `EPTTCore/OpticalLink.swift`,
-`EPTTCore/LightCode.swift` and `App/iOS/UI/FacePairView.swift`.
+Two phones held screen to screen, tops together, about 15–20 cm apart, swap
+identities by showing each other **Orbit codes**, a round code of our own, and
+reading them with the front camera. There is no radio and no standard barcode.
+The code is in `EPTTCore/OrbitCode.swift`, `EPTTCore/ReedSolomon.swift`,
+`EPTTCore/OrbitHandshake.swift` and `App/iOS/UI/OrbitPairView.swift`.
+
+**The code.** Distances are in code units, where the data rings end at radius 1.
+Marks are dark on a white disc, and the disc sits on a black screen.
+
+| Radius | What |
+| --- | --- |
+| 0–0.18 | Dark disc |
+| 0.18–0.24 | Light ring |
+| 0.24–0.30 | Dark ring. Across any diameter the bullseye reads dark:light:dark:light:dark ≈ 1:1:6:1:1 |
+| 0.30–0.36 | Light gap |
+| 0.36–0.96 | 8 data rings, 0.075 thick, of 33, 39, 45, 52, 58, 64, 71 and 77 cells |
+| 0.96–1.01 | Light gap |
+| 1.01–1.06 | Solid dark ring |
+| 1.06–1.12 | 24 dashes: dark where the angle mod 15° is under 7.5° |
+| 1.12–1.20 | Light margin |
+
+- **Cells.** Cell *j* of a ring of *n* cells covers angles 360°·*j*/*n* to
+  360°·(*j*+1)/*n*, counter-clockwise from the +x axis, with y up.
+- **Sync.** Ring 0 always shows `011010110011101010001011000101001`.
+  Correlating against it tells the reader which way round the code is, and
+  whether it is mirrored. The pattern peaks at 33 and has no sidelobe over 11,
+  mirrored or not.
+- **Data.** Rings 1–7 carry 50 bytes, most significant bit first, ring by ring;
+  the last 6 cells are 0.
+
+**The 50 bytes** are 32 data bytes and 18 Reed–Solomon parity bytes. The field
+is GF(256) with polynomial 0x11D and generator α = 2, and the first root is α⁰.
+The parity corrects any 9 bad bytes. Each byte is then XORed with a fixed mask,
+so no code has large blank areas. The mask comes from a 16-bit Galois LFSR:
+seed 0xACE1, taps 0xB400, 8 steps per byte, each step's output bit shifted in
+from the right.
+
+The 32 data bytes:
+
+| Bytes | Content |
+| --- | --- |
+| 0 | `kind(1) ‖ index(3) ‖ total(3) ‖ 0(1)` |
+| 1 | Session: a random byte per pairing, so a phone can ignore its own reflection |
+| 2–29 | 28 payload bytes, zero-padded |
+| 30–31 | CRC-16-CCITT (initial value 0xFFFF, polynomial 0x1021) of bytes 0–29, big-endian |
+
+**Reading.** The reader has no help from the system.
+
+1. It thresholds each camera frame against a local mean.
+2. It finds the bullseye's 1:1:6:1:1 runs along rows, confirmed down the column.
+3. It fits an ellipse to the outer edge of the bullseye's dark ring along 96 rays.
+   That gives position, size and tilt, and the dark and light levels.
+4. It finds the solid outer ring along the same rays, then fits another ellipse.
+5. It correlates the sync ring to get rotation and mirroring.
+6. It finds the 24 dashes along the outer ellipse and matches them to their
+   known angles. A least-squares homography over them corrects perspective.
+   If fewer than 8 dashes are found, it falls back to the bullseye ellipse.
+7. It samples every cell, then corrects the result with Reed–Solomon and checks
+   the CRC.
+
+**Handshake.** Each phone shows its frames in a loop, 0.45 s each, and each frame
+is drawn at a new angle.
+
+1. **OFFER** (kind 0): our `LightProfile` (below: with our display name, 82–106
+   bytes) in 28-byte frames.
+2. **ACK** (kind 1): once we hold the whole offer from the other phone, we show
+   ACK frames instead. They carry the first 8 bytes of SHA-256 of the offer we
+   read, then our profile again.
+3. **Done:** a phone completes when it reads an ACK whose hash matches its own
+   offer. The other phone then provably holds our real profile, and we hold
+   theirs, since the ACK carries it too. A phone that completes keeps showing
+   its ACK, so the other phone can finish.
+
+Frames with our own session byte are ignored. An ACK that hashes some other offer
+is rejected.
+
+**Profile.**
+
+`version(1) ‖ Ed25519 key(32) ‖ X25519 key(32) ‖ relay mailbox(16) ‖ name length(1) ‖ name(≤ 24)`
+
+**Adding to a group.** Face to face can start from a talk group's invite screen.
+When the pairing completes there, that phone adds the new contact to the group and
+sends GROUP_INVITE (§6.3) to every member. The other phone only pairs; the group key
+reaches it sealed to its own keys.
+
+
+**After pairing.** Each side creates the contact from the profile and sends a
+`CARD` message (type `0x12`) to the peer: its full signed contact card, sealed on
+the new direct channel. It goes over any direct path and to the relay mailbox
+the peer just showed. The CARD fills in push tokens, prekey, addresses and the
+card used for group invites.
+
+**Safety code.** Both phones show six digits: the first 4 bytes of
+`SHA-256("ePTT/1 face-pairing" ‖ lower ‖ higher)` modulo 10⁶, where `lower` and
+`higher` are the two profiles in byte order.
+
+The optical channel is the trust boundary: only a screen in front of the camera
+can pair.
+
+### 12.1 Earlier light methods (disabled)
+
+
+Before Orbit codes, pairing blinked the profile across as light. The code is in
+`EPTTCore/OpticalLink.swift`, `EPTTCore/BlinkLink.swift` and `LightPairView` in
+`App/iOS/UI/FacePairView.swift`. Nothing in the app opens it now.
 
 **What travels as light:** a `LightProfile` with an empty name, 82 bytes:
 
@@ -479,12 +581,7 @@ base pairs are the elements.
 - **Movement.** Between rounds, during the preamble, the strands unzip, twist and
   trade columns. The order is seeded by the round number.
 
-**Adding to a group.** Face to face can start from a talk group's invite screen.
-When the pairing completes there, that phone adds the new contact to the group and
-sends GROUP_INVITE (§6.3) to every member. The other phone only pairs; the group key
-reaches it sealed to its own keys.
-
-### 12.1 Flashlight (experimental)
+### 12.2 Flashlight (experimental, disabled)
 
 The phones are held back to back, and each rear camera watches the other phone's
 LED (`EPTTCore/BlinkLink.swift`). There is only one light, so:
@@ -501,16 +598,3 @@ brightly than the other LED. Each phone knows when its LED was on, so every fram
 that share removed. The share is estimated by a running regression of brightness on
 the LED state, at whichever lag from 0 to 32 ms fits best. Bit values add up across
 rounds until the CRC-32 checks.
-
-**After pairing.** Each side creates the contact from the profile and sends a
-`CARD` message (type `0x12`) to the peer: its full signed contact card, sealed on
-the new direct channel. It goes over any direct path and to the relay mailbox
-the peer just showed. The CARD fills in push tokens, prekey, addresses and the
-card used for group invites.
-
-**Safety code.** Both phones show six digits: the first 4 bytes of
-`SHA-256("ePTT/1 face-pairing" ‖ lower ‖ higher)` modulo 10⁶, where `lower` and
-`higher` are the two profiles in byte order.
-
-The optical channel is the trust boundary: only a screen in front of the camera
-can pair.

@@ -52,8 +52,11 @@ enum OpticalPairingMethod: String, CaseIterable, Identifiable {
     var alphabet: OpticalLink.Alphabet { self == .dna ? .quaternary : .binary }
 }
 
-/// Face-to-face pairing over light (PROTOCOL.md §12): pick a method, start on both phones.
-struct FacePairView: View {
+/// DISABLED: the earlier experimental light methods (grid, stars, DNA, flashlight). Face to face
+/// now uses Orbit codes (`FacePairView`, OrbitPairView.swift); nothing presents this view any
+/// more. The code stays for experiments.
+/// Face-to-face pairing over light (PROTOCOL.md §12.1): pick a method, start on both phones.
+struct LightPairView: View {
     /// Invite whoever we pair with to this talk group.
     var group: Channel?
     @EnvironmentObject private var model: AppModel
