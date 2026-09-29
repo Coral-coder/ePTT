@@ -16,11 +16,16 @@ struct ChannelsView: View {
                         ScreenTitle(text: "Channels")
                         Spacer()
                         Button {
-                            creatingGroup = true
+                            if model.snapshot.contacts.isEmpty {
+                                withAnimation { model.banner = "Pair with someone first, then make a talk group with them." }
+                            } else {
+                                creatingGroup = true
+                            }
                         } label: {
                             GelBead(size: 44) { Image(systemName: "plus").font(.system(size: 18, weight: .bold)) }
+                                .contentShape(Circle())
                         }
-                        .disabled(model.snapshot.contacts.isEmpty)
+                        .buttonStyle(.plain)
                         .opacity(model.snapshot.contacts.isEmpty ? 0.5 : 1)
                         .accessibilityLabel("New talk group")
                     }
@@ -161,51 +166,87 @@ struct NewGroupView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var selected: Set<IdentityID> = []
+    @FocusState private var nameFocused: Bool
+
+    private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var canCreate: Bool { !trimmedName.isEmpty && !selected.isEmpty }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    TextField("Group name", text: $name)
-                        .font(NX.body(17))
-                }
-                .nxRows()
-                Section {
-                    ForEach(model.snapshot.contacts) { contact in
-                        Button {
-                            if selected.contains(contact.id) { selected.remove(contact.id) } else { selected.insert(contact.id) }
-                        } label: {
-                            HStack {
-                                InitialsRing(name: contact.name, size: 32, lit: selected.contains(contact.id))
-                                Text(contact.name).font(NX.body(16)).foregroundStyle(NX.text)
-                                Spacer()
-                                if selected.contains(contact.id) { Image(systemName: "checkmark").foregroundStyle(NX.cyan) }
-                            }
-                        }
-                        .accessibilityAddTraits(selected.contains(contact.id) ? .isSelected : [])
+        ZStack {
+            GridBackground(horizon: 0.94, energy: 0.6, moving: false)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack {
+                        ScreenTitle(text: "New group")
+                        Spacer()
+                        Button("Cancel") { dismiss() }
+                            .font(NX.body(16, .medium))
+                            .foregroundStyle(NX.frost)
                     }
-                } header: {
-                    SectionCaption(text: "Members")
-                } footer: {
+
+                    SectionCaption(text: "Name")
+                    TextField("", text: $name, prompt: Text("Group name").foregroundColor(NX.textMuted))
+                        .font(NX.body(17))
+                        .foregroundStyle(NX.text)
+                        .focused($nameFocused)
+                        .submitLabel(.done)
+                        .padding(14)
+                        .glass(cornerRadius: 16, glow: 0.1)
+
+                    SectionCaption(text: "Members").padding(.top, 6)
+                    VStack(spacing: 8) {
+                        ForEach(model.snapshot.contacts) { contact in
+                            let on = selected.contains(contact.id)
+                            Button {
+                                if on { selected.remove(contact.id) } else { selected.insert(contact.id) }
+                            } label: {
+                                HStack(spacing: 12) {
+                                    InitialsRing(name: contact.name, size: 36, lit: on)
+                                    Text(contact.name).font(NX.body(16, .medium)).foregroundStyle(NX.text)
+                                    Spacer()
+                                    Image(systemName: on ? "checkmark.circle.fill" : "circle")
+                                        .font(.system(size: 22))
+                                        .foregroundStyle(on ? NX.cyan : NX.textMuted)
+                                }
+                                .padding(.horizontal, 14)
+                                .frame(minHeight: 56)
+                                .contentShape(Rectangle())
+                                .glass(cornerRadius: 16, glow: on ? 0.3 : 0.08)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityAddTraits(on ? .isSelected : [])
+                        }
+                    }
                     Text("Every member gets the group key sealed to their device. Groups are a full mesh, so keep them to about ten people.")
                         .font(NX.body(13))
-                }
-                .nxRows()
-            }
-            .nxForm()
-            .navigationTitle("New talk group")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Create") {
-                        model.engine.createGroup(name: name.trimmingCharacters(in: .whitespaces), members: Array(selected))
+                        .foregroundStyle(NX.textMuted)
+
+                    Button("CREATE GROUP") {
+                        let groupName = trimmedName
+                        model.engine.createGroup(name: groupName, members: Array(selected))
+                        withAnimation { model.banner = "Talk group \(groupName) created" }
                         dismiss()
                     }
-                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || selected.isEmpty)
+                    .buttonStyle(NXButtonStyle(kind: .gel))
+                    .disabled(!canCreate)
+                    .opacity(canCreate ? 1 : 0.5)
+                    .padding(.top, 6)
+                    if !canCreate {
+                        Text(trimmedName.isEmpty ? "Give the group a name." : "Pick at least one member.")
+                            .font(NX.body(13))
+                            .foregroundStyle(NX.textDim)
+                            .frame(maxWidth: .infinity)
+                    }
                 }
+                .padding(.horizontal, 22)
+                .padding(.top, 20)
+                .padding(.bottom, 30)
             }
         }
         .preferredColorScheme(.dark)
+        .onAppear {
+            if model.snapshot.contacts.count == 1, let only = model.snapshot.contacts.first { selected = [only.id] }
+            nameFocused = true
+        }
     }
 }

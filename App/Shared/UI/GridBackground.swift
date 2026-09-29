@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// The world behind every screen: a deep-blue void with aurora glow, glossy Aero bubbles and a
-/// Tron light grid receding to a glowing horizon. `energy` brightens it while transmitting.
+/// The world behind every screen: a deep-blue void with aurora glow and a Tron
+/// light grid receding to a glowing horizon. `energy` brightens it while transmitting.
 struct GridBackground: View {
     /// Where the horizon sits, as a fraction of the height.
     var horizon: CGFloat = 0.62
@@ -9,7 +9,6 @@ struct GridBackground: View {
     var energy: Double = 1
     /// Whether the grid flows toward the viewer.
     var moving = true
-    var showsBubbles = true
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -32,7 +31,6 @@ struct GridBackground: View {
                     }
                 }
 
-                if showsBubbles { bubbles(in: geo.size) }
             }
         }
         .ignoresSafeArea()
@@ -57,13 +55,14 @@ struct GridBackground: View {
         let strength = min(1, 0.55 * energy)
         let line = NX.cyan
 
-        // Rungs: spacing grows toward the viewer (1/z perspective) and slides forward over time.
+        // Rungs: spacing grows toward the viewer (1/z perspective) and slide toward the viewer
+        // over time, as if flying forward over the grid.
         let rungs = 14
         let speed = 0.35 * energy
         let offset = (phase * speed).truncatingRemainder(dividingBy: 1)
         for i in 0..<rungs {
-            let z = (Double(i) + 1 - offset) / Double(rungs)           // 0 (horizon) … 1 (viewer)
-            guard z > 0 else { continue }
+            let z = (Double(i) + offset) / Double(rungs)               // 0 (horizon) … 1 (viewer)
+            guard z > 0, z <= 1 else { continue }
             let y = horizonY + floor * CGFloat(pow(z, 2.2))
             var path = Path()
             path.move(to: CGPoint(x: 0, y: y))
@@ -93,25 +92,5 @@ struct GridBackground: View {
         context.fill(Path(horizonRect), with: .linearGradient(
             Gradient(colors: [line.opacity(0), line, .white, line, line.opacity(0)]),
             startPoint: CGPoint(x: 0, y: horizonY), endPoint: CGPoint(x: size.width, y: horizonY)))
-    }
-
-    private func bubbles(in size: CGSize) -> some View {
-        ZStack {
-            Bubble(size: 26).position(x: size.width * 0.1, y: size.height * 0.56)
-            Bubble(size: 16).position(x: size.width * 0.86, y: size.height * 0.5)
-            Bubble(size: 10).position(x: size.width * 0.78, y: size.height * 0.18)
-        }
-    }
-}
-
-/// A glossy Frutiger Aero bubble.
-struct Bubble: View {
-    var size: CGFloat
-    var body: some View {
-        Circle()
-            .fill(RadialGradient(colors: [.white.opacity(0.95), Color(hex: 0xA0F0FF, opacity: 0.45), Color(hex: 0x00B4FF, opacity: 0.1)],
-                                 center: UnitPoint(x: 0.35, y: 0.3), startRadius: 0, endRadius: size * 0.7))
-            .overlay(Circle().strokeBorder(Color(hex: 0xB4F5FF, opacity: 0.55), lineWidth: 1))
-            .frame(width: size, height: size)
     }
 }

@@ -87,7 +87,7 @@ struct TalkView: View {
                     ChannelCapsule()
                     status
                     Spacer(minLength: 0)
-                    orb(diameter: max(160, min(300, geo.size.width - 60, geo.size.height * 0.44)))
+                    orb(diameter: max(150, min(300, geo.size.width - 60, geo.size.height * (model.selectedChannel?.kind == .group ? 0.34 : 0.44))))
                     Spacer(minLength: 0)
                     footer
                 }
@@ -147,6 +147,9 @@ struct TalkView: View {
                     RouteChip(title: "Nearby", symbol: "dot.radiowaves.left.and.right")
                     RouteChip(title: "Internet", symbol: "globe", lit: hasInternetPath)
                     RouteChip(title: relayReady ? "Relay ready" : "No relay", symbol: "icloud", lit: relayReady)
+                }
+                if let channel = model.selectedChannel, channel.kind == .group {
+                    GroupHistory(channel: channel)
                 }
             }
             .padding(.top, 6)
@@ -430,5 +433,69 @@ struct BreathingText: View {
                 guard !reduceMotion else { return }
                 withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) { bright = true }
             }
+    }
+}
+
+/// The last few transmissions on a talk group, by who spoke, from the past hour.
+struct GroupHistory: View {
+    @EnvironmentObject private var model: AppModel
+    let channel: Channel
+    static let limit = 3
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            let items = entries(now: context.date)
+            VStack(alignment: .leading, spacing: 6) {
+                SectionCaption(text: "Recent")
+                if items.isEmpty {
+                    Text("Nobody has talked here in the last hour.")
+                        .font(NX.body(13))
+                        .foregroundStyle(NX.textMuted)
+                } else {
+                    ForEach(items) { record in
+                        HStack(spacing: 10) {
+                            Image(systemName: record.outgoing ? "arrow.up.right" : "arrow.down.left")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(record.outgoing ? NX.ice : NX.cyan)
+                                .frame(width: 14)
+                            Text(talker(of: record))
+                                .font(NX.body(14, .medium))
+                                .foregroundStyle(NX.text)
+                                .lineLimit(1)
+                            Spacer(minLength: 6)
+                            Text("\(max(1, Int(record.seconds.rounded())))s · \(age(record.date, now: context.date))")
+                                .font(NX.body(12))
+                                .foregroundStyle(NX.textDim)
+                        }
+                        .accessibilityElement(children: .combine)
+                    }
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .glass(cornerRadius: 16, glow: 0.08)
+        }
+    }
+
+    private func entries(now: Date) -> [TransferRecord] {
+        let name = model.displayName(of: channel)
+        let cutoff = now.addingTimeInterval(-PTTEngine.replayLifetime)
+        return Array(model.snapshot.transfers
+            .filter { $0.channel == name && $0.date > cutoff && $0.seconds > 0 }
+            .sorted { $0.date > $1.date }
+            .prefix(Self.limit))
+    }
+
+    private func talker(of record: TransferRecord) -> String {
+        if record.outgoing { return model.snapshot.settings.displayName.isEmpty ? "You" : "\(model.snapshot.settings.displayName) (you)" }
+        let peer = record.legs.first?.peer ?? "?"
+        // Relayed entries may be labelled "Name · Group".
+        return peer.components(separatedBy: " · ").first ?? peer
+    }
+
+    private func age(_ date: Date, now: Date) -> String {
+        let minutes = Int(now.timeIntervalSince(date) / 60)
+        return minutes < 1 ? "now" : "\(minutes)m ago"
     }
 }

@@ -195,7 +195,7 @@ extension View {
     /// Settings-style forms: dark glass rows over a calm, still grid.
     func nxForm() -> some View {
         scrollContentBackground(.hidden)
-            .background(GridBackground(horizon: 0.96, energy: 0.6, moving: false, showsBubbles: false))
+            .background(GridBackground(horizon: 0.96, energy: 0.6, moving: false))
             .tint(NX.cyan)
     }
 

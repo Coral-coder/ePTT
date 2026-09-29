@@ -222,6 +222,8 @@ struct ContactDetailView: View {
             .nxRows()
         }
         .nxForm()
+        // Pushed views don't pick up the tab bar's inset: keep the last row clear of it.
+        .safeAreaInset(edge: .bottom, spacing: 0) { Color.clear.frame(height: 84) }
         .navigationTitle(contact.name)
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -235,7 +237,7 @@ struct AddContactView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                GridBackground(horizon: 0.9, energy: 0.7, moving: false, showsBubbles: false)
+                GridBackground(horizon: 0.9, energy: 0.7, moving: false)
                 VStack(spacing: 16) {
                     QRScannerView { code in
                         model.open(link: code)

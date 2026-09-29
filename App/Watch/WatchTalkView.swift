@@ -7,7 +7,7 @@ struct WatchTalkView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                GridBackground(horizon: 0.78, energy: energy, showsBubbles: false)
+                GridBackground(horizon: 0.78, energy: energy)
                 VStack(spacing: 4) {
                     NavigationLink {
                         ChannelPicker()
