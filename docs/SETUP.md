@@ -203,6 +203,30 @@ key lets Xcode create and use the distribution certificate and profiles itself.
 Builds show up in TestFlight after Apple
 finishes processing, usually within 5 to 20 minutes.
 
+### Stored signing certificate
+
+Each run happens on a fresh Mac. Without a stored certificate, Xcode makes a new
+"Apple Development: Created via API" certificate every time, and the workflow
+revokes those leftovers so Apple's limit isn't hit. To stop that, store one
+certificate once:
+
+1. On a Mac signed in to your developer account in Xcode (Settings → Accounts),
+   make sure an **Apple Development** certificate exists: select your team,
+   **Manage Certificates…**, and add **Apple Development** if none is listed.
+2. Open **Keychain Access** → **login** → **My Certificates**. Find
+   **Apple Development: <your name> (…)**. Expand it to check that it has a private
+   key, then right-click the certificate → **Export…** → save as `dev.p12` with a
+   password.
+3. In Terminal: `base64 -i dev.p12 | pbcopy`
+4. Add two secrets to the `Coral` environment:
+
+   | Secret | Value |
+   | --- | --- |
+   | `DEV_CERT_P12` | the pasted base64 text |
+   | `DEV_CERT_PASSWORD` | the password you chose in step 2 |
+
+5. Delete `dev.p12`. The next run's log says "Signing certificate: stored".
+
 ## Export compliance (encryption)
 
 Both apps set `ITSAppUsesNonExemptEncryption` to `NO`, so App Store Connect and

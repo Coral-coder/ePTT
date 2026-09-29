@@ -124,11 +124,33 @@ jobs:
           printf '%s\n' "$ASC_KEY_P8" > "$RUNNER_TEMP/asc/AuthKey_$ASC_KEY_ID.p8"
           echo "ASC_KEY_PATH=$RUNNER_TEMP/asc/AuthKey_$ASC_KEY_ID.p8" >> "$GITHUB_ENV"
 
-      # Until a persistent signing certificate is stored as a secret, each fresh runner makes
-      # Xcode create a new development certificate, and Apple caps how many an account may
-      # hold: revoke the ones earlier runs left behind ("Created via API" development only).
-      - name: Revoke leftover CI signing certificates
-        run: python3 tools/release/prune_ci_certs.py
+      # Signing for the archive step. With DEV_CERT_P12 / DEV_CERT_PASSWORD set (docs/SETUP.md,
+      # "Stored signing certificate"), that one certificate is loaded into a throwaway keychain
+      # and reused every run. Without them, each fresh runner makes Xcode create a new
+      # development certificate, and Apple caps how many an account may hold, so the ones
+      # earlier runs left behind ("Created via API" development only) are revoked first.
+      - name: Signing certificate
+        env:
+          DEV_CERT_P12: ${{ secrets.DEV_CERT_P12 }}
+          DEV_CERT_PASSWORD: ${{ secrets.DEV_CERT_PASSWORD }}
+        run: |
+          if [ -z "$DEV_CERT_P12" ]; then
+            echo "::warning::No DEV_CERT_P12 secret: revoking leftover CI certificates instead (see docs/SETUP.md)"
+            python3 tools/release/prune_ci_certs.py
+            exit 0
+          fi
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password=$(openssl rand -hex 16)
+          printf '%s' "$DEV_CERT_P12" | base64 --decode > "$RUNNER_TEMP/signing.p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$RUNNER_TEMP/signing.p12" -k "$keychain" -P "$DEV_CERT_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm -f "$RUNNER_TEMP/signing.p12"
+          echo "Signing certificate: stored ($(security find-identity -v -p codesigning "$keychain" | head -1 | sed -E 's/.*"(.*)"/\1/'))"
 
       - name: Write build configuration
         env:
@@ -220,4 +242,6 @@ jobs:
 
       - name: Remove keys
         if: always()
-        run: rm -rf "$RUNNER_TEMP/asc" Config/APNsAuthKey.p8 Config/Secrets.xcconfig
+        run: |
+          rm -rf "$RUNNER_TEMP/asc" "$RUNNER_TEMP/signing.p12" Config/APNsAuthKey.p8 Config/Secrets.xcconfig
+          if [ -f "$RUNNER_TEMP/signing.keychain-db" ]; then security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true; fi
