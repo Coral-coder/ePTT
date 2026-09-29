@@ -1254,9 +1254,11 @@ final class PTTEngine {
         queue.async { [self] in
             guard profile.identity.id != identity.id else { return }
             if contact(id: profile.identity.id) == nil {
-                state.contacts.append(Contact(identity: profile.identity, name: profile.name,
+                // The light carries no name; their signed card fills it in when it arrives.
+                let name = profile.name.isEmpty ? "New contact" : profile.name
+                state.contacts.append(Contact(identity: profile.identity, name: name,
                                               relayMailbox: profile.relayMailbox))
-                if let direct = try? Channel.direct(local: identity, peer: profile.identity, name: profile.name) {
+                if let direct = try? Channel.direct(local: identity, peer: profile.identity, name: name) {
                     state.channels.append(direct)
                     if state.settings.selectedChannel == nil { state.settings.selectedChannel = direct.id }
                 }

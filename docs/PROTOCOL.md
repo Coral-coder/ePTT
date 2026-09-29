@@ -414,41 +414,42 @@ recipients can unwrap (§6.2).
 ## 12. Face-to-face pairing
 
 Two phones held screen to screen, tops together, exchange identities over light
-only. There is no radio. The code is in `EPTTCore/LightCode.swift` and
-`App/iOS/UI/FacePairView.swift`.
+only. There is no radio. The code is in `EPTTCore/OpticalLink.swift`,
+`EPTTCore/LightCode.swift` and `App/iOS/UI/FacePairView.swift`.
 
-**What travels as light:** a `LightProfile` of 82 bytes plus up to 24 bytes of
-name:
+**What travels as light:** a `LightProfile` with an empty name, 82 bytes:
 
-`version(1) ‖ Ed25519 key(32) ‖ X25519 key(32) ‖ relay mailbox(16) ‖ name length(1) ‖ name`
+`version(1) ‖ Ed25519 key(32) ‖ X25519 key(32) ‖ relay mailbox(16) ‖ name length(1) = 0`
 
-**The ring.** Each screen shows a ring of 14 lobes near its top, where the other
-phone's front camera sits:
-- slot 0 is white, and marks the start;
-- slot 1 is dark, and gives the reading direction, so rotated or mirrored views
-  decode;
-- slots 2–13 each show cyan, violet, rose or lime, which is 2 bits each.
+The name comes later, in the signed card.
 
-A disc in the middle flips between white and grey on every frame, as a clock.
-A frame lasts 150 ms.
+**The lamp.** The top of each screen is a 4 × 4 grid of tiles, each black or
+white, nothing else. The screen runs at 70 % brightness. The camera's exposure is
+biased 1.5 EV down, and locked once the other phone is seen, so white tiles don't
+blow out. A symbol lasts 125 ms.
 
-**Frames.** The message is `length(2) ‖ profile ‖ CRC-32(4)`, cut into 2-byte
-chunks. Each frame carries 24 bits: `chunk index(7) ‖ chunk(16) ‖ even parity(1)`.
-The frames loop.
+**Rounds.** Each phone repeats rounds:
 
-**Reading.** The reader fits a circle through the coloured pixels, then:
-- classifies the ring every 2° by hue;
-- finds the white marker, and picks the direction from the dark slot beside it;
-- reads the twelve data lobes.
+| Part | Symbols | Content |
+| --- | --- | --- |
+| Preamble | 7 | All tiles together: `1110010` (data round) or `0001101` (ack round). |
+| Training | 17 | All tiles off, then each tile alone. |
+| Payload | 50 (data) or 2 (ack) | Tile 0 is a clock (on for even symbols), tiles 1–14 carry data, tile 15 makes the lit count of tiles 1–15 even. |
 
-It accepts one reading per clock phase, once two readings agree. It votes on
-each chunk across passes, and finishes when the whole message passes its CRC.
+A data round carries `profile ‖ CRC-32(profile)`, bits most significant first,
+padded with zeros. An ack round carries 16 bits: the low 16 bits of the CRC-32
+of the profile received. These are followed by their first 12 bits inverted as a
+check. Once a phone has the other's profile, it alternates data and ack rounds,
+because the other phone may still need its data.
 
-**Got yours.** Once a phone has the whole message, every third frame it shows is
-an acknowledgement instead of data: chunk index 127 (never used by a message)
-carrying the low 16 bits of the CRC-32 of the profile it received. When a phone
-reads an acknowledgement matching its own profile, it knows the other phone has
-its keys, and the handshake is complete on both sides.
+**Reading.** The camera image is reduced to 16 × 12 cells of average
+brightness. The receiver finds a preamble from the image's mean brightness
+alone, using its symbol timing and pattern. It then calibrates on that round's
+training symbols: each tile's contribution to every cell, relative to all-off.
+It then solves each payload symbol for the 16 tile levels by least squares, so
+blur, rotation, perspective and mirroring don't matter. Symbols with a wrong
+clock are dropped. Tile levels are summed across rounds, and symbols that fail
+parity count half. The profile is accepted when the CRC-32 checks.
 
 **After pairing.** Each side creates the contact from the profile and sends a
 `CARD` message (type `0x12`) to the peer: its full signed contact card, sealed on

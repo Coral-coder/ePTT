@@ -1,63 +1,127 @@
 import AVFoundation
+import QuartzCore
 import SwiftUI
 import EPTTCore
 
-/// Face-to-face pairing over light only (PROTOCOL.md §12). Hold two phones screen to screen,
-/// tops together: each shows a ring of glowing light blobs near the top, where the other
-/// phone's front camera is, and reads the other's ring. Keys, name and relay mailbox travel as
-/// light; the full signed cards follow through the encrypted relay.
-///
-/// Everything else on screen stays black, white or grey: the other camera only reads colour
-/// as data, so no coloured UI may appear while pairing.
+/// Face-to-face pairing over monochrome light (PROTOCOL.md §12). Hold two phones screen to
+/// screen, tops together: the top of each screen flashes a 4 × 4 grid of black and white tiles,
+/// and each front camera reads the other's. Each round the receiver calibrates on the other
+/// screen before reading, so blur, tilt and mirroring don't matter. Keys and relay mailbox
+/// travel as light; names and the full signed cards follow through the encrypted relay.
 struct FacePairView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
     @StateObject private var pairing = LightPairingSession()
+    @State private var running = false
     @State private var savedBrightness: CGFloat?
 
     var body: some View {
         ZStack {
-            LightRing(frame: pairing.shownFrame, clock: pairing.clock, pulse: pairing.pulse,
-                      seesPeer: pairing.seesPeer, done: pairing.stage == .paired)
+            Color.black.ignoresSafeArea()
+            if running {
+                GeometryReader { geo in
+                    LightLamp(sender: pairing.sender)
+                        .frame(width: geo.size.width, height: geo.size.height * 0.56)
+                }
                 .ignoresSafeArea()
-
-            LightCamera { pairing.reading($0) }
-                .frame(width: 1, height: 1)
-                .opacity(0.01)
-                .accessibilityHidden(true)
-
+                LightCamera(session: pairing)
+                    .frame(width: 1, height: 1)
+                    .opacity(0.01)
+                    .accessibilityHidden(true)
+            }
             VStack {
                 HStack {
                     Button("Close") { dismiss() }
                         .font(NX.label(15, .semibold))
                         .foregroundStyle(.white.opacity(0.8))
+                        .padding(8)
+                        .background(Capsule().fill(.black.opacity(0.6)))
                     Spacer()
                 }
-                .padding(.horizontal, 22)
+                .padding(.horizontal, 14)
                 Spacer()
-                HandshakePanel(pairing: pairing) { dismiss() }
-                    .padding(.horizontal, 22)
-                    .padding(.bottom, 14)
+                if running {
+                    HandshakePanel(pairing: pairing) { dismiss() }
+                        .padding(.horizontal, 22)
+                        .padding(.bottom, 14)
+                } else {
+                    intro
+                }
             }
         }
         .preferredColorScheme(.dark)
         .onAppear {
-            savedBrightness = UIScreen.main.brightness
-            UIScreen.main.brightness = 1
             UIApplication.shared.isIdleTimerDisabled = true
-            pairing.onPaired = { profile in
-                model.engine.addLightPaired(profile)
-            }
+            pairing.onPaired = { profile in model.engine.addLightPaired(profile) }
             model.engine.lightProfile { data in
                 guard let data else { return }
-                pairing.start(profile: data)
+                pairing.prepare(profile: data)
             }
         }
         .onDisappear {
-            pairing.stop()
             if let savedBrightness { UIScreen.main.brightness = savedBrightness }
             UIApplication.shared.isIdleTimerDisabled = false
         }
+    }
+
+    private var intro: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("PAIR FACE TO FACE")
+                .font(NX.label(17, .bold))
+                .tracking(1.5)
+                .foregroundStyle(.white)
+            Text("Open this on both phones and tap Start on both. Hold them screen to screen, tops together, about a hand apart, until both finish (around 10 seconds).")
+                .font(NX.body(15))
+                .foregroundStyle(.white.opacity(0.75))
+                .fixedSize(horizontal: false, vertical: true)
+            Label("The top of the screen flashes black and white quickly. Don't look at it if flashing lights affect you.",
+                  systemImage: "exclamationmark.triangle")
+                .font(NX.body(13))
+                .foregroundStyle(.white.opacity(0.6))
+                .fixedSize(horizontal: false, vertical: true)
+            Button {
+                savedBrightness = UIScreen.main.brightness
+                // Bright enough to read, not so bright it blows out the other camera.
+                UIScreen.main.brightness = 0.7
+                pairing.start()
+                running = true
+            } label: {
+                Text("START")
+                    .font(NX.label(15, .bold))
+                    .tracking(2)
+                    .foregroundStyle(.black)
+                    .frame(maxWidth: .infinity, minHeight: 52)
+                    .background(Capsule().fill(.white))
+            }
+            .buttonStyle(.plain)
+            .disabled(!pairing.isReady)
+            .opacity(pairing.isReady ? 1 : 0.4)
+        }
+        .padding(22)
+    }
+}
+
+/// The flashing tiles: the current symbol of this phone's transmission, redrawn every display
+/// frame. White and black only.
+private struct LightLamp: View {
+    let sender: LightSender
+
+    var body: some View {
+        TimelineView(.animation) { _ in
+            let symbol = sender.symbol(at: CACurrentMediaTime())
+            Canvas { context, size in
+                let gap: CGFloat = 8
+                let w = (size.width - gap * CGFloat(OpticalLink.columns + 1)) / CGFloat(OpticalLink.columns)
+                let h = (size.height - gap * CGFloat(OpticalLink.rows + 1)) / CGFloat(OpticalLink.rows)
+                for j in 0..<OpticalLink.tiles where symbol[j] {
+                    let x = gap + CGFloat(j % OpticalLink.columns) * (w + gap)
+                    let y = gap + CGFloat(j / OpticalLink.columns) * (h + gap)
+                    context.fill(Path(CGRect(x: x, y: y, width: w, height: h)), with: .color(Color(white: 0.92)))
+                }
+            }
+        }
+        .background(Color.black)
+        .accessibilityHidden(true)
     }
 }
 
@@ -77,7 +141,6 @@ private struct HandshakePanel: View {
                 .foregroundStyle(.white.opacity(0.6))
                 .fixedSize(horizontal: false, vertical: true)
 
-            // Overall progress: finding each other, their keys arriving, ours confirmed.
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule().fill(.white.opacity(0.12))
@@ -96,9 +159,8 @@ private struct HandshakePanel: View {
                 step(pairing.stage == .receiving
                         ? "Receive their keys · \(Int(pairing.receivedProgress * 100))%"
                         : "Receive their keys",
-                     done: pairing.receivedProgress >= 1, active: pairing.stage == .receiving)
-                step("They receive yours", done: pairing.peerHasMine,
-                     active: pairing.stage == .waitingForPeer)
+                     done: pairing.hasTheirs, active: pairing.stage == .receiving)
+                step("They receive yours", done: pairing.peerHasMine, active: pairing.stage == .waitingForPeer)
                 step("Compare the safety code", done: false, active: pairing.stage == .paired)
             }
 
@@ -107,7 +169,6 @@ private struct HandshakePanel: View {
                     .font(NX.display(30))
                     .tracking(4)
                     .foregroundStyle(.white)
-                    .shadow(color: .white.opacity(0.5), radius: 10)
                     .frame(maxWidth: .infinity)
                     .accessibilityLabel("Safety code \(code)")
             }
@@ -148,53 +209,86 @@ private struct HandshakePanel: View {
     }
 }
 
+// MARK: - Sending
+
+/// This phone's transmission: data rounds with our profile, and once we have theirs, data and
+/// acknowledgement rounds alternating (they may still need ours). Read from the display loop.
+final class LightSender {
+    private let lock = NSLock()
+    private var payload: Data?
+    private var received: Data?
+    private var round: [OpticalLink.Symbol] = []
+    private var roundStart = 0.0
+    private var sentAck = true
+    private static let dark = Array(repeating: false, count: OpticalLink.tiles)
+
+    func start(payload: Data) {
+        lock.lock(); defer { lock.unlock() }
+        self.payload = payload
+        roundStart = CACurrentMediaTime()
+        round = OpticalLink.dataLoop(payload: payload)
+    }
+
+    func gotTheirs(_ data: Data) {
+        lock.lock(); defer { lock.unlock() }
+        received = data
+    }
+
+    func symbol(at time: Double) -> OpticalLink.Symbol {
+        lock.lock(); defer { lock.unlock() }
+        guard let payload, !round.isEmpty else { return Self.dark }
+        var index = Int((time - roundStart) / OpticalLink.symbolSeconds)
+        while index >= round.count {
+            roundStart += Double(round.count) * OpticalLink.symbolSeconds
+            index -= round.count
+            if let received, !sentAck {
+                round = OpticalLink.ackLoop(for: received)
+                sentAck = true
+            } else {
+                round = OpticalLink.dataLoop(payload: payload)
+                sentAck = false
+            }
+        }
+        return round[max(0, index)]
+    }
+}
+
 // MARK: - Session
 
 @MainActor
 final class LightPairingSession: ObservableObject {
     enum Stage { case looking, receiving, waitingForPeer, paired }
 
-    @Published private(set) var shownFrame: [Int] = Array(repeating: 0, count: LightCode.dataLobes)
-    @Published private(set) var clock = false
-    @Published private(set) var pulse = 0
+    @Published private(set) var isReady = false
     @Published private(set) var stage: Stage = .looking
-    /// The other phone's ring is in view right now.
-    @Published private(set) var seesPeer = false
     @Published private(set) var hasSeenPeer = false
+    @Published private(set) var hasTheirs = false
     @Published private(set) var receivedProgress = 0.0
-    /// The other phone showed that it has our whole message.
     @Published private(set) var peerHasMine = false
+    @Published private(set) var failedRounds = 0
     @Published private(set) var safetyCode: String?
-    @Published private(set) var peerName: String?
 
+    let sender = LightSender()
     var onPaired: ((LightProfile) -> Void)?
+    /// Called on the camera queue once the other phone is in view (lock exposure then).
+    nonisolated(unsafe) var onFirstSighting: (() -> Void)?
 
-    /// Frame time. The camera sees each frame in 4–5 video frames at 30 fps.
-    static let frameSeconds = 0.15
-
-    private var myProfile = Data()
-    private var received: Data?
-    private var frames: [[Int]] = []
-    private var ticker: Task<Void, Never>?
-    private var assembler = LightCode.Assembler()
+    private var myPayload = Data()
     private var started = Date()
-    private var lastSeen = Date.distantPast
-    // One reading per displayed frame: the clock flips on every frame, and a frame counts once
-    // two readings in the same clock phase agree.
-    private var phase: Bool?
-    private var candidate: [Int]?
-    private var acceptedThisPhase = false
+    private let receiverLock = NSLock()
+    nonisolated(unsafe) private var receiver = OpticalLink.Receiver()
+    nonisolated(unsafe) private var framesSinceProgress = 0
 
     var overallProgress: Double {
-        (hasSeenPeer ? 0.1 : 0) + 0.7 * receivedProgress + (peerHasMine ? 0.2 : 0)
+        (hasSeenPeer ? 0.1 : 0) + 0.7 * (hasTheirs ? 1 : receivedProgress) + (peerHasMine ? 0.2 : 0)
     }
 
     var headline: String {
         switch stage {
-        case .looking: return hasSeenPeer ? "Lost sight of the other phone" : "Looking for the other phone"
-        case .receiving: return seesPeer ? "Receiving their keys" : "Hold still, lost sight of them"
+        case .looking: return "Looking for the other phone"
+        case .receiving: return failedRounds > 0 ? "Missed some, reading again" : "Receiving their keys"
         case .waitingForPeer: return "Got theirs, sending yours"
-        case .paired: return "Paired with \(peerName ?? "them")"
+        case .paired: return "Paired"
         }
     }
 
@@ -202,290 +296,181 @@ final class LightPairingSession: ObservableObject {
         switch stage {
         case .looking:
             return Date().timeIntervalSince(started) > 8
-                ? "Both phones on Face to face, screens facing, tops together about a hand apart. Turn the brightness up."
+                ? "Both phones on Face to face with Start tapped, screens facing, tops together, about a hand apart."
                 : "Hold the phones screen to screen, tops together, about a hand apart."
-        case .receiving: return "Keep them still until both finish."
+        case .receiving:
+            return failedRounds > 1 ? "Hold them steadier and a little further apart." : "Keep them still until both finish."
         case .waitingForPeer: return "Keep holding them together so the other phone finishes reading yours."
         case .paired: return "Both phones should show this code. If they don't, remove the contact and try again."
         }
     }
 
-    func start(profile: Data) {
-        myProfile = profile
-        frames = LightCode.frames(for: profile)
+    /// Our profile without the name: 82 bytes, which is what the light carries.
+    func prepare(profile: Data) {
+        guard let full = try? LightProfile(encoded: profile) else { return }
+        myPayload = LightProfile(identity: full.identity, name: "", relayMailbox: full.relayMailbox).encoded
+        isReady = myPayload.count == OpticalLink.payloadBytes
+    }
+
+    func start() {
+        guard isReady else { return }
         started = Date()
-        ticker = Task { [weak self] in
-            var index = 0
-            while !Task.isCancelled {
-                guard let self else { return }
-                // Once we have theirs, every third frame says "got yours".
-                if let received = self.received, index % 3 == 2 {
-                    self.shownFrame = LightCode.ackFrame(for: received)
-                } else {
-                    self.shownFrame = self.frames[index % self.frames.count]
-                }
-                self.clock = index.isMultiple(of: 2)
-                index += 1
-                if self.seesPeer, Date().timeIntervalSince(self.lastSeen) > 1.2 {
-                    self.seesPeer = false
-                    self.refreshStage()
-                }
-                try? await Task.sleep(nanoseconds: UInt64(Self.frameSeconds * 1_000_000_000))
-            }
-        }
+        sender.start(payload: myPayload)
     }
 
-    func stop() { ticker?.cancel() }
-
-    func reading(_ reading: LightCode.Reading?) {
-        guard let reading else { return }
-        lastSeen = Date()
-        if !seesPeer || !hasSeenPeer {
-            seesPeer = true
-            hasSeenPeer = true
-            refreshStage()
+    /// Camera queue: one frame of cell brightness.
+    nonisolated func frame(time: Double, cells: [Float]) {
+        receiverLock.lock()
+        let events = receiver.add(time: time, cells: cells)
+        framesSinceProgress += 1
+        var progress: Double?
+        if framesSinceProgress >= 6 {
+            framesSinceProgress = 0
+            progress = receiver.progress(at: time)
         }
-        if reading.clock != phase {
-            phase = reading.clock
-            candidate = nil
-            acceptedThisPhase = false
-        }
-        guard !acceptedThisPhase, let symbols = reading.symbols else { return }
-        guard symbols == candidate else { candidate = symbols; return }
-        acceptedThisPhase = true
-        pulse += 1
-
-        if LightCode.isAck(symbols, for: myProfile) {
-            if !peerHasMine {
-                peerHasMine = true
-                refreshStage()
-            }
-            return
-        }
-        guard received == nil else { return }
-        let payload = assembler.add(symbols)
-        receivedProgress = assembler.progress
-        guard let payload, let profile = try? LightProfile(encoded: payload) else {
-            refreshStage()
-            return
-        }
-        received = payload
-        receivedProgress = 1
-        peerName = profile.name
-        safetyCode = LightCode.safetyCode(myProfile, payload)
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        onPaired?(profile)
-        refreshStage()
+        let firstSighting = receiver.roundsSeen == 1 && events.contains { if case .roundStarted = $0 { return true }; return false }
+        receiverLock.unlock()
+        if firstSighting { onFirstSighting?() }
+        guard !events.isEmpty || progress != nil else { return }
+        Task { @MainActor in self.handle(events, progress: progress) }
     }
 
-    private func refreshStage() {
-        let next: Stage
-        if received != nil {
-            next = peerHasMine ? .paired : .waitingForPeer
-        } else if receivedProgress > 0 {
-            next = .receiving
-        } else {
-            next = .looking
+    private func handle(_ events: [OpticalLink.Receiver.Event], progress: Double?) {
+        if let progress, !hasTheirs { receivedProgress = progress }
+        for event in events {
+            switch event {
+            case .roundStarted:
+                hasSeenPeer = true
+            case .roundIncomplete:
+                failedRounds += 1
+                receivedProgress = 0
+            case .payload(let data):
+                guard !hasTheirs, let profile = try? LightProfile(encoded: data) else { continue }
+                hasTheirs = true
+                receivedProgress = 1
+                safetyCode = LightCode.safetyCode(myPayload, data)
+                sender.gotTheirs(data)
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                onPaired?(profile)
+            case .ack(let value):
+                if value == OpticalLink.ackValue(for: myPayload) { peerHasMine = true }
+            }
         }
-        if next == .paired && stage != .paired {
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
-        }
+        let next: Stage = hasTheirs ? (peerHasMine ? .paired : .waitingForPeer) : (hasSeenPeer ? .receiving : .looking)
+        if next == .paired && stage != .paired { UINotificationFeedbackGenerator().notificationOccurred(.success) }
         stage = next
-    }
-}
-
-// MARK: - Visual
-
-/// The ring of 14 light blobs near the top of the screen (where the other phone's front camera
-/// is): slot 0 white, slot 1 dark, slots 2…13 the frame's colours, and a pearl clock in the
-/// middle that flips white/grey each frame. Each blob is liquid light: a glowing halo of its
-/// own colour, a wobbling body and a soft sheen. Colours never mix between blobs, so the other
-/// camera reads them cleanly. Faint deep-blue light drifts behind, too dark to read as data.
-struct LightRing: View {
-    let frame: [Int]
-    let clock: Bool
-    let pulse: Int
-    let seesPeer: Bool
-    let done: Bool
-    @State private var kick = 0.0
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 60, paused: reduceMotion)) { timeline in
-            let t = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
-            Canvas { context, size in
-                context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black))
-                let w = size.width
-                let center = CGPoint(x: w / 2, y: max(w * 0.5, size.height * 0.27))
-                let radius = w * 0.37, lobe = w * 0.066
-                let energy = seesPeer ? 1.0 : 0.55
-
-                // Drifting deep light behind everything (max channel under 0.25: never data).
-                context.drawLayer { layer in
-                    layer.addFilter(.blur(radius: w * 0.07))
-                    for i in 0..<7 {
-                        let p = Double(i) * 0.9
-                        let a = t * (0.18 + 0.02 * Double(i)) + p + kick * 0.4
-                        let r = radius * (1.0 + 0.45 * sin(t * 0.35 + p))
-                        let c = CGPoint(x: center.x + cos(a) * r, y: center.y + sin(a * 1.3) * r * 1.2 + w * 0.2)
-                        let s = w * (0.16 + 0.05 * sin(t * 0.8 + p))
-                        layer.fill(Path(ellipseIn: CGRect(x: c.x - s, y: c.y - s * 0.7, width: s * 2, height: s * 1.4)),
-                                   with: .color(Color(red: 0.02, green: 0.10 + 0.04 * sin(p), blue: 0.22)))
-                    }
-                }
-
-                let kickPhase = kick.truncatingRemainder(dividingBy: 1)
-                let kickScale = 1 + 0.08 * max(0, 1 - kickPhase * 3)
-
-                // Blob positions and colours.
-                var blobs: [(CGPoint, (r: Double, g: Double, b: Double), Double)] = []
-                for slot in 0..<LightCode.slots {
-                    let rgb: (r: Double, g: Double, b: Double)
-                    switch slot {
-                    case 0: rgb = (1, 1, 1)
-                    case 1: continue
-                    default: rgb = LightCode.palette[frame[slot - 2]]
-                    }
-                    let a = -Double.pi / 2 + Double(slot) * 2 * .pi / Double(LightCode.slots)
-                        + 0.035 * sin(t * 1.6 + Double(slot))
-                    let c = CGPoint(x: center.x + cos(a) * radius, y: center.y + sin(a) * radius)
-                    blobs.append((c, rgb, Double(slot)))
-                }
-
-                // Halos: each blob's own colour, dimmed, blurred.
-                context.drawLayer { layer in
-                    layer.addFilter(.blur(radius: lobe * 0.55))
-                    for (c, rgb, seed) in blobs {
-                        let k = 0.5 * energy
-                        layer.fill(blob(at: c, radius: lobe * 1.25 * kickScale, time: t, seed: seed + 50),
-                                   with: .color(Color(red: rgb.r * k, green: rgb.g * k, blue: rgb.b * k)))
-                    }
-                }
-
-                // Bodies, with a sheen of the same hue (lighter, still clearly that colour).
-                for (c, rgb, seed) in blobs {
-                    let breathe = 1 + 0.05 * sin(t * 2.4 + seed * 0.8) * energy
-                    let body = blob(at: c, radius: lobe * kickScale * breathe, time: t, seed: seed)
-                    context.fill(body, with: .color(Color(red: rgb.r, green: rgb.g, blue: rgb.b)))
-                    let sheen = CGPoint(x: c.x - lobe * 0.28, y: c.y - lobe * 0.3)
-                    let tint = (r: rgb.r + (1 - rgb.r) * 0.35, g: rgb.g + (1 - rgb.g) * 0.35, b: rgb.b + (1 - rgb.b) * 0.35)
-                    context.fill(blob(at: sheen, radius: lobe * 0.32, time: t * 1.3, seed: seed + 7),
-                                 with: .color(Color(red: tint.r, green: tint.g, blue: tint.b)))
-                }
-
-                // The clock: a pearl that flips white/grey each frame, with a soft grey halo.
-                let clockRadius = w * 0.12 * (1 + 0.03 * sin(t * 2))
-                context.drawLayer { layer in
-                    layer.addFilter(.blur(radius: clockRadius * 0.35))
-                    layer.fill(blob(at: center, radius: clockRadius * 1.25, time: t, seed: 98),
-                               with: .color(Color(white: clock ? 0.4 : 0.2)))
-                }
-                context.fill(blob(at: center, radius: clockRadius, time: t, seed: 99),
-                             with: .color(clock ? .white : Color(white: 0.42)))
-
-                if done {
-                    // Settled: a thin white ring of light around everything.
-                    let r = radius + lobe * 2.3
-                    var glow = context
-                    glow.addFilter(.shadow(color: .white.opacity(0.6), radius: w * 0.03))
-                    glow.stroke(Path(ellipseIn: CGRect(x: center.x - r, y: center.y - r, width: r * 2, height: r * 2)),
-                                with: .color(Color(white: 0.5)), lineWidth: 2)
-                }
-            }
-        }
-        .onChange(of: pulse) { _ in
-            guard !reduceMotion else { return }
-            withAnimation(.easeOut(duration: 0.3)) { kick += 1 }
-        }
-        .accessibilityHidden(true)
-    }
-
-    /// A wobbling, roughly round liquid blob.
-    private func blob(at c: CGPoint, radius: Double, time t: Double, seed: Double) -> Path {
-        var path = Path()
-        let points = 32
-        var pts: [CGPoint] = []
-        for i in 0..<points {
-            let a = Double(i) / Double(points) * 2 * .pi
-            let wobble = 1 + 0.07 * sin(3 * a + t * 2.1 + seed) + 0.04 * sin(5 * a - t * 1.4 + seed * 2)
-            pts.append(CGPoint(x: c.x + cos(a) * radius * wobble, y: c.y + sin(a) * radius * wobble))
-        }
-        // Smooth closed curve through the points (midpoint quadratic).
-        func mid(_ p: CGPoint, _ q: CGPoint) -> CGPoint { CGPoint(x: (p.x + q.x) / 2, y: (p.y + q.y) / 2) }
-        path.move(to: mid(pts[points - 1], pts[0]))
-        for i in 0..<points {
-            path.addQuadCurve(to: mid(pts[i], pts[(i + 1) % points]), control: pts[i])
-        }
-        path.closeSubpath()
-        return path
     }
 }
 
 // MARK: - Camera
 
-/// Front camera → `LightCode.read` on every video frame, off the main thread.
+/// Front camera → 16 × 12 cells of average brightness per frame → the session's receiver.
+/// Exposure is pulled down so the other screen's white tiles don't blow out, then locked once
+/// the other phone is in view, so brightness means the same thing for a whole round.
 private struct LightCamera: UIViewControllerRepresentable {
-    let onReading: (LightCode.Reading?) -> Void
+    let session: LightPairingSession
 
     func makeUIViewController(context: Context) -> Controller {
         let controller = Controller()
-        controller.onReading = onReading
+        controller.session = session
         return controller
     }
 
-    func updateUIViewController(_ controller: Controller, context: Context) { controller.onReading = onReading }
+    func updateUIViewController(_ controller: Controller, context: Context) {}
 
     final class Controller: UIViewController, AVCaptureVideoDataOutputSampleBufferDelegate {
-        var onReading: ((LightCode.Reading?) -> Void)?
-        private let session = AVCaptureSession()
+        var session: LightPairingSession?
+        private let capture = AVCaptureSession()
         private let queue = DispatchQueue(label: "app.eptt.facepair.camera")
+        private var device: AVCaptureDevice?
 
         override func viewDidLoad() {
             super.viewDidLoad()
             guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front),
-                  let input = try? AVCaptureDeviceInput(device: device), session.canAddInput(input) else { return }
-            session.sessionPreset = .vga640x480
-            session.addInput(input)
+                  let input = try? AVCaptureDeviceInput(device: device), capture.canAddInput(input) else { return }
+            self.device = device
+            capture.sessionPreset = .inputPriority
+            capture.addInput(input)
             let output = AVCaptureVideoDataOutput()
-            output.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+            output.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange]
             output.alwaysDiscardsLateVideoFrames = true
             output.setSampleBufferDelegate(self, queue: queue)
-            guard session.canAddOutput(output) else { return }
-            session.addOutput(output)
-            if (try? device.lockForConfiguration()) != nil {
-                // Don't let white balance chase the colours; keep the frame rate steady.
-                if device.isWhiteBalanceModeSupported(.locked) { device.whiteBalanceMode = .locked }
-                device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 30)
-                device.unlockForConfiguration()
+            guard capture.canAddOutput(output) else { return }
+            capture.addOutput(output)
+            configure(device)
+            session?.onFirstSighting = { [weak self] in self?.lockExposure() }
+        }
+
+        /// 60 fps at a modest size if the camera can, and exposure biased down.
+        private func configure(_ device: AVCaptureDevice) {
+            guard (try? device.lockForConfiguration()) != nil else { return }
+            defer { device.unlockForConfiguration() }
+            let formats = device.formats.filter { format in
+                let d = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+                return d.width <= 1280 && format.videoSupportedFrameRateRanges.contains { $0.maxFrameRate >= 60 }
             }
+            if let format = formats.max(by: {
+                CMVideoFormatDescriptionGetDimensions($0.formatDescription).width < CMVideoFormatDescriptionGetDimensions($1.formatDescription).width
+            }) {
+                device.activeFormat = format
+                device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 60)
+                device.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 60)
+            } else {
+                device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 30)
+            }
+            if device.isExposureModeSupported(.continuousAutoExposure) { device.exposureMode = .continuousAutoExposure }
+            device.setExposureTargetBias(max(device.minExposureTargetBias, -1.5), completionHandler: nil)
+            if device.isWhiteBalanceModeSupported(.locked) { device.whiteBalanceMode = .locked }
+            if device.isLowLightBoostSupported { device.automaticallyEnablesLowLightBoostWhenAvailable = false }
+        }
+
+        private func lockExposure() {
+            guard let device, (try? device.lockForConfiguration()) != nil else { return }
+            if device.isExposureModeSupported(.locked) { device.exposureMode = .locked }
+            device.unlockForConfiguration()
         }
 
         override func viewWillAppear(_ animated: Bool) {
             super.viewWillAppear(animated)
-            let session = self.session
-            queue.async { session.startRunning() }
+            let capture = self.capture
+            queue.async { capture.startRunning() }
         }
 
         override func viewWillDisappear(_ animated: Bool) {
             super.viewWillDisappear(animated)
-            let session = self.session
-            queue.async { session.stopRunning() }
+            let capture = self.capture
+            queue.async { capture.stopRunning() }
         }
 
         func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
                            from connection: AVCaptureConnection) {
-            guard let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+            guard let buffer = CMSampleBufferGetImageBuffer(sampleBuffer), let session else { return }
+            let time = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
             CVPixelBufferLockBaseAddress(buffer, .readOnly)
             defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
-            guard let base = CVPixelBufferGetBaseAddress(buffer) else { return }
-            let width = CVPixelBufferGetWidth(buffer), height = CVPixelBufferGetHeight(buffer)
-            let stride = CVPixelBufferGetBytesPerRow(buffer)
-            let pixels = base.assumingMemoryBound(to: UInt8.self)
-            let reading = LightCode.read(width: width, height: height, step: 4) { x, y in
-                let p = pixels + y * stride + x * 4
-                return (Double(p[2]) / 255, Double(p[1]) / 255, Double(p[0]) / 255)
+            guard let base = CVPixelBufferGetBaseAddressOfPlane(buffer, 0) else { return }
+            let width = CVPixelBufferGetWidthOfPlane(buffer, 0), height = CVPixelBufferGetHeightOfPlane(buffer, 0)
+            let stride = CVPixelBufferGetBytesPerRowOfPlane(buffer, 0)
+            let luma = base.assumingMemoryBound(to: UInt8.self)
+            let cols = OpticalLink.cellColumns, rows = OpticalLink.cellRows
+            var cells = [Float](repeating: 0, count: cols * rows)
+            let step = max(1, width / 160)
+            for r in 0..<rows {
+                let y0 = r * height / rows, y1 = (r + 1) * height / rows
+                for c in 0..<cols {
+                    let x0 = c * width / cols, x1 = (c + 1) * width / cols
+                    var sum = 0, n = 0
+                    var y = y0
+                    while y < y1 {
+                        let row = luma + y * stride
+                        var x = x0
+                        while x < x1 { sum += Int(row[x]); n += 1; x += step }
+                        y += step
+                    }
+                    cells[r * cols + c] = n > 0 ? Float(sum) / Float(n) : 0
+                }
             }
-            DispatchQueue.main.async { [weak self] in self?.onReading?(reading) }
+            session.frame(time: time, cells: cells)
         }
     }
 }
