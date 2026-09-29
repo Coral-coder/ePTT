@@ -198,6 +198,20 @@ final class ProcessorTests: XCTestCase {
         XCTAssertFalse(tampered.verify(sender: alice.publicIdentity, channelID: channel, burstID: outgoing.burstID))
         XCTAssertEqual(try BurstStart(decoding: start.encoded), start)
     }
+
+    func testReplayFlagRoundTripsAndDefaultsOff() throws {
+        let channel = ChannelID.random()
+        let targets = [SealTarget(identity: bob.publicIdentity, prekey: nil)]
+        let plain = try OutgoingBurst(identity: alice, channelID: channel, timestamp: currentTimestamp(), targets: targets,
+                                      codec: .opus, sampleRate: 48_000, frameMilliseconds: 20)
+        XCTAssertFalse(try BurstStart(decoding: plain.start.encoded).allowsReplay)
+        let replayable = try OutgoingBurst(identity: alice, channelID: channel, timestamp: currentTimestamp(),
+                                           targets: targets, codec: .opus, sampleRate: 48_000, frameMilliseconds: 20,
+                                           allowsReplay: true)
+        let decoded = try BurstStart(decoding: replayable.start.encoded)
+        XCTAssertTrue(decoded.allowsReplay)
+        XCTAssertTrue(decoded.verify(sender: alice.publicIdentity, channelID: channel, burstID: replayable.burstID))
+    }
 }
 
 /// End to end: a burst sealed to bob's prekey plays, and becomes unreadable once bob deletes it.

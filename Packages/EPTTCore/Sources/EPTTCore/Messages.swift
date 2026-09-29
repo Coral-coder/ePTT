@@ -62,9 +62,12 @@ public struct BurstStart: Equatable {
     public var ephemeralPublicKey: Data
     /// The burst key wrapped for each recipient (PROTOCOL.md §6.2).
     public var envelopes: [Data]
+    /// The talker lets recipients replay this message (flags bit 0; PROTOCOL.md §6.1).
+    public var allowsReplay: Bool
 
     public init(timestamp: UInt64, codec: VoiceCodecID, sampleRate: UInt32, frameMilliseconds: UInt8, signature: Data,
-                ephemeralPublicKey: Data, envelopes: [Data]) {
+                ephemeralPublicKey: Data, envelopes: [Data], allowsReplay: Bool = false) {
+        self.allowsReplay = allowsReplay
         self.timestamp = timestamp
         self.codec = codec
         self.sampleRate = sampleRate
@@ -90,12 +93,12 @@ public struct BurstStart: Equatable {
     public static func signed(by identity: LocalIdentity, channelID: ChannelID, burstID: MessageID, timestamp: UInt64,
                               ephemeralPublicKey: Data, envelopes: [Data],
                               codec: VoiceCodecID = .opus, sampleRate: UInt32 = 48_000,
-                              frameMilliseconds: UInt8 = 20) throws -> BurstStart {
+                              frameMilliseconds: UInt8 = 20, allowsReplay: Bool = false) throws -> BurstStart {
         let input = signatureInput(channelID: channelID, senderID: identity.senderID, burstID: burstID,
                                    timestamp: timestamp, ephemeralPublicKey: ephemeralPublicKey, envelopes: envelopes)
         return BurstStart(timestamp: timestamp, codec: codec, sampleRate: sampleRate,
                           frameMilliseconds: frameMilliseconds, signature: try identity.sign(input),
-                          ephemeralPublicKey: ephemeralPublicKey, envelopes: envelopes)
+                          ephemeralPublicKey: ephemeralPublicKey, envelopes: envelopes, allowsReplay: allowsReplay)
     }
 
     public func verify(sender: PublicIdentity, channelID: ChannelID, burstID: MessageID) -> Bool {
@@ -113,6 +116,7 @@ public struct BurstStart: Equatable {
         b.add(.signature, signature)
         b.add(.ephemeralKey, ephemeralPublicKey)
         for envelope in envelopes { b.add(.envelope, envelope) }
+        if allowsReplay { b.add(.flags, integer: UInt8(1)) }
         return b.encoded
     }
 
@@ -128,6 +132,7 @@ public struct BurstStart: Equatable {
         signature = try f.require(.signature)
         ephemeralPublicKey = try f.require(.ephemeralKey)
         envelopes = f.all(.envelope)
+        allowsReplay = (f.first(.flags)?.last ?? 0) & 1 != 0
         guard ephemeralPublicKey.count == 32, !envelopes.isEmpty else { throw DecodingError.invalid("burst keying") }
     }
 }

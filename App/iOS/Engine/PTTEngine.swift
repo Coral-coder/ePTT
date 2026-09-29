@@ -36,6 +36,15 @@ struct EngineSnapshot {
     var receivingRoute: Route?
     /// The path each connected contact is reachable on right now.
     var peerRoutes: [IdentityID: Route] = [:]
+    /// The last message received, when its talker allowed replay and it is under an hour old.
+    var replayable: ReplayableInfo?
+}
+
+struct ReplayableInfo: Equatable {
+    var talker: String
+    var seconds: Double
+    var date: Date
+    var expires: Date { date.addingTimeInterval(RelayInbox.replayLifetime) }
 }
 
 /// Where a peer was last heard: a UDP endpoint or a MultipeerConnectivity peer.
@@ -148,6 +157,16 @@ final class PTTEngine {
         var jitter = JitterBuffer()
         /// BURST_END arrived: play out what is buffered, then stop.
         var draining = false
+        var codec: VoiceCodecID = .opus
+        var sampleRate: UInt32 = 48_000
+        /// The talker allowed replay: keep the frames as played (nil = lost).
+        var allowsReplay = false
+        var recorded: [Data?] = []
+        /// Playing back the last message rather than receiving one.
+        var isReplay = false
+        /// Replaying decoded audio (a message a notification played) instead of frames.
+        var pcm: [AVAudioPCMBuffer]?
+        var pcmEnds: Date?
     }
     private var rx: Reception?
     private var playoutTimer: DispatchSourceTimer?
@@ -417,7 +436,8 @@ final class PTTEngine {
                                              timestamp: timestamp, targets: targets,
                                              codec: audio.captureCodec.codec,
                                              sampleRate: audio.captureCodec.sampleRate,
-                                             frameMilliseconds: audio.captureCodec.frameMilliseconds)
+                                             frameMilliseconds: audio.captureCodec.frameMilliseconds,
+                                             allowsReplay: state.settings.allowReplay)
             let packet = try builder.seal(.burstStart, plaintext: outgoing.start.encoded, keys: channel.keys,
                                           messageID: burst)
             var t = Transmission(channel: channel, burst: burst, burstKey: outgoing.burstKey, startPacket: packet,
@@ -718,6 +738,9 @@ final class PTTEngine {
         let talker = channel.kind == .group ? "\(contact.name) · \(channel.name)" : contact.name
         var r = Reception(channel: channel, burst: burst, sender: sender, talker: talker, route: route)
         r.frameMilliseconds = Int(start?.frameMilliseconds ?? 20)
+        r.codec = start?.codec ?? .opus
+        r.sampleRate = start?.sampleRate ?? 48_000
+        r.allowsReplay = start?.allowsReplay ?? false
         for (index, frames) in earlyVoice.take(burst) {
             for (offset, frame) in frames.enumerated() { r.jitter.insert(index: index + UInt32(offset), frame: frame) }
         }
@@ -741,12 +764,28 @@ final class PTTEngine {
     private func stopReception(playEndTone: Bool = true) {
         guard let finished = rx else { return }
         rx = nil
+        if finished.isReplay {
+            finishStop(playEndTone: playEndTone)
+            return
+        }
         processor.forgetBurst(sender: finished.sender, burst: finished.burst)
         if finished.framesPlayed > 0 {
+            // Only the latest message is kept; its audio only if the talker allowed replay.
+            RelayInbox.saveLastReceived(.init(date: Date(), talker: finished.talker,
+                                              channel: displayName(of: finished.channel),
+                                              seconds: Double(finished.framesPlayed * finished.frameMilliseconds) / 1000,
+                                              replayable: finished.allowsReplay, source: .frames,
+                                              codec: finished.codec.rawValue, sampleRate: finished.sampleRate,
+                                              frameMilliseconds: UInt8(clamping: finished.frameMilliseconds)),
+                                        audio: finished.allowsReplay ? RelayInbox.encodeFrames(finished.recorded) : nil)
             logTransfer(TransferRecord(date: Date(), outgoing: false, channel: displayName(of: finished.channel),
                                        seconds: Double(finished.framesPlayed * finished.frameMilliseconds) / 1000,
                                        legs: [.init(peer: self.contact(finished.sender)?.name ?? "?", route: finished.route)]))
         }
+        finishStop(playEndTone: playEndTone)
+    }
+
+    private func finishStop(playEndTone: Bool) {
         // Relayed messages play one after another.
         if !relayQueue.isEmpty {
             queue.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.playNextRelayed() }
@@ -786,17 +825,76 @@ final class PTTEngine {
         // Until iOS hands us the audio session, keep buffering: the listener hears the burst
         // time-shifted rather than clipped.
         guard audioActive, Date() >= playoutHold, var r = rx else { return }
+        if let pcm = r.pcm {
+            if let ends = r.pcmEnds {
+                if Date() >= ends { stopReception() }
+            } else {
+                rx?.pcmEnds = Date().addingTimeInterval(audio.playBuffers(pcm) + 0.2)
+            }
+            return
+        }
         let pulled = r.jitter.pull()
         rx = r
         switch pulled {
         case .frame(let frame):
             audio.playFrame(frame)
             rx?.framesPlayed += 1
+            if r.allowsReplay && !r.isReplay { rx?.recorded.append(frame) }
         case .missing:
             audio.playFrame(nil)
             rx?.framesPlayed += 1
+            if r.allowsReplay && !r.isReplay { rx?.recorded.append(nil) }
         case .waiting: break
         case .finished: stopReception()
+        }
+    }
+
+    // MARK: - Replay
+
+    /// Plays the last message received again: only the latest, only if its talker allowed it,
+    /// and only for an hour. Always the whole message.
+    func replayLast() {
+        queue.async { [self] in
+            guard rx == nil, tx == nil, let last = RelayInbox.replayableLast() else { return }
+            let info = last.info, data = last.audio
+            let channel = state.channels.first { displayName(of: $0) == info.channel }
+                ?? state.settings.selectedChannel.flatMap { self.channel($0) } ?? state.channels.first
+            guard let channel else { return }
+            let talker = "Replay · " + info.talker
+            let nobody = try! SenderID(bytes: Data(count: 8))
+            var r = Reception(channel: channel, burst: .random(), sender: nobody, talker: talker, route: .internet)
+            r.isReplay = true
+            switch info.source {
+            case .frames:
+                let frames = RelayInbox.decodeFrames(data)
+                guard !frames.isEmpty, let codec = VoiceCodecID(rawValue: info.codec) else { return }
+                r.frameMilliseconds = Int(info.frameMilliseconds == 0 ? 20 : info.frameMilliseconds)
+                r.jitter = JitterBuffer(capacity: frames.count + 1)
+                for (i, frame) in frames.enumerated() {
+                    if let frame { r.jitter.insert(index: UInt32(i), frame: frame) }
+                }
+                r.jitter.markEnded(frameCount: UInt32(frames.count))
+                audio.beginPlayback(codec: codec, sampleRate: info.sampleRate,
+                                    frameMilliseconds: UInt8(clamping: r.frameMilliseconds))
+            case .relay:
+                guard let sync = RelayInbox.loadSnapshot(),
+                      let message = RelayInbox.open(data, with: sync, maxSeconds: .greatestFiniteMagnitude),
+                      !message.buffers.isEmpty else {
+                    emit(.message("That message can't be replayed any more"))
+                    return
+                }
+                r.pcm = message.buffers
+            }
+            rx = r
+            if usesPushToTalk {
+                ptt.setActiveRemoteParticipant(talker)
+                if audioActive { playIncomingTone() }
+            } else {
+                if !audioActive { startManualAudio() }
+                playIncomingTone()
+            }
+            startPlayout()
+            publish()
         }
     }
 
@@ -1526,6 +1624,9 @@ final class PTTEngine {
         snapshot.lastWakeSent = lastWakeSent
         snapshot.hasPushToken = state.pttToken != nil
         snapshot.lastWakeReceived = lastWakeReceived
+        if let last = RelayInbox.replayableLast()?.info {
+            snapshot.replayable = ReplayableInfo(talker: last.talker, seconds: last.seconds, date: last.date)
+        }
         DispatchQueue.main.async { [weak self] in self?.onSnapshot?(snapshot) }
     }
 

@@ -268,7 +268,8 @@ public struct OutgoingBurst {
     public let start: BurstStart
 
     public init(identity: LocalIdentity, channelID: ChannelID, burstID: MessageID = .random(), timestamp: UInt64,
-                targets: [SealTarget], codec: VoiceCodecID, sampleRate: UInt32, frameMilliseconds: UInt8) throws {
+                targets: [SealTarget], codec: VoiceCodecID, sampleRate: UInt32, frameMilliseconds: UInt8,
+                allowsReplay: Bool = false) throws {
         let burstKey = Data.random(count: 32)
         let keying = try BurstKeying.makeEnvelopes(burstKey: burstKey, channelID: channelID, burstID: burstID,
                                                    targets: targets)
@@ -276,6 +277,7 @@ public struct OutgoingBurst {
         self.burstKey = burstKey
         start = try BurstStart.signed(by: identity, channelID: channelID, burstID: burstID, timestamp: timestamp,
                                       ephemeralPublicKey: keying.ephemeralPublicKey, envelopes: keying.envelopes,
-                                      codec: codec, sampleRate: sampleRate, frameMilliseconds: frameMilliseconds)
+                                      codec: codec, sampleRate: sampleRate, frameMilliseconds: frameMilliseconds,
+                                      allowsReplay: allowsReplay)
     }
 }

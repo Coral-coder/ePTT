@@ -235,7 +235,8 @@ struct TalkView: View {
     private var footer: some View {
         switch talk {
         case .transmitting:
-            Text("Live on \(model.selectedChannel.map(model.displayName(of:)) ?? "the channel") · end-to-end encrypted")
+            Text("Live on \(model.selectedChannel.map(model.displayName(of:)) ?? "the channel") · end-to-end encrypted"
+                 + (model.snapshot.settings.allowReplay ? " · replay allowed" : ""))
                 .font(NX.body(13))
                 .foregroundStyle(Color(hex: 0xCFFBFF))
                 .multilineTextAlignment(.center)
@@ -262,8 +263,84 @@ struct TalkView: View {
                         .foregroundStyle(NX.textMuted)
                         .frame(minHeight: 50)
                 }
+                HStack(spacing: 10) {
+                    AllowReplayToggle()
+                    ReplayChip()
+                }
             }
         }
+    }
+}
+
+/// Whether what you send next may be replayed by the people who receive it. Each message
+/// carries the setting it was sent with.
+struct AllowReplayToggle: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        let on = model.snapshot.settings.allowReplay
+        Button {
+            UISelectionFeedbackGenerator().selectionChanged()
+            model.engine.updateSettings { $0.allowReplay = !on }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: on ? "arrow.counterclockwise.circle.fill" : "arrow.counterclockwise.circle")
+                    .font(.system(size: 14, weight: .semibold))
+                Text(on ? "REPLAY OK" : "NO REPLAY")
+                    .font(NX.label(11, .bold))
+                    .tracking(1.5)
+            }
+            .foregroundStyle(on ? NX.ink : NX.textDim)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Capsule().fill(on ? AnyShapeStyle(NX.cyan) : AnyShapeStyle(.ultraThinMaterial)))
+            .overlay(Capsule().strokeBorder(NX.frost.opacity(on ? 0.8 : 0.35), lineWidth: 1))
+            .shadow(color: on ? NX.cyan.opacity(0.6) : .clear, radius: 6)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Let recipients replay my messages")
+        .accessibilityValue(on ? "On" : "Off")
+    }
+}
+
+/// Replays the last message received, when its talker allowed it; shown for an hour.
+struct ReplayChip: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            if let last = model.snapshot.replayable, last.expires > context.date {
+                Button {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    model.engine.replayLast()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 11, weight: .bold))
+                        Text("\(last.talker) · \(Self.length(last.seconds)) · \(Self.age(last.date, now: context.date))")
+                            .font(NX.body(12, .medium))
+                            .lineLimit(1)
+                    }
+                    .foregroundStyle(NX.text)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(.ultraThinMaterial))
+                    .overlay(Capsule().strokeBorder(NX.cyan.opacity(0.6), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Replay the last message, from \(last.talker)")
+            }
+        }
+    }
+
+    private static func length(_ seconds: Double) -> String {
+        let s = max(1, Int(seconds.rounded()))
+        return s < 60 ? "\(s)s" : "\(s / 60)m \(s % 60)s"
+    }
+
+    private static func age(_ date: Date, now: Date) -> String {
+        let minutes = Int(now.timeIntervalSince(date) / 60)
+        return minutes < 1 ? "now" : "\(minutes)m ago"
     }
 }
 

@@ -18,6 +18,8 @@ struct Settings: Codable, Equatable {
     var deepChirp = false
     /// Beep when the other side releases. Nextel didn't, so it's off by default.
     var rogerBeep = false
+    /// Mark what we send as replayable: recipients may play it again for an hour.
+    var allowReplay = false
     var selectedChannel: ChannelID?
 
     var parsedStaticCandidates: [Candidate] {
@@ -161,6 +163,7 @@ extension Settings {
         standaloneWatch = try c.decodeIfPresent(Bool.self, forKey: .standaloneWatch) ?? d.standaloneWatch
         deepChirp = try c.decodeIfPresent(Bool.self, forKey: .deepChirp) ?? d.deepChirp
         rogerBeep = try c.decodeIfPresent(Bool.self, forKey: .rogerBeep) ?? d.rogerBeep
+        allowReplay = (try? c.decodeIfPresent(Bool.self, forKey: .allowReplay)) ?? d.allowReplay
         selectedChannel = try c.decodeIfPresent(ChannelID.self, forKey: .selectedChannel)
     }
 }

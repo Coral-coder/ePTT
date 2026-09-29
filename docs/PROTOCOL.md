@@ -212,7 +212,7 @@ A receiver drops a packet without responding when any of these hold:
 | Type | Name | seq | Plaintext |
 | --- | --- | --- | --- |
 | 0x01 | HELLO | 0 | TLV: name, timestamp, apns_ptt_token?, apns_device_token?, apns_env?, candidate*, apns_topic?, flags, relay_mailbox?, prekey?. Flags bit 0 = "reply with a HELLO". Direct channels only. |
-| 0x02 | BURST_START | 0 | TLV: timestamp, codec, sample_rate, frame_ms, signature, ephemeral_pk, envelope* (one per recipient, §6.2) |
+| 0x02 | BURST_START | 0 | TLV: timestamp, codec, sample_rate, frame_ms, signature, ephemeral_pk, envelope* (one per recipient, §6.2), flags? |
 | 0x03 | VOICE | index of the first frame | `count: u8`, then `count` × (`len: u16`, frame bytes) |
 | 0x04 | BURST_END | total frame count | TLV: timestamp, frame_count |
 | 0x05 | CALL_ALERT | 0 | TLV: name, timestamp, text? |
@@ -228,6 +228,11 @@ Ed25519(sign_sk, "ePTT/1 burst" || channel_id || sender_id || burst_id || timest
 ```
 
 The envelopes are hashed in the order they appear.
+
+BURST_START `flags` (tag 0x09, u8) is optional. Bit 0 set means the talker allows
+recipients to replay this message; absent or clear means they must not. Recipients
+keep at most the latest message received for replay, for one hour. The flag is not
+in the signature; the channel key's AEAD protects it like the rest of the body.
 
 Receivers verify it with the sender's pinned `sign_pk`.
 

@@ -327,6 +327,24 @@ final class AudioEngine {
         }
     }
 
+    /// Plays already decoded audio (a replayed message) through the voice player.
+    /// Returns its length in seconds.
+    func playBuffers(_ buffers: [AVAudioPCMBuffer]) -> TimeInterval {
+        guard let format = buffers.first?.format, format.sampleRate > 0 else { return 0 }
+        let seconds = buffers.reduce(0) { $0 + Double($1.frameLength) } / format.sampleRate
+        queue.async {
+            guard self.engine.isRunning else { return }
+            if self.voicePlayerFormat != format {
+                self.voicePlayer.stop()
+                self.engine.connect(self.voicePlayer, to: self.engine.mainMixerNode, format: format)
+                self.voicePlayerFormat = format
+            }
+            for buffer in buffers { self.voicePlayer.scheduleBuffer(buffer, at: nil, options: [], completionHandler: nil) }
+            self.startVoicePlayerIfPossible()
+        }
+        return seconds
+    }
+
     private func startVoicePlayerIfPossible() {
         // play() raises an Objective-C exception if the engine is not running.
         guard engine.isRunning, !voicePlayer.isPlaying else { return }

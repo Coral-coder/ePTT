@@ -66,6 +66,9 @@ final class NotificationService: UNNotificationServiceExtension {
                 return
             }
             guard let message = RelayInbox.open(payload, with: sync) else { return }
+            RelayInbox.saveLastReceived(.init(date: Date(), talker: message.talker, channel: message.channel,
+                                              seconds: message.seconds, replayable: message.allowsReplay,
+                                              source: .relay), audio: payload)
             RelayInbox.purgeOldSounds()
             guard let sound = RelayInbox.writeSound(message, name: record) else { return }
             content.title = message.talker

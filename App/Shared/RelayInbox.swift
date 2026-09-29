@@ -147,12 +147,92 @@ enum RelayInbox {
         }
     }
 
+    // MARK: - The last message received (for replay)
+
+    /// The last voice message received, by the app or by a notification. Only the latest one is
+    /// kept, and its audio only if the talker allowed replay.
+    struct LastReceived: Codable, Equatable {
+        enum Source: String, Codable {
+            /// `last-message.bin` holds the encoded frames the app played (see `encodeFrames`).
+            case frames
+            /// `last-message.bin` holds the sealed relay payload a notification played.
+            case relay
+        }
+        var date: Date
+        var talker: String
+        var channel: String
+        var seconds: Double
+        var replayable: Bool
+        var source: Source
+        var codec: UInt8 = 0
+        var sampleRate: UInt32 = 0
+        var frameMilliseconds: UInt8 = 0
+    }
+
+    /// How long a replayable message can be replayed.
+    static let replayLifetime: TimeInterval = 3600
+
+    private static var lastInfoURL: URL? { container?.appendingPathComponent("last-message.json") }
+    private static var lastDataURL: URL? { container?.appendingPathComponent("last-message.bin") }
+
+    /// Records the newest message, replacing the previous one. `audio` is kept only if replayable.
+    static func saveLastReceived(_ info: LastReceived, audio: Data?) {
+        guard let infoURL = lastInfoURL, let dataURL = lastDataURL else { return }
+        try? FileManager.default.removeItem(at: dataURL)
+        if info.replayable, let audio {
+            try? audio.write(to: dataURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        }
+        if let data = try? JSONEncoder().encode(info) { try? data.write(to: infoURL, options: .atomic) }
+    }
+
+    /// The last message, if it is replayable, less than an hour old and its audio is still there.
+    static func replayableLast(now: Date = Date()) -> (info: LastReceived, audio: Data)? {
+        guard let infoURL = lastInfoURL, let dataURL = lastDataURL,
+              let raw = try? Data(contentsOf: infoURL),
+              let info = try? JSONDecoder().decode(LastReceived.self, from: raw) else { return nil }
+        guard info.replayable, now.timeIntervalSince(info.date) < replayLifetime else {
+            if now.timeIntervalSince(info.date) >= replayLifetime { try? FileManager.default.removeItem(at: dataURL) }
+            return nil
+        }
+        guard let audio = try? Data(contentsOf: dataURL) else { return nil }
+        return (info, audio)
+    }
+
+    /// Frames as `len: u16` + bytes each; 0xFFFF marks a lost frame.
+    static func encodeFrames(_ frames: [Data?]) -> Data {
+        var out = Data()
+        for frame in frames {
+            let length = frame.map { UInt16(clamping: $0.count) } ?? 0xFFFF
+            out.append(UInt8(length >> 8))
+            out.append(UInt8(length & 0xFF))
+            if let frame { out.append(frame.prefix(0xFFFE)) }
+        }
+        return out
+    }
+
+    static func decodeFrames(_ data: Data) -> [Data?] {
+        let bytes = [UInt8](data)
+        var frames: [Data?] = []
+        var i = 0
+        while i + 2 <= bytes.count {
+            let length = Int(bytes[i]) << 8 | Int(bytes[i + 1])
+            i += 2
+            if length == 0xFFFF { frames.append(nil); continue }
+            guard i + length <= bytes.count else { break }
+            frames.append(Data(bytes[i..<(i + length)]))
+            i += length
+        }
+        return frames
+    }
+
     // MARK: - Opening a relayed burst
 
     struct Message {
         var talker: String
         var channel: String
         var seconds: Double
+        /// The talker allowed recipients to replay it.
+        var allowsReplay = false
         /// Decoded audio, in the decoder's PCM format.
         var buffers: [AVAudioPCMBuffer]
         var format: AVAudioFormat
@@ -192,12 +272,14 @@ enum RelayInbox {
         else { return nil }
         var buffers: [AVAudioPCMBuffer] = []
         let frameSeconds = Double(start.frameMilliseconds == 0 ? 20 : start.frameMilliseconds) / 1000
-        let decodeLast = min(last, first + UInt32(max(1, maxSeconds / frameSeconds)) - 1)
+        let wanted = maxSeconds / frameSeconds
+        let decodeLast = wanted >= Double(last - first) + 1 ? last : first + UInt32(max(1, wanted)) - 1
         for index in first...decodeLast {
             buffers.append(frames[index].flatMap { decoder.decode($0) } ?? decoder.silence())
         }
         let seconds = Double(Int(last - first) + 1) * frameSeconds
-        return Message(talker: talker, channel: channelName, seconds: seconds, buffers: buffers, format: decoder.pcmFormat)
+        return Message(talker: talker, channel: channelName, seconds: seconds, allowsReplay: start.allowsReplay,
+                       buffers: buffers, format: decoder.pcmFormat)
     }
 
     /// A relayed call alert (a page, not audio): who sent it and any text. Nil if the payload
