@@ -72,12 +72,14 @@
 		CC8FD19B5343AB6096B3D7A4 /* SoundsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90A31E58691124529D39C377 /* SoundsView.swift */; };
 		D5400801694C95121C6BC662 /* NearbyTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A620DEC285D829E5852A944 /* NearbyTransport.swift */; };
 		D598C3A49CAC8DA34FE4633B /* CloudRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7B9B9B9BCD490C371E11C42 /* CloudRelay.swift */; };
+		D7C2DBEA5017EC9AEF1A8647 /* LiquidCode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6681E47CF5402BB3BE61CE37 /* LiquidCode.swift */; };
 		D8E1607F080CFF7C538A4560 /* CloudRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7B9B9B9BCD490C371E11C42 /* CloudRelay.swift */; };
 		D93634A06B7195653F07336F /* NXTPTTNotify.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 28FC40B604293CC7CD6A3525 /* NXTPTTNotify.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		DB0680E9C743F4A7656940A3 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF14FF95427D6CC114A44733 /* OnboardingView.swift */; };
 		DBE7E7EB1534F734A988B7DD /* Hind-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 4D2CA08401587C4C4AFD4217 /* Hind-Regular.ttf */; };
 		DDAC95820538C1B3DEF4D635 /* WatchBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C624C4BED3D02359B4639ED /* WatchBridge.swift */; };
 		DE954D70350E230150A96F1C /* GridBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6491F3384F5ADA236ECD6732 /* GridBackground.swift */; };
+		DF3BC08C19F318EEC1BB6D8A /* FacePairView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48CA78A2036DC171165B7EF2 /* FacePairView.swift */; };
 		E1728BBD1DA81A82ECBCE19F /* TalkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17CC1D25F2383E91FA90B7FB /* TalkView.swift */; };
 		E407E0A5973562C7E918C81D /* Hind-SemiBold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 2ADBCA494A03F009112D2C9E /* Hind-SemiBold.ttf */; };
 		E4B79DCC58710E40C4D17AFF /* Exo2-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = E7C7BE4D46DBAFAC1026CC07 /* Exo2-Bold.ttf */; };
@@ -154,6 +156,7 @@
 		3871A34AA3E7E3696FC46F78 /* Store.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Store.swift; sourceTree = "<group>"; };
 		395A0ED889A9C3AA6045A5EA /* NXTPTT.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = NXTPTT.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		3D11E4A1C1C9BE40767F906E /* WatchModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchModel.swift; sourceTree = "<group>"; };
+		48CA78A2036DC171165B7EF2 /* FacePairView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FacePairView.swift; sourceTree = "<group>"; };
 		48EAEFBB51C34351AB7BB0C2 /* EPTTCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = EPTTCore; path = Packages/EPTTCore; sourceTree = SOURCE_ROOT; };
 		491106D4D4A4C379330E7D8F /* Michroma-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Michroma-Regular.ttf"; sourceTree = "<group>"; };
 		4D2CA08401587C4C4AFD4217 /* Hind-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Hind-Regular.ttf"; sourceTree = "<group>"; };
@@ -162,6 +165,7 @@
 		5DF053F9471D6B0FC2198E4E /* RelayInbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayInbox.swift; sourceTree = "<group>"; };
 		5F26C0993586F06E0277C2EE /* ChannelsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelsView.swift; sourceTree = "<group>"; };
 		6491F3384F5ADA236ECD6732 /* GridBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridBackground.swift; sourceTree = "<group>"; };
+		6681E47CF5402BB3BE61CE37 /* LiquidCode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiquidCode.swift; sourceTree = "<group>"; };
 		670CC2CACF289A683AB032A0 /* NXTPTTWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NXTPTTWatchApp.swift; sourceTree = "<group>"; };
 		6E2AE46EE092CDD2652AB8F4 /* TalkOrb.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TalkOrb.swift; sourceTree = "<group>"; };
 		71F9D559EAE5E7FAF3FC7438 /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
@@ -406,6 +410,8 @@
 				CF0F72AD79C914F4229FE377 /* ActivityView.swift */,
 				5F26C0993586F06E0277C2EE /* ChannelsView.swift */,
 				71F9D559EAE5E7FAF3FC7438 /* Components.swift */,
+				48CA78A2036DC171165B7EF2 /* FacePairView.swift */,
+				6681E47CF5402BB3BE61CE37 /* LiquidCode.swift */,
 				FF14FF95427D6CC114A44733 /* OnboardingView.swift */,
 				36E3EB4EF56C3AF302C8490C /* PairView.swift */,
 				F0220AFF770A796A696493B8 /* SettingsView.swift */,
@@ -602,8 +608,10 @@
 				849FF42B4171F02C65972757 /* ChannelsView.swift in Sources */,
 				D598C3A49CAC8DA34FE4633B /* CloudRelay.swift in Sources */,
 				9433C6AA64945A26EA27F4FF /* Components.swift in Sources */,
+				DF3BC08C19F318EEC1BB6D8A /* FacePairView.swift in Sources */,
 				7216C9BCE9AEDC32E574DFA9 /* GridBackground.swift in Sources */,
 				B7427C19AAA77A6D303EE2AC /* Keychain.swift in Sources */,
+				D7C2DBEA5017EC9AEF1A8647 /* LiquidCode.swift in Sources */,
 				6B64282570069D75C03530C2 /* LocalAddresses.swift in Sources */,
 				6090112260B68C097D107408 /* NXTPTTApp.swift in Sources */,
 				D5400801694C95121C6BC662 /* NearbyTransport.swift in Sources */,
