@@ -90,6 +90,11 @@ struct TalkView: View {
                     orb(diameter: max(150, min(300, geo.size.width - 60, geo.size.height * (model.selectedChannel?.kind == .group ? 0.34 : 0.44))))
                     Spacer(minLength: 0)
                     footer
+                    HStack(alignment: .center) {
+                        AllowReplayToggle()
+                        Spacer()
+                        ReplayButton(enabled: talk == .idle)
+                    }
                 }
                 .padding(.horizontal, 22)
                 .padding(.top, 8)
@@ -263,10 +268,6 @@ struct TalkView: View {
                         .foregroundStyle(NX.textMuted)
                         .frame(minHeight: 50)
                 }
-                HStack(spacing: 10) {
-                    AllowReplayToggle()
-                    ReplayChip()
-                }
             }
         }
     }
@@ -303,44 +304,35 @@ struct AllowReplayToggle: View {
     }
 }
 
-/// Replays the last message received, when its talker allowed it; shown for an hour.
-struct ReplayChip: View {
+/// Replays the last message received. Greyed out unless that message's talker allowed replay
+/// and it is under an hour old.
+struct ReplayButton: View {
     @EnvironmentObject private var model: AppModel
+    /// False while talking or receiving.
+    var enabled = true
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 30)) { context in
-            if let last = model.snapshot.replayable, last.expires > context.date {
-                Button {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    model.engine.replayLast()
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "play.fill")
-                            .font(.system(size: 11, weight: .bold))
-                        Text("\(last.talker) · \(Self.length(last.seconds)) · \(Self.age(last.date, now: context.date))")
-                            .font(NX.body(12, .medium))
-                            .lineLimit(1)
-                    }
-                    .foregroundStyle(NX.text)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Capsule().fill(.ultraThinMaterial))
-                    .overlay(Capsule().strokeBorder(NX.cyan.opacity(0.6), lineWidth: 1))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Replay the last message, from \(last.talker)")
+        TimelineView(.periodic(from: .now, by: 15)) { context in
+            let last = model.snapshot.replayable.flatMap { $0.expires > context.date ? $0 : nil }
+            let active = enabled && last != nil
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                model.engine.replayLast()
+            } label: {
+                Image(systemName: "arrow.counterclockwise")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(active ? NX.frost : NX.textMuted.opacity(0.6))
+                    .frame(width: 44, height: 44)
+                    .background(GlassBackground(shape: Circle(), glow: active ? 0.35 : 0))
+                    .overlay(Circle().strokeBorder(active ? NX.cyan.opacity(0.7) : .white.opacity(0.08), lineWidth: 1))
+                    .shadow(color: active ? NX.cyan.opacity(0.5) : .clear, radius: 6)
+                    .opacity(active ? 1 : 0.45)
             }
+            .buttonStyle(.plain)
+            .disabled(!active)
+            .accessibilityLabel("Replay last message")
+            .accessibilityValue(last.map { "From \($0.talker), \(max(1, Int($0.seconds.rounded()))) seconds" } ?? "Not available")
         }
-    }
-
-    private static func length(_ seconds: Double) -> String {
-        let s = max(1, Int(seconds.rounded()))
-        return s < 60 ? "\(s)s" : "\(s / 60)m \(s % 60)s"
-    }
-
-    private static func age(_ date: Date, now: Date) -> String {
-        let minutes = Int(now.timeIntervalSince(date) / 60)
-        return minutes < 1 ? "now" : "\(minutes)m ago"
     }
 }
 
