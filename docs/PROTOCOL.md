@@ -375,3 +375,39 @@ recipients can unwrap (§6.2).
   bursts one after another, oldest first, and then deletes the record. The
   talker deletes its own records once they expire.
 
+
+## 12. Face-to-face pairing
+
+Two phones held screen to screen each loop a series of QR codes and read the
+other's with the front camera (`EPTTCore/FacePairing.swift`). Each code is the
+text `NXP1:` followed by base64url of one frame:
+
+| Bytes | Field |
+| --- | --- |
+| 1 | kind: `1` OFFER, `2` ACK |
+| 4 | session: random per pairing, so a phone ignores its own reflection |
+| 1 | chunk index |
+| 1 | chunk count |
+| ≤96 | chunk of the message |
+
+- **OFFER message:** `nonce(16) ‖ card`. `card` is the signed contact card
+  encoding (§3).
+- **ACK message:** `nonce(16) ‖ SHA-256(peer's OFFER message)(32) ‖ card`.
+
+A phone shows OFFER frames until it has assembled the peer's OFFER and
+verified the card signature. Then it shows ACK frames.
+
+A phone completes when it reads an ACK whose hash equals SHA-256 of its own
+OFFER. At that point:
+- the peer provably holds this phone's card;
+- this phone holds the peer's card, since the ACK carries it.
+
+Both sides add each other. An ACK that hashes some other offer is rejected, as
+is a second peer mid-exchange.
+
+Both phones display a safety code: the first 4 bytes of
+`SHA-256("ePTT/1 face-pairing" ‖ lower ‖ higher)` modulo 10⁶, shown as six
+digits. Here `lower` and `higher` are the two OFFER messages in byte order.
+
+The optical channel is the trust boundary: only a device in front of the
+camera can take part.

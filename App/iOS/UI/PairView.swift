@@ -8,6 +8,7 @@ struct PairView: View {
     @EnvironmentObject private var model: AppModel
     @State private var uri: String?
     @State private var scanning = false
+    @State private var facePairing = false
 
     var body: some View {
         NavigationStack {
@@ -36,9 +37,17 @@ struct PairView: View {
                         }
                         .frame(maxWidth: .infinity)
 
+                        Button {
+                            facePairing = true
+                        } label: {
+                            Label("FACE TO FACE", systemImage: "iphone.radiowaves.left.and.right")
+                        }
+                        .buttonStyle(NXButtonStyle(kind: .gel))
+                        .accessibilityHint("Hold two phones screen to screen to pair both ways at once")
+
                         HStack(spacing: 12) {
                             Button("SCAN A CODE") { scanning = true }
-                                .buttonStyle(NXButtonStyle(kind: .gel))
+                                .buttonStyle(NXButtonStyle(kind: .glass))
                             if let uri {
                                 ShareLink(item: uri) { Text("SHARE LINK") }
                                     .buttonStyle(NXButtonStyle(kind: .glass))
@@ -70,6 +79,7 @@ struct PairView: View {
             .toolbar(.hidden, for: .navigationBar)
         }
         .sheet(isPresented: $scanning) { AddContactView() }
+        .fullScreenCover(isPresented: $facePairing) { FacePairView() }
         .onAppear { model.engine.myCardURI { uri = $0 } }
     }
 }
