@@ -1075,6 +1075,24 @@ final class PTTEngine {
         }
     }
 
+    /// Adds a contact to a talk group and sends the group key to everyone, the newcomer included
+    /// (e.g. after pairing face to face from the group's invite screen).
+    func addMember(_ id: IdentityID, toGroup groupID: ChannelID) {
+        queue.async { [self] in
+            guard let i = channelIndex[groupID], state.channels[i].kind == .group, id != identity.id,
+                  let newcomer = contact(id: id) else { return }
+            if !state.channels[i].members.contains(id) {
+                state.channels[i].members.append(id)
+                save()
+            }
+            let group = state.channels[i]
+            for member in group.members {
+                if let contact = self.contact(id: member) { sendInvite(group, to: contact) }
+            }
+            emit(.message("\(newcomer.name) added to \(group.name)"))
+        }
+    }
+
     /// Stops every code for a group from working.
     func retireJoinCodes(for groupID: ChannelID) {
         queue.async { [self] in

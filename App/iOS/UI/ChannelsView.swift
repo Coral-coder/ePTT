@@ -278,6 +278,7 @@ struct GroupInviteView: View {
     let channel: Channel
     @State private var uri: String?
     @State private var expires: Date?
+    @State private var faceToFace = false
 
     var body: some View {
         ZStack {
@@ -304,6 +305,13 @@ struct GroupInviteView: View {
                     Text("They'll be added when your phone gets their request: straight away nearby or online, otherwise the next time you open NXTPTT. Everyone in the group then gets their key, sealed to their device.")
                         .font(NX.body(13))
                         .foregroundStyle(NX.textMuted)
+                    Button {
+                        faceToFace = true
+                    } label: {
+                        Label("FACE TO FACE", systemImage: "iphone.radiowaves.left.and.right")
+                    }
+                    .buttonStyle(NXButtonStyle(kind: .gel))
+                    .accessibilityHint("Pair by light with someone in front of you and add them to this group")
                     HStack(spacing: 12) {
                         if let uri {
                             ShareLink(item: uri) { Text("SHARE LINK") }
@@ -321,6 +329,7 @@ struct GroupInviteView: View {
         }
         .preferredColorScheme(.dark)
         .onAppear { load(fresh: false) }
+        .fullScreenCover(isPresented: $faceToFace) { FacePairView(group: channel) }
     }
 
     private func load(fresh: Bool) {

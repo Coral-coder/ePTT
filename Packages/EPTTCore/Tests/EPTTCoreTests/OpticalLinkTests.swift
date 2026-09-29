@@ -2,7 +2,7 @@ import XCTest
 @testable import EPTTCore
 
 /// The monochrome light link against a simulated camera: blurred, rotated, mirrored, rolling
-/// shutter, noise, and a clock unrelated to the sender's.
+/// shutter, gamma-encoded, saturating, noisy, and on a clock unrelated to the sender's.
 final class OpticalLinkTests: XCTestCase {
     struct Rng {
         var state: UInt64
@@ -55,7 +55,7 @@ final class OpticalLinkTests: XCTestCase {
 
         func symbol(at t: Double) -> OpticalLink.Symbol {
             var s = t - start
-            guard s >= 0 else { return Array(repeating: false, count: OpticalLink.tiles) }
+            guard s >= 0 else { return OpticalLink.Symbol(repeating: 0, count: OpticalLink.tiles) }
             var i = 0
             while true {
                 let round = rounds[i % rounds.count]
@@ -66,7 +66,8 @@ final class OpticalLinkTests: XCTestCase {
             }
         }
 
-        /// A frame starting at `t`: each cell row exposed a little later (rolling shutter).
+        /// A frame starting at `t`: each cell row exposed a little later (rolling shutter). The
+        /// screen draws level L as linear light L/3; the camera gamma-encodes and clips.
         mutating func frame(at t: Double, exposure: Double) -> [Float] {
             var out: [Float] = []
             for (i, w) in weights.enumerated() {
@@ -75,9 +76,10 @@ final class OpticalLinkTests: XCTestCase {
                 var level = 0.0
                 for k in 0..<4 {
                     let s = symbol(at: t0 + exposure * Double(k) / 4)
-                    level += zip(w, s).reduce(0) { $0 + ($1.1 ? $1.0 : 0) } / 4
+                    level += zip(w, s).reduce(0) { $0 + $1.0 * Double($1.1) / 3 } / 4
                 }
-                out.append(Float(min(255, ambient[i] + 180 * level + noise * rng.gaussian())))
+                let linear = min(1, (ambient[i] + 180 * level) / 255)
+                out.append(Float(max(0, min(255, 255 * pow(linear, 1 / 2.2) + noise * rng.gaussian()))))
             }
             return out
         }
@@ -88,8 +90,9 @@ final class OpticalLinkTests: XCTestCase {
         return LightProfile(identity: identity, name: "", relayMailbox: Data(repeating: seed, count: 16)).encoded
     }
 
-    private func run(_ scene: inout Scene, fps: Double, seconds: Double, jitter: Double = 0.002) -> [OpticalLink.Receiver.Event] {
-        var receiver = OpticalLink.Receiver()
+    private func run(_ scene: inout Scene, fps: Double, seconds: Double, alphabet: OpticalLink.Alphabet = .binary,
+                     jitter: Double = 0.002) -> [OpticalLink.Receiver.Event] {
+        var receiver = OpticalLink.Receiver(alphabet: alphabet)
         var events: [OpticalLink.Receiver.Event] = []
         var t = 100.0
         var rng = Rng(state: 7)
@@ -132,8 +135,22 @@ final class OpticalLinkTests: XCTestCase {
         XCTAssertTrue(events.contains(.ack(OpticalLink.ackValue(for: mine))), "events: \(events)")
     }
 
+    func testReadsDNAWithFourLevelsAndAcks() {
+        let theirs = profile(11), mine = profile(13)
+        var scene = Scene(rounds: [OpticalLink.dataLoop(payload: theirs, alphabet: .quaternary),
+                                   OpticalLink.ackLoop(for: mine, alphabet: .quaternary)],
+                          start: 100.2, blur: 0.4, angle: -0.5, mirrored: true, noise: 4, seed: 9)
+        let events = run(&scene, fps: 30, seconds: 16, alphabet: .quaternary)
+        XCTAssertTrue(events.contains(.payload(theirs)), "events: \(events)")
+        XCTAssertTrue(events.contains(.ack(OpticalLink.ackValue(for: mine))), "events: \(events)")
+    }
+
+    func testDNARoundsAreShorter() {
+        XCTAssertLessThan(OpticalLink.dataLoopSymbols(.quaternary), OpticalLink.dataLoopSymbols(.binary) * 3 / 4)
+    }
+
     func testNothingIsReadFromAStillScene() {
-        var scene = Scene(rounds: [[Array(repeating: false, count: OpticalLink.tiles)]], start: 0, blur: 0.5,
+        var scene = Scene(rounds: [[OpticalLink.Symbol(repeating: 0, count: OpticalLink.tiles)]], start: 0, blur: 0.5,
                           angle: 0, mirrored: false, noise: 3, seed: 41)
         let events = run(&scene, fps: 30, seconds: 12)
         XCTAssertTrue(events.isEmpty, "events: \(events)")

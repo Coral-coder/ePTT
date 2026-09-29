@@ -10,6 +10,9 @@ enum OpticalPairingMethod: String, CaseIterable, Identifiable {
     case grid
     /// Sixteen stars that twinkle the same code, and drift to a new constellation each round.
     case constellation
+    /// Four short DNA strands whose sixteen base pairs each show one of four greys (A, C, G, T):
+    /// two bits each, so rounds take about 6 s. Strands unzip and rearrange between rounds.
+    case dna
     /// Phones back to back, each LED blinking at the other's rear camera (BlinkLink). Slow.
     case flashlight
 
@@ -18,7 +21,8 @@ enum OpticalPairingMethod: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .grid: return "Grid"
-        case .constellation: return "Constellation"
+        case .constellation: return "Stars"
+        case .dna: return "DNA"
         case .flashlight: return "Flashlight"
         }
     }
@@ -27,6 +31,8 @@ enum OpticalPairingMethod: String, CaseIterable, Identifiable {
         switch self {
         case .grid, .constellation:
             return "Open this on both phones, pick the same method and tap Start on both. Hold them screen to screen, tops together, about a hand apart, until both finish (about 10 seconds)."
+        case .dna:
+            return "Open this on both phones, pick DNA and tap Start on both. Hold them screen to screen, tops together, about a hand apart, until both finish (about 7 seconds)."
         case .flashlight:
             return "Experimental and slow (about 90 seconds). Pick Flashlight on both phones and tap Start on both. Hold them back to back with the camera bumps lined up, a finger's width apart, and keep still."
         }
@@ -36,15 +42,20 @@ enum OpticalPairingMethod: String, CaseIterable, Identifiable {
         switch self {
         case .grid: return "The top of the screen flashes black and white quickly. Don't look at it if flashing lights affect you."
         case .constellation: return "The stars flash quickly. Don't look at them if flashing lights affect you."
+        case .dna: return "The strands flash quickly. Don't look at them if flashing lights affect you."
         case .flashlight: return "The flashlight blinks rapidly and brightly. Don't look into it."
         }
     }
 
     var usesScreen: Bool { self != .flashlight }
+
+    var alphabet: OpticalLink.Alphabet { self == .dna ? .quaternary : .binary }
 }
 
 /// Face-to-face pairing over light (PROTOCOL.md §12): pick a method, start on both phones.
 struct FacePairView: View {
+    /// Invite whoever we pair with to this talk group.
+    var group: Channel?
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
     @StateObject private var pairing = LightPairingSession()
@@ -63,6 +74,8 @@ struct FacePairView: View {
                         Group {
                             if method == .constellation {
                                 ConstellationLamp(scheduler: pairing.screenScheduler)
+                            } else if method == .dna {
+                                HelixLamp(scheduler: pairing.screenScheduler)
                             } else {
                                 GridLamp(scheduler: pairing.screenScheduler)
                             }
@@ -105,7 +118,11 @@ struct FacePairView: View {
         .preferredColorScheme(.dark)
         .onAppear {
             UIApplication.shared.isIdleTimerDisabled = true
-            pairing.onPaired = { profile in model.engine.addLightPaired(profile) }
+            let groupID = group?.id
+            pairing.onPaired = { profile in
+                model.engine.addLightPaired(profile)
+                if let groupID { model.engine.addMember(profile.identity.id, toGroup: groupID) }
+            }
             model.engine.lightProfile { data in
                 guard let data else { return }
                 pairing.prepare(profile: data)
@@ -120,10 +137,16 @@ struct FacePairView: View {
 
     private var intro: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("PAIR FACE TO FACE")
+            Text(group.map { "ADD TO \($0.name.uppercased())" } ?? "PAIR FACE TO FACE")
                 .font(NX.label(17, .bold))
                 .tracking(1.5)
                 .foregroundStyle(.white)
+            if let group {
+                Text("You'll pair with them and they'll be added to \(group.name). Only this phone needs to start from the group.")
+                    .font(NX.body(13))
+                    .foregroundStyle(.white.opacity(0.6))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             Picker("Method", selection: $methodName) {
                 ForEach(OpticalPairingMethod.allCases) { Text($0.title).tag($0.rawValue) }
             }
@@ -173,10 +196,10 @@ private struct GridLamp: View {
                 let gap: CGFloat = 8
                 let w = (size.width - gap * CGFloat(OpticalLink.columns + 1)) / CGFloat(OpticalLink.columns)
                 let h = (size.height - gap * CGFloat(OpticalLink.rows + 1)) / CGFloat(OpticalLink.rows)
-                for j in 0..<OpticalLink.tiles where symbol[j] {
+                for j in 0..<OpticalLink.tiles where symbol[j] > 0 {
                     let x = gap + CGFloat(j % OpticalLink.columns) * (w + gap)
                     let y = gap + CGFloat(j / OpticalLink.columns) * (h + gap)
-                    context.fill(Path(CGRect(x: x, y: y, width: w, height: h)), with: .color(Color(white: 0.92)))
+                    context.fill(Path(CGRect(x: x, y: y, width: w, height: h)), with: .color(LightLevel.color(symbol[j])))
                 }
             }
         }
@@ -217,7 +240,7 @@ private struct ConstellationLamp: View {
                 // Stars.
                 let r = size.width * 0.045
                 for (j, p) in points.enumerated() {
-                    if symbol[j] {
+                    if symbol[j] > 0 {
                         let glow = Path(ellipseIn: CGRect(x: p.x - r * 2, y: p.y - r * 2, width: r * 4, height: r * 4))
                         context.fill(glow, with: .radialGradient(Gradient(colors: [Color(white: 0.55), Color(white: 0)]),
                                                                 center: p, startRadius: r * 0.6, endRadius: r * 2))
@@ -252,6 +275,89 @@ private struct ConstellationLamp: View {
             if points.allSatisfy({ hypot($0.x - p.x, ($0.y - p.y) * 1.3) > spacing }) { points.append(p) }
         }
         return points
+    }
+}
+
+/// The greys for levels 0…3, spaced evenly in emitted light (the receiver calibrates the rest).
+enum LightLevel {
+    static func color(_ level: UInt8) -> Color {
+        switch level {
+        case 0: return .black
+        case 1: return Color(white: 0.56)
+        case 2: return Color(white: 0.77)
+        default: return Color(white: 0.92)
+        }
+    }
+}
+
+/// DNA: four short double helices, one per column, each with four base pairs; base pair *j* is
+/// element *j* and glows at its level (A, C, G, T as four greys). During each round's preamble,
+/// when every base pair is dark or full together, the strands unzip, twist and trade places, then
+/// zip back together and hold still while the other camera calibrates and reads. The backbones
+/// don't change within a round, so the reader treats them as background.
+private struct HelixLamp: View {
+    let scheduler: RoundScheduler<OpticalLink.Symbol>
+
+    var body: some View {
+        TimelineView(.animation) { _ in
+            let now = scheduler.symbol(at: CACurrentMediaTime())
+            Canvas { context, size in
+                let symbol = now.symbol ?? RoundScheduler<OpticalLink.Symbol>.dark
+                let preamble = Double(OpticalLink.preamble.count)
+                let t = now.index < OpticalLink.preamble.count ? min(1, (Double(now.index) + now.fraction) / preamble) : 1
+                let ease = t * t * (3 - 2 * t)
+                // Unzip in the first half of the preamble, zip back in the second.
+                let open = sin(.pi * t)
+                let fromOrder = Self.order(round: now.round - 1), toOrder = Self.order(round: now.round)
+                let columnWidth = size.width / CGFloat(OpticalLink.columns)
+                let rowHeight = size.height / CGFloat(OpticalLink.rows)
+                let twist = Double(now.round) * 1.3 + open * 2.4
+                for strand in 0..<OpticalLink.columns {
+                    // Where this strand sits: sliding from last round's slot to this round's.
+                    let a = Double(fromOrder.firstIndex(of: strand) ?? strand), b = Double(toOrder.firstIndex(of: strand) ?? strand)
+                    let slot = a + (b - a) * ease
+                    let cx = columnWidth * (CGFloat(slot) + 0.5)
+                    let amplitude = columnWidth * (0.30 + 0.22 * open)
+                    // Backbones: two sine curves, half a turn apart.
+                    for side in [0.0, Double.pi] {
+                        var path = Path()
+                        for i in 0...60 {
+                            let y = size.height * CGFloat(i) / 60
+                            let phase = Double(y / rowHeight) * .pi + twist + side + Double(strand)
+                            let x = cx + amplitude * CGFloat(sin(phase))
+                            if i == 0 { path.move(to: CGPoint(x: x, y: y)) } else { path.addLine(to: CGPoint(x: x, y: y)) }
+                        }
+                        context.stroke(path, with: .color(Color(white: 0.18)), lineWidth: 3)
+                    }
+                    // Base pairs, at the grid rows. They keep full brightness while the strands
+                    // move: the preamble is found from overall brightness.
+                    for row in 0..<OpticalLink.rows {
+                        let j = row * OpticalLink.columns + strand
+                        let y = rowHeight * (CGFloat(row) + 0.5)
+                        let phase = Double(y / rowHeight) * .pi + twist + Double(strand)
+                        let half = max(columnWidth * 0.2, abs(amplitude * CGFloat(sin(phase))))
+                        let rung = CGRect(x: cx - half, y: y - rowHeight * 0.22, width: half * 2, height: rowHeight * 0.44)
+                        let level = symbol[j]
+                        guard level > 0 else { continue }
+                        context.fill(Path(roundedRect: rung, cornerRadius: rowHeight * 0.1),
+                                     with: .color(LightLevel.color(level)))
+                    }
+                }
+            }
+        }
+        .background(Color.black)
+        .accessibilityHidden(true)
+    }
+
+    /// Which strand sits in which column this round (the same on every phone).
+    static func order(round: Int) -> [Int] {
+        var seed = UInt64(bitPattern: Int64(round)) &* 0x9E37_79B9_7F4A_7C15 &+ 7
+        var order = Array(0..<OpticalLink.columns)
+        for i in stride(from: order.count - 1, to: 0, by: -1) {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            order.swapAt(i, Int(seed >> 33) % (i + 1))
+        }
+        return order
     }
 }
 
@@ -345,12 +451,12 @@ private struct HandshakePanel: View {
 /// alternating (they may still need ours). Read from the display loop or the torch timer; times
 /// are `CACurrentMediaTime()`, the same clock as camera frames.
 final class RoundScheduler<S> {
-    static var dark: OpticalLink.Symbol { Array(repeating: false, count: OpticalLink.tiles) }
+    static var dark: OpticalLink.Symbol { OpticalLink.Symbol(repeating: 0, count: OpticalLink.tiles) }
 
     private let lock = NSLock()
     private let symbolSeconds: Double
-    private let dataLoop: (Data) -> [S]
-    private let ackLoop: (Data) -> [S]
+    private var dataLoop: (Data) -> [S]
+    private var ackLoop: (Data) -> [S]
     private var payload: Data?
     private var received: Data?
     private var loop: [S] = []
@@ -364,8 +470,10 @@ final class RoundScheduler<S> {
         self.ackLoop = ackLoop
     }
 
-    func start(payload: Data) {
+    /// Starts transmitting; `loops` replaces the round builders (e.g. for another alphabet).
+    func start(payload: Data, loops: (data: (Data) -> [S], ack: (Data) -> [S])? = nil) {
         lock.lock(); defer { lock.unlock() }
+        if let loops { dataLoop = loops.data; ackLoop = loops.ack }
         self.payload = payload
         loopStart = CACurrentMediaTime()
         loop = dataLoop(payload)
@@ -495,7 +603,12 @@ final class LightPairingSession: ObservableObject {
         self.method = method
         started = Date()
         if method.usesScreen {
-            screenScheduler.start(payload: myPayload)
+            let alphabet = method.alphabet
+            reader.lock.lock()
+            reader.optical = OpticalLink.Receiver(alphabet: alphabet)
+            reader.lock.unlock()
+            screenScheduler.start(payload: myPayload, loops: (data: { OpticalLink.dataLoop(payload: $0, alphabet: alphabet) },
+                                                              ack: { OpticalLink.ackLoop(for: $0, alphabet: alphabet) }))
         } else {
             torchScheduler.start(payload: myPayload)
         }

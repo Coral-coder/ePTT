@@ -457,6 +457,25 @@ the stars can glide to a new constellation, seeded by the round number. They hol
 still from training to the end of the round. Faint lines between neighbouring stars
 don't change within a round, so the reader counts them as background.
 
+**DNA (quaternary).** Every element can show four levels (0 dark to 3 full), so each
+carries one base, two bits. The drawing is four short double helices whose sixteen
+base pairs are the elements.
+- **Training** adds two symbols, with every element at level 1 and then at level 2.
+  The receiver learns where the middle greys land for each element.
+- **Payload.** Element 0 is still a clock. Elements 1–14 carry 28 bits, and element 15
+  holds the sum of those bases mod 4.
+- **Round length.** A data round is 7 + 19 + 25 = 51 symbols, about 6.4 s, against
+  74 symbols (9.25 s) for binary.
+- **Linear light.** The receiver undoes the camera's gamma (2.2) on every cell first,
+  so light from neighbouring elements adds up linearly. Both alphabets do this.
+- **Movement.** Between rounds, during the preamble, the strands unzip, twist and
+  trade columns. The order is seeded by the round number.
+
+**Adding to a group.** Face to face can start from a talk group's invite screen.
+When the pairing completes there, that phone adds the new contact to the group and
+sends GROUP_INVITE (§6.3) to every member. The other phone only pairs; the group key
+reaches it sealed to its own keys.
+
 ### 12.1 Flashlight (experimental)
 
 The phones are held back to back, and each rear camera watches the other phone's
