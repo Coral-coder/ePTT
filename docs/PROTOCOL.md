@@ -378,36 +378,34 @@ recipients can unwrap (§6.2).
 
 ## 12. Face-to-face pairing
 
-Two phones held screen to screen each loop a series of QR codes and read the
-other's with the front camera (`EPTTCore/FacePairing.swift`). Each code is the
-text `NXP1:` followed by base64url of one frame:
+Two phones held screen to screen swap cards over a nearby radio link, and each
+screen proves optically which card it sent (`EPTTCore/FlowPairing.swift`,
+`App/iOS/UI/FacePairView.swift`).
 
-| Bytes | Field |
-| --- | --- |
-| 1 | kind: `1` OFFER, `2` ACK |
-| 4 | session: random per pairing, so a phone ignores its own reflection |
-| 1 | chunk index |
-| 1 | chunk count |
-| ≤96 | chunk of the message |
+**Radio.** The phones find each other over MultipeerConnectivity (service
+`nxpt-pair`, encryption required). Each sends `"NXPO" ‖ nonce(16) ‖ card`, where
+`card` is the signed contact-card encoding (§3).
 
-- **OFFER message:** `nonce(16) ‖ card`. `card` is the signed contact card
-  encoding (§3).
-- **ACK message:** `nonce(16) ‖ SHA-256(peer's OFFER message)(32) ‖ card`.
+**Light.** Each screen loops a colour rhythm carrying
+`commitment = SHA-256("ePTT/1 flow-commit" ‖ nonce ‖ card)[0..6]`:
+- The 6-byte commitment plus a CRC-8/ATM makes 56 bits, sent as 36 base-3
+  digits, most significant first.
+- Each digit selects one of the three colours that differ from the previous
+  one: `next = (previous + 1 + digit) mod 4`, starting from colour 0. So every
+  symbol is a visible change and no clock is needed.
+- A white flash marks the start of each repetition.
+- Colours are cyan, violet, rose and lime, 100 ms each, so one repetition takes
+  about 3.7 s.
 
-A phone shows OFFER frames until it has assembled the peer's OFFER and
-verified the card signature. Then it shows ACK frames.
+The other phone's front camera averages the middle of each frame and
+classifies it by hue. A colour counts once seen in two consecutive frames, and
+each complete repetition that passes its CRC yields a commitment.
 
-A phone completes when it reads an ACK whose hash equals SHA-256 of its own
-OFFER. At that point:
-- the peer provably holds this phone's card;
-- this phone holds the peer's card, since the ACK carries it.
+**Acceptance.** A phone accepts a radio offer only if its commitment equals one
+the camera read. A device that isn't physically in front of the camera can't
+get its card accepted: forging a match means finding a card and nonce with the
+same 48-bit commitment within seconds.
 
-Both sides add each other. An ACK that hashes some other offer is rejected, as
-is a second peer mid-exchange.
-
-Both phones display a safety code: the first 4 bytes of
-`SHA-256("ePTT/1 face-pairing" ‖ lower ‖ higher)` modulo 10⁶, shown as six
-digits. Here `lower` and `higher` are the two OFFER messages in byte order.
-
-The optical channel is the trust boundary: only a device in front of the
-camera can take part.
+Both phones then show a six-digit safety code: the first 4 bytes of
+`SHA-256("ePTT/1 face-pairing" ‖ lower ‖ higher)` modulo 10⁶. Here `lower` and
+`higher` are the two `nonce ‖ card` offers in byte order.

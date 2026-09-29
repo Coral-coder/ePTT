@@ -80,7 +80,7 @@ targets:
         NSCameraUsageDescription: NXTPTT uses the camera to scan contact codes.
         NSLocalNetworkUsageDescription: NXTPTT talks directly to nearby devices on your network, with no server in between.
         NSBluetoothAlwaysUsageDescription: NXTPTT uses Bluetooth to talk to nearby phones when there is no network.
-        NSBonjourServices: [_eptt._udp, _chirp-ptt._tcp, _chirp-ptt._udp]
+        NSBonjourServices: [_eptt._udp, _chirp-ptt._tcp, _chirp-ptt._udp, _nxpt-pair._tcp, _nxpt-pair._udp]
         CFBundleURLTypes:
           - CFBundleURLName: app.eptt.links
             CFBundleURLSchemes: [eptt]
