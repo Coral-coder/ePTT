@@ -451,6 +451,30 @@ blur, rotation, perspective and mirroring don't matter. Symbols with a wrong
 clock are dropped. Tile levels are summed across rounds, and symbols that fail
 parity count half. The profile is accepted when the CRC-32 checks.
 
+**Constellation.** The same symbols, drawn as sixteen stars instead of a grid:
+star *j* is tile *j*. During each preamble every star is on or off together, so
+the stars can glide to a new constellation, seeded by the round number. They hold
+still from training to the end of the round. Faint lines between neighbouring stars
+don't change within a round, so the reader counts them as background.
+
+### 12.1 Flashlight (experimental)
+
+The phones are held back to back, and each rear camera watches the other phone's
+LED (`EPTTCore/BlinkLink.swift`). There is only one light, so:
+- symbols last 60 ms;
+- the preamble is as above;
+- the payload is Manchester coded: on-then-off is 1, off-then-on is 0.
+
+A data round carries the same 86-byte message, which takes about 83 seconds. An ack
+round carries the same 28 bits.
+
+The camera image's mean brightness is the signal, and a bit is its first half minus
+its second half. The phone's own LED reflects back into its own camera, sometimes more
+brightly than the other LED. Each phone knows when its LED was on, so every frame has
+that share removed. The share is estimated by a running regression of brightness on
+the LED state, at whichever lag from 0 to 32 ms fits best. Bit values add up across
+rounds until the CRC-32 checks.
+
 **After pairing.** Each side creates the contact from the profile and sends a
 `CARD` message (type `0x12`) to the peer: its full signed contact card, sealed on
 the new direct channel. It goes over any direct path and to the relay mailbox
