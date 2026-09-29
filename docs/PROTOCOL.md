@@ -437,35 +437,37 @@ Marks are dark on a white disc, and the disc sits on a black screen.
 | 0.24–0.30 | Dark ring. Across any diameter the bullseye reads dark:light:dark:light:dark ≈ 1:1:6:1:1 |
 | 0.30–0.36 | Light gap |
 | 0.36–0.96 | 8 data rings, 0.075 thick, of 33, 39, 45, 52, 58, 64, 71 and 77 cells |
+| 0.36–1.06, straight up | A dark bar 0.07 wide, from the bullseye's gap to the outer ring. The code looks like a power button. |
 | 0.96–1.01 | Light gap |
 | 1.01–1.06 | Solid dark ring |
 | 1.06–1.12 | 24 dashes: dark where the angle mod 15° is under 7.5° |
 | 1.12–1.20 | Light margin |
 
-- **Cells.** Cell *j* of a ring of *n* cells covers angles 360°·*j*/*n* to
-  360°·(*j*+1)/*n*, counter-clockwise from the +x axis, with y up.
-- **Sync.** Ring 0 always shows `011010110011101010001011000101001`.
+- **Cells.** Cell *j* of a ring of *n* cells is centred at 90° + 360°·*j*/*n*,
+  counter-clockwise from the +x axis, with y up. Cell 0 is at the top, under
+  the bar, so it is always dark and carries no data.
+- **Sync.** Ring 0 always shows `100101100000110101010001000111111`.
   Correlating against it tells the reader which way round the code is, and
-  whether it is mirrored. The pattern peaks at 33 and has no sidelobe over 11,
-  mirrored or not.
-- **Data.** Rings 1–7 carry 50 bytes, most significant bit first, ring by ring;
-  the last 6 cells are 0.
+  whether it is mirrored, at any angle. The pattern peaks at 33 and has no
+  sidelobe over 9, mirrored or not.
+- **Data.** Rings 1–7, cells 1 onwards, carry 49 bytes, most significant bit
+  first, ring by ring; the last 7 cells are 0.
 
-**The 50 bytes** are 32 data bytes and 18 Reed–Solomon parity bytes. The field
+**The 49 bytes** are 31 data bytes and 18 Reed–Solomon parity bytes. The field
 is GF(256) with polynomial 0x11D and generator α = 2, and the first root is α⁰.
 The parity corrects any 9 bad bytes. Each byte is then XORed with a fixed mask,
 so no code has large blank areas. The mask comes from a 16-bit Galois LFSR:
 seed 0xACE1, taps 0xB400, 8 steps per byte, each step's output bit shifted in
 from the right.
 
-The 32 data bytes:
+The 31 data bytes:
 
 | Bytes | Content |
 | --- | --- |
 | 0 | `kind(1) ‖ index(3) ‖ total(3) ‖ 0(1)` |
 | 1 | Session: a random byte per pairing, so a phone can ignore its own reflection |
-| 2–29 | 28 payload bytes, zero-padded |
-| 30–31 | CRC-16-CCITT (initial value 0xFFFF, polynomial 0x1021) of bytes 0–29, big-endian |
+| 2–28 | 27 payload bytes, zero-padded |
+| 29–30 | CRC-16-CCITT (initial value 0xFFFF, polynomial 0x1021) of bytes 0–28, big-endian |
 
 **Reading.** The reader has no help from the system.
 
@@ -485,7 +487,7 @@ The 32 data bytes:
 is drawn at a new angle.
 
 1. **OFFER** (kind 0): our `LightProfile` (below: with our display name, 82–106
-   bytes) in 28-byte frames.
+   bytes) in 27-byte frames.
 2. **ACK** (kind 1): once we hold the whole offer from the other phone, we show
    ACK frames instead. They carry the first 8 bytes of SHA-256 of the offer we
    read, then our profile again.

@@ -126,17 +126,15 @@ jobs:
 
       # Signing for the archive step. With DEV_CERT_P12 / DEV_CERT_PASSWORD set (docs/SETUP.md,
       # "Stored signing certificate"), that one certificate is loaded into a throwaway keychain
-      # and reused every run. Without them, each fresh runner makes Xcode create a new
-      # development certificate, and Apple caps how many an account may hold, so the ones
-      # earlier runs left behind ("Created via API" development only) are revoked first.
+      # and reused every run. Without them, Xcode creates a development certificate on each
+      # fresh runner. Nothing is ever revoked here.
       - name: Signing certificate
         env:
           DEV_CERT_P12: ${{ secrets.DEV_CERT_P12 }}
           DEV_CERT_PASSWORD: ${{ secrets.DEV_CERT_PASSWORD }}
         run: |
           if [ -z "$DEV_CERT_P12" ]; then
-            echo "::warning::No DEV_CERT_P12 secret: revoking leftover CI certificates instead (see docs/SETUP.md)"
-            python3 tools/release/prune_ci_certs.py
+            echo "::warning::No DEV_CERT_P12 secret: Xcode will create a new development certificate this run (see docs/SETUP.md, Stored signing certificate)"
             exit 0
           fi
           keychain="$RUNNER_TEMP/signing.keychain-db"

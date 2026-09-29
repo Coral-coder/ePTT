@@ -74,7 +74,7 @@ final class OrbitCodeTests: XCTestCase {
 
     private func frame(_ seed: UInt8) -> OrbitCode.Frame {
         OrbitCode.Frame(kind: seed & 1, index: Int(seed % 3), total: 3, session: seed &* 37,
-                        payload: (0..<28).map { UInt8(truncatingIfNeeded: Int(seed) * 31 + $0 * 7) })
+                        payload: (0..<27).map { UInt8(truncatingIfNeeded: Int(seed) * 31 + $0 * 7) })
     }
 
     private func assertReads(_ camera: Camera, seed: UInt8 = 5, file: StaticString = #filePath, line: UInt = #line) {
@@ -106,7 +106,7 @@ final class OrbitCodeTests: XCTestCase {
     func testLayout() {
         XCTAssertEqual(OrbitCode.ringCells, [33, 39, 45, 52, 58, 64, 71, 77])
         XCTAssertEqual(OrbitCode.sync.count, OrbitCode.ringCells[0])
-        XCTAssertGreaterThanOrEqual(OrbitCode.ringCells.dropFirst().reduce(0, +), 50 * 8)
+        XCTAssertGreaterThanOrEqual(OrbitCode.ringCells.dropFirst().reduce(0) { $0 + $1 - 1 }, 49 * 8)
     }
 
     func testFrameRoundTripsAndChecksItsCRC() {
@@ -122,6 +122,23 @@ final class OrbitCodeTests: XCTestCase {
     func testReadsAnyRotationAndMirrored() {
         assertReads(Camera(angle: 2.4, seed: 2), seed: 11)
         assertReads(Camera(angle: -1.1, mirror: true, seed: 3), seed: 12)
+    }
+
+    func testReadsAtEveryRotationMirroredOrNot() {
+        for degrees in stride(from: 0, to: 360, by: 30) {
+            for mirror in [false, true] {
+                let camera = Camera(width: 400, height: 320, diameter: 220, angle: Double(degrees) * .pi / 180,
+                                    mirror: mirror, tilt: (0.08, -0.06), seed: UInt64(degrees))
+                assertReads(camera, seed: UInt8(degrees / 30))
+            }
+        }
+    }
+
+    func testTheBarIsDarkAndTheBullseyeClear() {
+        let cells = OrbitCode.cells(for: frame(3))
+        for y in stride(from: 0.4, to: 1.05, by: 0.05) { XCTAssertTrue(OrbitCode.isDark(x: 0, y: y, cells: cells)) }
+        XCTAssertFalse(OrbitCode.isDark(x: 0, y: 0.33, cells: cells))
+        XCTAssertFalse(OrbitCode.isDark(x: 0, y: 0.21, cells: cells))
     }
 
     func testReadsWithPerspectiveTilt() {

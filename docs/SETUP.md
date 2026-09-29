@@ -206,9 +206,11 @@ finishes processing, usually within 5 to 20 minutes.
 ### Stored signing certificate
 
 Each run happens on a fresh Mac. Without a stored certificate, Xcode makes a new
-"Apple Development: Created via API" certificate every time, and the workflow
-revokes those leftovers so Apple's limit isn't hit. To stop that, store one
-certificate once:
+"Apple Development: Created via API" certificate every time. The workflow never
+revokes anything, so these pile up until Apple's limit stops the build. (You can
+revoke old "Created via API" ones yourself under Certificates, IDs & Profiles →
+Certificates; that doesn't affect TestFlight builds, which Apple re-signs.) To
+stop new ones being made, store one certificate once:
 
 1. On a Mac signed in to your developer account in Xcode (Settings → Accounts),
    make sure an **Apple Development** certificate exists: select your team,
@@ -226,6 +228,16 @@ certificate once:
    | `DEV_CERT_PASSWORD` | the password you chose in step 2 |
 
 5. Delete `dev.p12`. The next run's log says "Signing certificate: stored".
+
+### "Mac" devices on the account
+
+Before 1.0.1 (2), automatic signing registered each build Mac as a device (Apple
+Silicon Macs can run iPhone apps) and Apple emailed you each time. The app now
+turns off "Designed for iPhone/iPad" on Mac and Vision Pro, so that stops. To clear
+the old entries: developer.apple.com → Account → Certificates, IDs & Profiles →
+**Devices**, filter to macOS, open each unwanted Mac and click **Disable**. Apple
+doesn't allow deleting devices; disabled ones stop counting towards the limit at your
+next membership renewal.
 
 ## Export compliance (encryption)
 

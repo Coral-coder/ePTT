@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Revoke the throwaway development certificates CI runs leave behind.
+"""NOT USED: the TestFlight workflow no longer revokes anything. Kept for running by hand.
+
+Revoke the throwaway development certificates CI runs leave behind.
 
 Every archive on a fresh GitHub runner has Xcode create a new "Apple Development: Created via
 API" certificate (the runner keeps no private key), and Apple caps how many an account may hold.

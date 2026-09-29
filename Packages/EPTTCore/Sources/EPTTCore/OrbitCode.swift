@@ -8,28 +8,35 @@ import Foundation
 ///   reads dark:light:dark:light:dark ≈ 1:1:6:1:1, which is how the reader finds it, and its
 ///   outline (an ellipse in the camera image) gives the tilt;
 /// - light gap to 0.36, then 8 rings 0.075 thick. Ring 0 is a fixed 33-cell sync pattern (which
-///   way round, and whether mirrored); rings 1–7 (406 cells) carry 50 bytes: 32 data bytes plus
-///   18 Reed–Solomon bytes (corrects any 9), XORed with a fixed mask;
+///   way round, and whether mirrored); rings 1–7 carry 49 bytes: 31 data bytes plus 18
+///   Reed–Solomon bytes (corrects any 9), XORed with a fixed mask;
+/// - a dark bar straight up from 0.36 to the outer ring, so the code looks like a power button.
+///   Cell 0 of every ring (centred at the top) lies under it; cell j is centred at 90° + 360°·j/n;
 /// - light gap to 1.01, a solid dark ring to 1.06 and 24 dashes to 1.12 at known angles. The
 ///   dashes give 24 reference points for a full perspective (homography) fit; margin to 1.20.
 ///
-/// The 32 data bytes: [kind:1 index:3 total:3 0:1] [session] [28 payload] [CRC-16].
+/// The 31 data bytes: [kind:1 index:3 total:3 0:1] [session] [27 payload] [CRC-16].
 public enum OrbitCode {
     public static let disc = 0.18, whiteRing = 0.24, blackRing = 0.30, quiet = 0.36
     public static let ringThickness = 0.075, rings = 8
     public static let frameIn = 1.01, frameOut = 1.06, dashOut = 1.12, dashes = 24, margin = 1.20
-    public static let ringCells: [Int] = (0..<8).map { k in
-        Int((2 * Double.pi * (0.36 + 0.075 * (Double(k) + 0.5)) / 0.075).rounded())
-    }
-    static let sync: [Bool] = "011010110011101010001011000101001".map { $0 == "1" }
-    static let codewordBytes = 50, parityBytes = 18, dataBytes = 32
-    public static let payloadBytes = 28
+    /// Cells per ring: 2π · ring middle / thickness, rounded, so cells are about square.
+    public static let ringCells = [33, 39, 45, 52, 58, 64, 71, 77]
+    /// Ring 0's fixed pattern. Cell 0 lies under the bar, so it is 1.
+    static let sync: [Bool] = "100101100000110101010001000111111".map { $0 == "1" }
+    /// Half the width of the bar that runs straight up from the bullseye to the outer ring.
+    public static let barHalfWidth = 0.035
+    static let codewordBytes = 49, parityBytes = 18, dataBytes = 31
+    public static let payloadBytes = 27
 
     static func ringMid(_ k: Int) -> Double { quiet + ringThickness * (Double(k) + 0.5) }
 
+    /// Code angle of the centre of cell j in a ring of n cells: cell 0 is at the top, under the bar.
+    static func cellAngle(_ j: Int, of n: Int) -> Double { Double.pi / 2 + 2 * Double.pi * Double(j) / Double(n) }
+
     static let mask: [UInt8] = {
         var state: UInt16 = 0xACE1
-        return (0..<50).map { _ in
+        return (0..<49).map { _ in
             var byte: UInt8 = 0
             for _ in 0..<8 {
                 let lsb = state & 1
@@ -76,12 +83,12 @@ public enum OrbitCode {
 
         init?(bytes b: [UInt8]) {
             guard b.count == OrbitCode.dataBytes,
-                  OrbitCode.crc16(b[0..<30]) == UInt16(b[30]) << 8 | UInt16(b[31]) else { return nil }
+                  OrbitCode.crc16(b[0..<29]) == UInt16(b[29]) << 8 | UInt16(b[30]) else { return nil }
             kind = b[0] >> 7
             index = Int(b[0] >> 4 & 7)
             total = Int(b[0] >> 1 & 7)
             session = b[1]
-            payload = Array(b[2..<30])
+            payload = Array(b[2..<29])
             guard total > 0, index < total else { return nil }
         }
     }
@@ -91,13 +98,13 @@ public enum OrbitCode {
         let codeword = ReedSolomon.encode(frame.bytes, nsym: parityBytes)
         let masked = zip(codeword, mask).map { $0 ^ $1 }
         var bits = masked.flatMap { (byte: UInt8) -> [Bool] in (0..<8).map { (i: Int) -> Bool in byte >> (7 - i) & 1 == 1 } }
-        let dataCells = ringCells.dropFirst().reduce(0, +)
+        let dataCells = ringCells.dropFirst().reduce(0) { $0 + $1 - 1 }   // cell 0 of each ring is under the bar
         bits += [Bool](repeating: false, count: dataCells - bits.count)
         var out: [[Bool]] = [sync]
         var i = 0
         for k in 1..<rings {
-            out.append(Array(bits[i..<(i + ringCells[k])]))
-            i += ringCells[k]
+            out.append([true] + bits[i..<(i + ringCells[k] - 1)])
+            i += ringCells[k] - 1
         }
         return out
     }
@@ -111,11 +118,13 @@ public enum OrbitCode {
         if r < whiteRing { return false }
         if r < blackRing { return true }
         if r < quiet { return false }
+        if abs(x) < barHalfWidth && y >= quiet && r < frameOut { return true }
         if r < quiet + ringThickness * Double(rings) {
             let k = min(rings - 1, Int((r - quiet) / ringThickness)), n = ringCells[k]
-            var a = atan2(y, x)
+            var a = atan2(y, x) - .pi / 2      // cells are counted from the top
             if a < 0 { a += 2 * .pi }
-            return cells[k][min(n - 1, Int(a / (2 * .pi) * Double(n)))]
+            if a < 0 { a += 2 * .pi }   // atan2 − 90° can reach −270°
+            return cells[k][Int(a / (2 * .pi) * Double(n) + 0.5) % n]
         }
         if r < frameIn { return false }
         if r < frameOut { return true }
@@ -329,7 +338,7 @@ public enum OrbitCode {
                 for t in 0..<steps {
                     var score = 0.0
                     for j in 0..<n0 {
-                        let index = ((t + mirror * (j * 8 + 4)) % steps + steps) % steps
+                        let index = ((t + mirror * (j * 8 + 66)) % steps + steps) % steps   // cell j at 90° + 360°·j/33
                         score += (OrbitCode.sync[j] ? 1 : -1) * fine[index]
                     }
                     if score > best.score { best = (score, mirror, t) }
@@ -350,7 +359,7 @@ public enum OrbitCode {
             var bits: [Bool] = []
             for k in 1..<OrbitCode.rings {
                 let n = OrbitCode.ringCells[k]
-                for j in 0..<n { bits.append(cell(OrbitCode.ringMid(k), 2 * Double.pi * (Double(j) + 0.5) / Double(n)) > 0) }
+                for j in 1..<n { bits.append(cell(OrbitCode.ringMid(k), OrbitCode.cellAngle(j, of: n)) > 0) }
             }
             let codeword: [UInt8] = (0..<OrbitCode.codewordBytes).map { i in
                 var byte: UInt8 = 0
