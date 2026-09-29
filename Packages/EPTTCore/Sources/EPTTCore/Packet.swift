@@ -9,6 +9,8 @@ public enum PacketType: UInt8, Codable {
     case wake = 0x06
     case groupInvite = 0x10
     case groupLeave = 0x11
+    /// The sender's full signed contact card, e.g. after pairing face to face (PROTOCOL.md §12).
+    case card = 0x12
 }
 
 /// 8-byte message identifier; equals the burst ID for burst packets and WAKE.

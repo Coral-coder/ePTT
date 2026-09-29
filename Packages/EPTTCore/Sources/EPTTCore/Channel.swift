@@ -88,7 +88,11 @@ public struct Channel: Identifiable, Equatable, Codable {
     }
 
     public static func direct(local: LocalIdentity, peer: ContactCard) throws -> Channel {
-        Channel(kind: .direct, name: peer.name, keys: try .direct(local: local, peer: peer.identity), members: [peer.id])
+        try direct(local: local, peer: peer.identity, name: peer.name)
+    }
+
+    public static func direct(local: LocalIdentity, peer: PublicIdentity, name: String) throws -> Channel {
+        Channel(kind: .direct, name: name, keys: try .direct(local: local, peer: peer), members: [peer.id])
     }
 
     /// Keys matching a received packet's epoch, if we still have them.

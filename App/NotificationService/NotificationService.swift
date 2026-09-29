@@ -45,6 +45,13 @@ final class NotificationService: UNNotificationServiceExtension {
                                            sound: "call-alert.caf", date: Date(), logged: true))
                 return
             }
+            // Contact details after face-to-face pairing: say so quietly (the app applies them).
+            if let name = RelayInbox.cardSender(in: payload, with: sync) {
+                content.title = "NXTPTT"
+                content.body = "Paired with \(name). Their details arrived."
+                content.sound = nil
+                return
+            }
             guard let message = RelayInbox.open(payload, with: sync) else { return }
             RelayInbox.purgeOldSounds()
             guard let sound = RelayInbox.writeSound(message, name: record) else { return }

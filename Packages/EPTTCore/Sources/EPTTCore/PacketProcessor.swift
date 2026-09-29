@@ -10,6 +10,7 @@ public enum InboundMessage: Equatable {
     case wake(Wake)
     case groupInvite(GroupInvite)
     case groupLeave(GroupLeave)
+    case card(ContactCard)
 }
 
 public struct InboundPacket: Equatable {
@@ -205,6 +206,7 @@ public struct PacketProcessor {
             return .groupInvite(try GroupInvite(decoding: plaintext, messageID: header.messageID,
                                                 recipient: local.senderID, agreement: agreement))
         case .groupLeave: return .groupLeave(try GroupLeave(decoding: plaintext))
+        case .card: return .card(try ContactCard(encoded: plaintext))
         }
     }
 }
@@ -219,6 +221,7 @@ extension InboundMessage {
         case .wake(let m): return m.timestamp
         case .groupInvite(let m): return m.timestamp
         case .groupLeave(let m): return m.timestamp
+        case .card(let m): return m.timestamp
         case .voice: return nil
         }
     }

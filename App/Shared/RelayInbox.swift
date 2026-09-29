@@ -219,6 +219,24 @@ enum RelayInbox {
         return nil
     }
 
+    /// The name on a relayed CARD message (contact details after face-to-face pairing), if that's
+    /// what the payload is.
+    static func cardSender(in payload: Data, with sync: WatchSync) -> String? {
+        guard let local = try? LocalIdentity(signingSeed: sync.signingSeed, keyAgreementSeed: sync.keyAgreementSeed),
+              let packets = try? Relay.decode(payload) else { return nil }
+        let prekeys = sync.prekeys
+        var processor = PacketProcessor(local: local, agreement: local.keyAgreement(prekeys: { prekeys }))
+        for packet in packets {
+            guard let inbound = try? processor.process(
+                packet, maxAge: Relay.lifetime,
+                channelLookup: { id in sync.channels.first { $0.id == id } },
+                memberLookup: { id in sync.contacts.first { $0.senderID == id }?.identity }),
+                  case .card(let card) = inbound.message else { continue }
+            return card.name
+        }
+        return nil
+    }
+
     /// The four-beep call alert as a notification sound. Returns the file name.
     static func writeCallAlertSound() -> String? {
         guard let dir = soundsDirectory, let format = AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1)

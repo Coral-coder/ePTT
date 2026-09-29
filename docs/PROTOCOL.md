@@ -378,34 +378,46 @@ recipients can unwrap (§6.2).
 
 ## 12. Face-to-face pairing
 
-Two phones held screen to screen swap cards over a nearby radio link, and each
-screen proves optically which card it sent (`EPTTCore/FlowPairing.swift`,
-`App/iOS/UI/FacePairView.swift`).
+Two phones held screen to screen, tops together, exchange identities over light
+only. There is no radio. The code is in `EPTTCore/LightCode.swift` and
+`App/iOS/UI/FacePairView.swift`.
 
-**Radio.** The phones find each other over MultipeerConnectivity (service
-`nxpt-pair`, encryption required). Each sends `"NXPO" ‖ nonce(16) ‖ card`, where
-`card` is the signed contact-card encoding (§3).
+**What travels as light:** a `LightProfile` of 82 bytes plus up to 24 bytes of
+name:
 
-**Light.** Each screen loops a colour rhythm carrying
-`commitment = SHA-256("ePTT/1 flow-commit" ‖ nonce ‖ card)[0..6]`:
-- The 6-byte commitment plus a CRC-8/ATM makes 56 bits, sent as 36 base-3
-  digits, most significant first.
-- Each digit selects one of the three colours that differ from the previous
-  one: `next = (previous + 1 + digit) mod 4`, starting from colour 0. So every
-  symbol is a visible change and no clock is needed.
-- A white flash marks the start of each repetition.
-- Colours are cyan, violet, rose and lime, 100 ms each, so one repetition takes
-  about 3.7 s.
+`version(1) ‖ Ed25519 key(32) ‖ X25519 key(32) ‖ relay mailbox(16) ‖ name length(1) ‖ name`
 
-The other phone's front camera averages the middle of each frame and
-classifies it by hue. A colour counts once seen in two consecutive frames, and
-each complete repetition that passes its CRC yields a commitment.
+**The ring.** Each screen shows a ring of 14 lobes near its top, where the other
+phone's front camera sits:
+- slot 0 is white, and marks the start;
+- slot 1 is dark, and gives the reading direction, so rotated or mirrored views
+  decode;
+- slots 2–13 each show cyan, violet, rose or lime, which is 2 bits each.
 
-**Acceptance.** A phone accepts a radio offer only if its commitment equals one
-the camera read. A device that isn't physically in front of the camera can't
-get its card accepted: forging a match means finding a card and nonce with the
-same 48-bit commitment within seconds.
+A disc in the middle flips between white and grey on every frame, as a clock.
+A frame lasts 150 ms.
 
-Both phones then show a six-digit safety code: the first 4 bytes of
-`SHA-256("ePTT/1 face-pairing" ‖ lower ‖ higher)` modulo 10⁶. Here `lower` and
-`higher` are the two `nonce ‖ card` offers in byte order.
+**Frames.** The message is `length(2) ‖ profile ‖ CRC-32(4)`, cut into 2-byte
+chunks. Each frame carries 24 bits: `chunk index(7) ‖ chunk(16) ‖ even parity(1)`.
+The frames loop.
+
+**Reading.** The reader fits a circle through the coloured pixels, then:
+- classifies the ring every 2° by hue;
+- finds the white marker, and picks the direction from the dark slot beside it;
+- reads the twelve data lobes.
+
+It accepts one reading per clock phase, once two readings agree. It votes on
+each chunk across passes, and finishes when the whole message passes its CRC.
+
+**After pairing.** Each side creates the contact from the profile and sends a
+`CARD` message (type `0x12`) to the peer: its full signed contact card, sealed on
+the new direct channel. It goes over any direct path and to the relay mailbox
+the peer just showed. The CARD fills in push tokens, prekey, addresses and the
+card used for group invites.
+
+**Safety code.** Both phones show six digits: the first 4 bytes of
+`SHA-256("ePTT/1 face-pairing" ‖ lower ‖ higher)` modulo 10⁶, where `lower` and
+`higher` are the two profiles in byte order.
+
+The optical channel is the trust boundary: only a screen in front of the camera
+can pair.

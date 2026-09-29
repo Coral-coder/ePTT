@@ -1,25 +1,24 @@
 import AVFoundation
-import MultipeerConnectivity
 import SwiftUI
 import EPTTCore
 
-/// Face-to-face pairing (PROTOCOL.md §12): hold two phones screen to screen. They swap cards over
-/// a nearby radio link while each screen dances a colour rhythm that the other reads with its
-/// front camera. A card is accepted only when the radio and the light agree.
+/// Face-to-face pairing over light only (PROTOCOL.md §12). Hold two phones screen to screen,
+/// tops together: each shows a ring of flowing colour lobes near the top, where the other
+/// phone's front camera is, and reads the other's ring. Keys, name and relay mailbox travel as
+/// light; the full signed cards follow through the encrypted relay.
 struct FacePairView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var pairing = FlowPairingSession()
+    @StateObject private var pairing = LightPairingSession()
     @State private var savedBrightness: CGFloat?
 
     var body: some View {
         ZStack {
-            FlowField(symbol: pairing.shownSymbol, peerPulse: pairing.peerPulse,
+            LightRing(frame: pairing.shownFrame, clock: pairing.clock, pulse: pairing.pulse,
                       progress: pairing.progress, done: pairing.done != nil)
                 .ignoresSafeArea()
 
-            // The front camera reads the other phone; no preview needed.
-            ColorCamera { pairing.cameraSample($0) }
+            LightCamera { pairing.reading($0) }
                 .frame(width: 1, height: 1)
                 .opacity(0.01)
                 .accessibilityHidden(true)
@@ -28,8 +27,7 @@ struct FacePairView: View {
                 HStack {
                     Button("Close") { dismiss() }
                         .font(NX.label(15, .semibold))
-                        .foregroundStyle(.white)
-                        .shadow(color: .black.opacity(0.6), radius: 4)
+                        .foregroundStyle(NX.frost)
                     Spacer()
                 }
                 .padding(.horizontal, 22)
@@ -38,13 +36,15 @@ struct FacePairView: View {
                     Text(pairing.status.uppercased())
                         .font(NX.label(15, .bold))
                         .tracking(2)
+                        .foregroundStyle(NX.text)
                     Text(pairing.detail)
                         .font(NX.body(13))
-                        .opacity(0.85)
+                        .foregroundStyle(NX.textDim)
                     if let done = pairing.done {
                         Text(done.code)
                             .font(NX.display(30))
                             .tracking(4)
+                            .foregroundStyle(.white)
                             .neonGlow(NX.cyan, radius: 12)
                             .padding(.top, 4)
                             .accessibilityLabel("Safety code \(done.code)")
@@ -53,12 +53,9 @@ struct FacePairView: View {
                             .padding(.top, 6)
                     }
                 }
-                .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
-                .padding(16)
-                .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(.black.opacity(0.45)))
-                .padding(.horizontal, 20)
-                .padding(.bottom, 12)
+                .padding(.horizontal, 26)
+                .padding(.bottom, 18)
             }
         }
         .preferredColorScheme(.dark)
@@ -66,13 +63,13 @@ struct FacePairView: View {
             savedBrightness = UIScreen.main.brightness
             UIScreen.main.brightness = 1
             UIApplication.shared.isIdleTimerDisabled = true
-            pairing.onVerified = { card in
-                model.addContact(uri: card.uri)
-                model.banner = "Paired with \(card.name) both ways"
+            pairing.onPaired = { profile in
+                model.engine.addLightPaired(profile)
+                model.banner = "Paired with \(profile.name) both ways"
             }
-            model.engine.myCardURI { uri in
-                guard let uri, let card = try? ContactCard(uri: uri) else { return }
-                pairing.start(card: card)
+            model.engine.lightProfile { data in
+                guard let data else { return }
+                pairing.start(profile: data)
             }
         }
         .onDisappear {
@@ -83,173 +80,87 @@ struct FacePairView: View {
     }
 }
 
-// MARK: - Session logic
+// MARK: - Session
 
 @MainActor
-final class FlowPairingSession: NSObject, ObservableObject {
-    @Published private(set) var shownSymbol = FlowCode.sync
-    @Published private(set) var peerPulse = 0
+final class LightPairingSession: ObservableObject {
+    @Published private(set) var shownFrame: [Int] = Array(repeating: 0, count: LightCode.dataLobes)
+    @Published private(set) var clock = false
+    @Published private(set) var pulse = 0
     @Published private(set) var progress = 0.0
     @Published private(set) var status = "Hold your phones screen to screen"
-    @Published private(set) var detail = "Tops together, a hand apart. Open Face to face on both."
+    @Published private(set) var detail = "Tops together, about a hand apart, with Face to face open on both."
     @Published private(set) var done: (name: String, code: String)?
 
-    var onVerified: ((ContactCard) -> Void)?
+    var onPaired: ((LightProfile) -> Void)?
 
-    /// How long each colour stays on screen.
-    static let symbolSeconds = 0.1
+    /// Frame time. The camera sees each frame in 4–5 video frames at 30 fps.
+    static let frameSeconds = 0.15
 
-    private var card: ContactCard?
-    private let nonce = Data.random(count: 16)
-    private var symbols: [Int] = []
+    private var myProfile = Data()
+    private var frames: [[Int]] = []
     private var ticker: Task<Void, Never>?
-    private var decoder = FlowCode.Decoder()
-    private var decoded: Set<Data> = []
-    private var offers: [MCPeerID: (nonce: Data, card: ContactCard)] = [:]
+    private var assembler = LightCode.Assembler()
+    // One reading per displayed frame: the clock flips on every frame, and a frame counts once
+    // two readings in the same clock phase agree.
+    private var phase: Bool?
+    private var candidate: [Int]?
+    private var acceptedThisPhase = false
 
-    private let peerID = MCPeerID(displayName: UUID().uuidString)
-    private lazy var session: MCSession = {
-        let session = MCSession(peer: peerID, securityIdentity: nil, encryptionPreference: .required)
-        session.delegate = self
-        return session
-    }()
-    private var advertiser: MCNearbyServiceAdvertiser?
-    private var browser: MCNearbyServiceBrowser?
-    static let serviceType = "nxpt-pair"   // Info.plist lists _nxpt-pair._tcp/_udp
-
-    private var myOffer: Data { nonce + (card?.encoded ?? Data()) }
-
-    func start(card: ContactCard) {
-        self.card = card
-        symbols = FlowCode.symbols(for: FlowPairing.commitment(nonce: nonce, card: card.encoded))
+    func start(profile: Data) {
+        myProfile = profile
+        frames = LightCode.frames(for: profile)
         ticker = Task { [weak self] in
             var index = 0
             while !Task.isCancelled {
                 guard let self else { return }
-                self.shownSymbol = self.symbols[index % self.symbols.count]
+                self.shownFrame = self.frames[index % self.frames.count]
+                self.clock = index.isMultiple(of: 2)
                 index += 1
-                try? await Task.sleep(nanoseconds: UInt64(Self.symbolSeconds * 1_000_000_000))
+                try? await Task.sleep(nanoseconds: UInt64(Self.frameSeconds * 1_000_000_000))
             }
         }
-        let advertiser = MCNearbyServiceAdvertiser(peer: peerID, discoveryInfo: nil, serviceType: Self.serviceType)
-        advertiser.delegate = self
-        advertiser.startAdvertisingPeer()
-        self.advertiser = advertiser
-        let browser = MCNearbyServiceBrowser(peer: peerID, serviceType: Self.serviceType)
-        browser.delegate = self
-        browser.startBrowsingForPeers()
-        self.browser = browser
     }
 
-    func stop() {
-        ticker?.cancel()
-        advertiser?.stopAdvertisingPeer()
-        browser?.stopBrowsingForPeers()
-        session.disconnect()
-    }
+    func stop() { ticker?.cancel() }
 
-    func cameraSample(_ sample: Int?) {
-        guard done == nil else { return }
-        let (symbol, commitment) = decoder.push(sample)
-        if symbol != nil { peerPulse += 1 }
-        progress = Double(decoder.progress) / Double(FlowCode.digits)
-        if decoder.progress > 0, offers.isEmpty {
-            status = "Reading…"
-            detail = "Keep still. Waiting for the other phone's radio too."
-        } else if decoder.progress > 0 {
-            status = "Reading…"
-            detail = "Keep still."
+    func reading(_ reading: LightCode.Reading?) {
+        guard done == nil, let reading else { return }
+        if reading.clock != phase {
+            phase = reading.clock
+            candidate = nil
+            acceptedThisPhase = false
         }
-        if let commitment {
-            decoded.insert(commitment)
-            match()
+        guard !acceptedThisPhase, let symbols = reading.symbols else { return }
+        guard symbols == candidate else { candidate = symbols; return }
+        acceptedThisPhase = true
+        pulse += 1
+        let payload = assembler.add(symbols)
+        progress = assembler.progress
+        if progress > 0 {
+            status = "Reading… \(Int(progress * 100))%"
+            detail = "Keep still. Hold them together until both finish."
         }
+        guard let payload, let profile = try? LightProfile(encoded: payload) else { return }
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        progress = 1
+        done = (profile.name, LightCode.safetyCode(myProfile, payload))
+        status = "Paired with \(profile.name)"
+        detail = "Keep them together a moment so the other phone finishes too. Both should show:"
+        onPaired?(profile)
     }
-
-    private func received(_ data: Data, from peer: MCPeerID) {
-        guard data.count > 20, data.prefix(4) == Data("NXPO".utf8) else { return }
-        let nonce = data.subdata(in: data.startIndex + 4 ..< data.startIndex + 20)
-        guard let card = try? ContactCard(encoded: data.subdata(in: data.startIndex + 20 ..< data.endIndex)),
-              card.id != self.card?.id else { return }
-        offers[peer] = (nonce, card)
-        match()
-    }
-
-    /// Accepts a radio offer only if its commitment is the one the camera read.
-    private func match() {
-        guard done == nil else { return }
-        for (_, offer) in offers where decoded.contains(FlowPairing.commitment(nonce: offer.nonce, card: offer.card.encoded)) {
-            let code = FlowPairing.safetyCode(myOffer, offer.nonce + offer.card.encoded)
-            done = (offer.card.name, code)
-            progress = 1
-            status = "Paired with \(offer.card.name)"
-            detail = "Hold on a moment so the other phone finishes too. Both should show:"
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
-            onVerified?(offer.card)
-            return
-        }
-        if !decoded.isEmpty, !offers.isEmpty {
-            detail = "The phone you're facing isn't the one on the radio. Keep them together."
-        }
-    }
-
-    private func sendOffer(to peer: MCPeerID) {
-        guard let card else { return }
-        try? session.send(Data("NXPO".utf8) + nonce + card.encoded, toPeers: [peer], with: .reliable)
-    }
-}
-
-extension FlowPairingSession: MCSessionDelegate, MCNearbyServiceAdvertiserDelegate, MCNearbyServiceBrowserDelegate {
-    nonisolated func session(_ session: MCSession, peer peerID: MCPeerID, didChange state: MCSessionState) {
-        guard state == .connected else { return }
-        Task { @MainActor in self.sendOffer(to: peerID) }
-    }
-
-    nonisolated func session(_ session: MCSession, didReceive data: Data, fromPeer peerID: MCPeerID) {
-        Task { @MainActor in self.received(data, from: peerID) }
-    }
-
-    nonisolated func session(_ session: MCSession, didReceive stream: InputStream, withName streamName: String, fromPeer peerID: MCPeerID) {}
-    nonisolated func session(_ session: MCSession, didStartReceivingResourceWithName resourceName: String, fromPeer peerID: MCPeerID, with progress: Progress) {}
-    nonisolated func session(_ session: MCSession, didFinishReceivingResourceWithName resourceName: String, fromPeer peerID: MCPeerID, at localURL: URL?, withError error: Error?) {}
-
-    nonisolated func advertiser(_ advertiser: MCNearbyServiceAdvertiser, didReceiveInvitationFromPeer peerID: MCPeerID,
-                                withContext context: Data?, invitationHandler: @escaping (Bool, MCSession?) -> Void) {
-        Task { @MainActor in invitationHandler(true, self.session) }
-    }
-
-    nonisolated func browser(_ browser: MCNearbyServiceBrowser, foundPeer peerID: MCPeerID, withDiscoveryInfo info: [String: String]?) {
-        Task { @MainActor in
-            // One side invites (the lower ID), so the pair doesn't connect twice.
-            guard self.peerID.displayName < peerID.displayName else { return }
-            browser.invitePeer(peerID, to: self.session, withContext: nil, timeout: 15)
-        }
-    }
-
-    nonisolated func browser(_ browser: MCNearbyServiceBrowser, lostPeer peerID: MCPeerID) {}
 }
 
 // MARK: - Visual
 
-/// The display colours for the rhythm's symbols; the camera side classifies by hue.
-enum FlowPalette {
-    static let colors: [Color] = [
-        Color(red: 0.00, green: 0.86, blue: 1.00),   // cyan
-        Color(red: 0.55, green: 0.27, blue: 1.00),   // violet
-        Color(red: 1.00, green: 0.16, blue: 0.35),   // rose
-        Color(red: 0.51, green: 1.00, blue: 0.16),   // lime
-    ]
-    static let hues: [Double] = [188, 262, 347, 97]
-
-    static func color(_ symbol: Int) -> Color { symbol < colors.count ? colors[symbol] : .white }
-}
-
-/// A full-screen field of liquid lobes in the current colour. Only brightness moves, so the hue
-/// the other camera averages stays clean. The lobes swirl on their own and jump whenever the
-/// other phone's colour changes, and a ring fills as its code is read.
-struct FlowField: View {
-    let symbol: Int
-    let peerPulse: Int
+/// The ring of 14 lobes near the top of the screen (where the other phone's front camera is):
+/// slot 0 white, slot 1 dark, slots 2…13 the frame's colours, and a clock disc in the middle.
+/// The lobes keep their places but wobble and breathe, flowing tendrils swirl in the dark
+/// background, and everything kicks when this phone reads a frame from the other.
+struct LightRing: View {
+    let frame: [Int]
+    let clock: Bool
+    let pulse: Int
     let progress: Double
     let done: Bool
     @State private var kick = 0.0
@@ -257,58 +168,102 @@ struct FlowField: View {
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1 / 60, paused: reduceMotion)) { timeline in
-            let t = timeline.date.timeIntervalSinceReferenceDate
+            let t = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
             Canvas { context, size in
-                let base = FlowPalette.color(done ? 0 : symbol)
-                context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(base))
-                let center = CGPoint(x: size.width / 2, y: size.height / 2)
-                let radius = min(size.width, size.height)
-                // Dark and bright lobes orbiting the centre: a slowly morphing, amorphous flow.
+                context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black))
+                let w = size.width
+                let center = CGPoint(x: w / 2, y: max(w * 0.5, size.height * 0.27))
+                let radius = w * 0.37, lobe = w * 0.068
+
+                // Dark flowing tendrils (too dark for the other camera to mistake for a lobe).
                 context.drawLayer { layer in
-                    layer.addFilter(.blur(radius: radius * 0.08))
-                    for i in 0..<7 {
-                        let phase = Double(i) * 0.9
-                        let swirl = t * (0.35 + 0.05 * Double(i)) + phase + kick
-                        let orbit = radius * (0.18 + 0.05 * sin(t * 0.7 + phase) + 0.04 * kick.truncatingRemainder(dividingBy: 1))
-                        let p = CGPoint(x: center.x + cos(swirl) * orbit * 1.1, y: center.y + sin(swirl * 1.3) * orbit * 1.6)
-                        let r = radius * (0.16 + 0.05 * sin(t * 1.3 + phase))
-                        let shade: Color = i.isMultiple(of: 2) ? .white.opacity(0.35) : .black.opacity(0.3)
-                        layer.fill(Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r * 1.2, width: r * 2, height: r * 2.4)),
-                                   with: .color(shade))
+                    layer.addFilter(.blur(radius: w * 0.05))
+                    for i in 0..<9 {
+                        let p = Double(i) * 0.7
+                        let a = t * (0.25 + 0.03 * Double(i)) + p + kick * 0.6
+                        let r = radius * (0.9 + 0.5 * sin(t * 0.4 + p))
+                        let c = CGPoint(x: center.x + cos(a) * r, y: center.y + sin(a * 1.2) * r * 1.3 + w * 0.3)
+                        let s = w * (0.18 + 0.05 * sin(t + p))
+                        layer.fill(Path(ellipseIn: CGRect(x: c.x - s, y: c.y - s * 0.6, width: s * 2, height: s * 1.2)),
+                                   with: .color(Color(red: 0.0, green: 0.13 + 0.05 * sin(p), blue: 0.22)))
                     }
                 }
-                // Progress ring for the other phone's code.
-                var ring = Path()
-                ring.addArc(center: center, radius: radius * 0.42, startAngle: .degrees(-90),
-                            endAngle: .degrees(-90 + 360 * progress), clockwise: false)
-                context.stroke(ring, with: .color(.white.opacity(0.85)), style: StrokeStyle(lineWidth: 4, lineCap: .round))
+
+                // Progress: how much of the other phone's code has been read.
+                var arc = Path()
+                arc.addArc(center: center, radius: radius + lobe * 1.7, startAngle: .degrees(-90),
+                           endAngle: .degrees(-90 + 360 * progress), clockwise: false)
+                // Kept dark (under 30 % brightness) so the other camera never reads it as a lobe.
+                context.stroke(arc, with: .color(Color(red: 0, green: 0.2, blue: 0.27)),
+                               style: StrokeStyle(lineWidth: 5, lineCap: .round))
+
+                // The lobes.
+                let kickScale = 1 + 0.06 * max(0, 1 - (kick.truncatingRemainder(dividingBy: 1)) * 3)
+                for slot in 0..<LightCode.slots {
+                    let rgb: (r: Double, g: Double, b: Double)
+                    switch slot {
+                    case 0: rgb = (1, 1, 1)
+                    case 1: continue
+                    default: rgb = LightCode.palette[frame[slot - 2]]
+                    }
+                    let a = -Double.pi / 2 + Double(slot) * 2 * .pi / Double(LightCode.slots)
+                        + 0.03 * sin(t * 1.7 + Double(slot))
+                    let c = CGPoint(x: center.x + cos(a) * radius, y: center.y + sin(a) * radius)
+                    context.fill(blob(at: c, radius: lobe * kickScale, time: t, seed: Double(slot)),
+                                 with: .color(Color(red: rgb.r, green: rgb.g, blue: rgb.b)))
+                }
+
+                // The clock.
+                let clockRadius = w * 0.12 * (1 + 0.03 * sin(t * 2))
+                context.fill(blob(at: center, radius: clockRadius, time: t, seed: 99),
+                             with: .color(clock ? .white : Color(white: 0.42)))
+                if done {
+                    var glow = context
+                    glow.addFilter(.shadow(color: NX.cyan, radius: w * 0.05))
+                    glow.stroke(Path(ellipseIn: CGRect(x: center.x - radius - lobe * 2.2, y: center.y - radius - lobe * 2.2,
+                                                       width: (radius + lobe * 2.2) * 2, height: (radius + lobe * 2.2) * 2)),
+                                with: .color(Color(red: 0, green: 0.2, blue: 0.27)), lineWidth: 3)
+                }
             }
         }
-        .onChange(of: peerPulse) { _ in
+        .onChange(of: pulse) { _ in
             guard !reduceMotion else { return }
-            withAnimation(.easeOut(duration: 0.25)) { kick += 0.35 }
+            withAnimation(.easeOut(duration: 0.3)) { kick += 1 }
         }
         .accessibilityHidden(true)
+    }
+
+    /// A wobbling, roughly round blob.
+    private func blob(at c: CGPoint, radius: Double, time t: Double, seed: Double) -> Path {
+        var path = Path()
+        let points = 28
+        for i in 0...points {
+            let a = Double(i) / Double(points) * 2 * .pi
+            let wobble = 1 + 0.06 * sin(3 * a + t * 2.1 + seed) + 0.04 * sin(5 * a - t * 1.4 + seed * 2)
+            let p = CGPoint(x: c.x + cos(a) * radius * wobble, y: c.y + sin(a) * radius * wobble)
+            if i == 0 { path.move(to: p) } else { path.addLine(to: p) }
+        }
+        path.closeSubpath()
+        return path
     }
 }
 
 // MARK: - Camera
 
-/// Front-camera colour reader: averages the middle of each video frame and classifies it as one
-/// of the rhythm's colours (or white), reporting one sample per frame on the main queue.
-private struct ColorCamera: UIViewControllerRepresentable {
-    let onSample: (Int?) -> Void
+/// Front camera → `LightCode.read` on every video frame, off the main thread.
+private struct LightCamera: UIViewControllerRepresentable {
+    let onReading: (LightCode.Reading?) -> Void
 
     func makeUIViewController(context: Context) -> Controller {
         let controller = Controller()
-        controller.onSample = onSample
+        controller.onReading = onReading
         return controller
     }
 
-    func updateUIViewController(_ controller: Controller, context: Context) { controller.onSample = onSample }
+    func updateUIViewController(_ controller: Controller, context: Context) { controller.onReading = onReading }
 
     final class Controller: UIViewController, AVCaptureVideoDataOutputSampleBufferDelegate {
-        var onSample: ((Int?) -> Void)?
+        var onReading: ((LightCode.Reading?) -> Void)?
         private let session = AVCaptureSession()
         private let queue = DispatchQueue(label: "app.eptt.facepair.camera")
 
@@ -324,9 +279,10 @@ private struct ColorCamera: UIViewControllerRepresentable {
             output.setSampleBufferDelegate(self, queue: queue)
             guard session.canAddOutput(output) else { return }
             session.addOutput(output)
-            // Keep the camera from chasing the colours with its white balance.
             if (try? device.lockForConfiguration()) != nil {
+                // Don't let white balance chase the colours; keep the frame rate steady.
                 if device.isWhiteBalanceModeSupported(.locked) { device.whiteBalanceMode = .locked }
+                device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 30)
                 device.unlockForConfiguration()
             }
         }
@@ -346,49 +302,17 @@ private struct ColorCamera: UIViewControllerRepresentable {
         func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
                            from connection: AVCaptureConnection) {
             guard let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-            let sample = Self.classify(Self.averageColor(buffer))
-            DispatchQueue.main.async { [weak self] in self?.onSample?(sample) }
-        }
-
-        /// Mean RGB (0...1) over the middle 60 % of the frame, on a sparse grid.
-        static func averageColor(_ buffer: CVPixelBuffer) -> (r: Double, g: Double, b: Double) {
             CVPixelBufferLockBaseAddress(buffer, .readOnly)
             defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
-            guard let base = CVPixelBufferGetBaseAddress(buffer) else { return (0, 0, 0) }
+            guard let base = CVPixelBufferGetBaseAddress(buffer) else { return }
             let width = CVPixelBufferGetWidth(buffer), height = CVPixelBufferGetHeight(buffer)
             let stride = CVPixelBufferGetBytesPerRow(buffer)
             let pixels = base.assumingMemoryBound(to: UInt8.self)
-            var r = 0.0, g = 0.0, b = 0.0, n = 0.0
-            let steps = 24
-            for iy in 0..<steps {
-                let y = Int(Double(height) * (0.2 + 0.6 * Double(iy) / Double(steps - 1)))
-                for ix in 0..<steps {
-                    let x = Int(Double(width) * (0.2 + 0.6 * Double(ix) / Double(steps - 1)))
-                    let p = pixels + y * stride + x * 4
-                    b += Double(p[0]); g += Double(p[1]); r += Double(p[2]); n += 1
-                }
+            let reading = LightCode.read(width: width, height: height, step: 4) { x, y in
+                let p = pixels + y * stride + x * 4
+                return (Double(p[2]) / 255, Double(p[1]) / 255, Double(p[0]) / 255)
             }
-            return (r / n / 255, g / n / 255, b / n / 255)
-        }
-
-        /// Nearest rhythm colour by hue, white for the sync flash, nil when unclear.
-        static func classify(_ c: (r: Double, g: Double, b: Double)) -> Int? {
-            let maxC = max(c.r, c.g, c.b), minC = min(c.r, c.g, c.b)
-            guard maxC > 0.18 else { return nil }                        // too dark to tell
-            let saturation = (maxC - minC) / maxC
-            if saturation < 0.22 { return maxC > 0.45 ? FlowCode.sync : nil }
-            var hue: Double
-            let delta = maxC - minC
-            if maxC == c.r { hue = 60 * ((c.g - c.b) / delta).truncatingRemainder(dividingBy: 6) }
-            else if maxC == c.g { hue = 60 * ((c.b - c.r) / delta + 2) }
-            else { hue = 60 * ((c.r - c.g) / delta + 4) }
-            if hue < 0 { hue += 360 }
-            let distances = FlowPalette.hues.map { target -> Double in
-                let d = abs(hue - target).truncatingRemainder(dividingBy: 360)
-                return min(d, 360 - d)
-            }
-            guard let best = distances.enumerated().min(by: { $0.element < $1.element }), best.element < 40 else { return nil }
-            return best.offset
+            DispatchQueue.main.async { [weak self] in self?.onReading?(reading) }
         }
     }
 }

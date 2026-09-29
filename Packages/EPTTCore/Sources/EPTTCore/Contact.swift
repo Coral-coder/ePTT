@@ -23,6 +23,17 @@ public struct Contact: Identifiable, Equatable, Codable {
         cardData = card.encoded
     }
 
+    /// A contact paired face to face: keys, name and relay mailbox came over the light link. The
+    /// rest (push tokens, prekey, addresses, the signed card) arrives in their CARD message.
+    public init(identity: PublicIdentity, name: String, relayMailbox: Data?) {
+        self.identity = identity
+        self.name = name
+        reachability = Reachability(relayMailbox: relayMailbox)
+        updatedAt = 0
+        platform = nil
+        cardData = Data()
+    }
+
     /// Applies a newer card for the same identity. Returns false if it is not newer or not ours.
     @discardableResult
     public mutating func apply(card: ContactCard) -> Bool {

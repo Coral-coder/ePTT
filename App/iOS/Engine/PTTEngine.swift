@@ -653,6 +653,10 @@ final class PTTEngine {
                 state.channels[i].members.removeAll { $0 == contact.id }
                 save()
             }
+        case .card(let card):
+            // Their full signed card, e.g. after pairing face to face: tokens, prekey, addresses.
+            guard let i = contactsBySender[sender], state.contacts[i].id == card.id else { return }
+            if state.contacts[i].apply(card: card) { save() }
         }
     }
 
@@ -1020,6 +1024,50 @@ final class PTTEngine {
                             apnsTopic: Bundle.main.bundleIdentifier, candidates: transport.localCandidates,
                             prekey: prekeys.signed,
                             relayMailbox: relay != nil && state.settings.relayEnabled ? state.relayMailbox : nil)
+    }
+
+    // MARK: - Face-to-face pairing
+
+    /// What this phone shows over light: public keys, name and relay mailbox.
+    func lightProfile(completion: @escaping (Data?) -> Void) {
+        queue.async { [self] in
+            let profile = state.relayMailbox.map {
+                LightProfile(identity: identity.publicIdentity, name: state.settings.displayName, relayMailbox: $0).encoded
+            }
+            DispatchQueue.main.async { completion(profile) }
+        }
+    }
+
+    /// Adds a contact read over light, then sends them our full signed card through every path we
+    /// have (the relay mailbox they just showed us, above all). Their card comes back the same way.
+    func addLightPaired(_ profile: LightProfile) {
+        queue.async { [self] in
+            guard profile.identity.id != identity.id else { return }
+            if contact(id: profile.identity.id) == nil {
+                state.contacts.append(Contact(identity: profile.identity, name: profile.name,
+                                              relayMailbox: profile.relayMailbox))
+                if let direct = try? Channel.direct(local: identity, peer: profile.identity, name: profile.name) {
+                    state.channels.append(direct)
+                    if state.settings.selectedChannel == nil { state.settings.selectedChannel = direct.id }
+                }
+                save()
+            }
+            guard let contact = self.contact(id: profile.identity.id) else { return }
+            sendCard(to: contact)
+        }
+    }
+
+    private func sendCard(to contact: Contact) {
+        guard let direct = directChannel(for: contact.id), let card = try? myCard(),
+              let packet = try? builder.seal(.card, plaintext: card.encoded, keys: direct.keys) else { return }
+        sendAnyway(packet, to: contact)
+        guard let relay, state.settings.relayEnabled, let mailbox = contact.reachability.relayMailbox,
+              let payload = Relay.encode(packets: [packet]) else { return }
+        Task { [weak self] in
+            if let name = try? await relay.upload(payload: payload, tag: Relay.tag(mailbox: mailbox)) {
+                self?.queue.async { self?.state.relayUploads[name] = Date().addingTimeInterval(Relay.lifetime) }
+            }
+        }
     }
 
     private func myCard() throws -> ContactCard {
