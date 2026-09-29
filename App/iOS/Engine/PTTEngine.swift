@@ -623,6 +623,11 @@ final class PTTEngine {
     }
 
     private func handleDatagram(_ data: Data, from endpoint: PeerPath?, relayed: Bool = false) {
+        // Someone who scanned one of our group codes: not a contact yet, so not for the processor.
+        if (try? PacketHeader(packet: data))?.type == .groupJoin {
+            handleGroupJoin(data, relayed: relayed)
+            return
+        }
         let inbound: InboundPacket
         do {
             inbound = try processor.process(
@@ -1029,7 +1034,95 @@ final class PTTEngine {
         guard let plaintext = try? invite.sealed(for: target, messageID: messageID),
               let packet = try? builder.seal(.groupInvite, plaintext: plaintext, keys: direct.keys,
                                              messageID: messageID) else { return }
-        sendAnyway(packet, to: contact)
+        if links[contact.senderID] != nil {
+            sendAnyway(packet, to: contact)
+        } else {
+            deliverAnyway(packet, to: contact)
+        }
+    }
+
+    // MARK: - Talk-group QR codes (PROTOCOL.md §6.5)
+
+    private var liveJoinCodes: [GroupJoinCode] {
+        state.joinCodes.compactMap { try? GroupJoinCode(encoded: $0) }.filter { !$0.isExpired }
+    }
+
+    /// A QR code that lets whoever scans it ask to join `groupID`, valid for a day. Reuses the
+    /// current code unless `fresh`, which also retires every earlier code for the group.
+    func groupJoinURI(for groupID: ChannelID, fresh: Bool = false,
+                      completion: @escaping (_ uri: String?, _ expires: Date?) -> Void) {
+        queue.async { [self] in
+            var result: GroupJoinCode?
+            defer {
+                let uri = result?.uri
+                let expires = result.map { Date(timeIntervalSince1970: Double($0.expires) / 1000) }
+                DispatchQueue.main.async { completion(uri, expires) }
+            }
+            guard let channel = self.channel(groupID), channel.kind == .group, let mine = try? myCard() else { return }
+            var codes = liveJoinCodes
+            if fresh { codes.removeAll { $0.groupID == groupID } }
+            let soon = Date().addingTimeInterval(3600)
+            if let existing = codes.last(where: { $0.groupID == groupID && !$0.isExpired(at: soon) }) {
+                result = existing
+            } else {
+                let expires = currentTimestamp(Date().addingTimeInterval(GroupJoinCode.lifetime))
+                let code = GroupJoinCode(groupID: groupID, groupName: channel.name, inviter: mine, expires: expires)
+                codes.append(code)
+                result = code
+            }
+            state.joinCodes = codes.map(\.encoded)
+            save()
+        }
+    }
+
+    /// Stops every code for a group from working.
+    func retireJoinCodes(for groupID: ChannelID) {
+        queue.async { [self] in
+            state.joinCodes = liveJoinCodes.filter { $0.groupID != groupID }.map(\.encoded)
+            save()
+        }
+    }
+
+    /// We scanned a group code: add the inviter and ask them to add us.
+    func joinGroup(uri: String) throws {
+        let code = try GroupJoinCode(uri: uri)
+        queue.async { [self] in
+            guard !code.isExpired else {
+                emit(.message("That group code has expired. Ask for a new one."))
+                return
+            }
+            if channel(code.groupID) != nil {
+                emit(.message("You're already in \(code.groupName)"))
+                return
+            }
+            addContact(code.inviter)
+            guard let inviter = contact(id: code.inviter.id), let mine = try? myCard(),
+                  let packet = try? GroupJoin.seal(card: mine, for: code, timestamp: currentTimestamp(),
+                                                   builder: builder) else { return }
+            deliverAnyway(packet, to: inviter)
+            emit(.message("Asked \(inviter.name) to add you to \(code.groupName). You'll join as soon as their phone gets it."))
+        }
+    }
+
+    /// Someone scanned one of our codes: add them, then send the group key to them and the
+    /// updated member list to everyone (GROUP_INVITE, sealed to each member).
+    private func handleGroupJoin(_ packet: Data, relayed: Bool) {
+        guard let opened = GroupJoin.open(packet, codes: liveJoinCodes, maxAge: relayed ? Relay.lifetime : 600),
+              channel(opened.code.groupID)?.kind == .group else { return }
+        let card = opened.join.card
+        guard card.id != identity.id else { return }
+        addContact(card)
+        guard let i = channelIndex[opened.code.groupID] else { return }
+        let isNew = !state.channels[i].members.contains(card.id)
+        if isNew {
+            state.channels[i].members.append(card.id)
+            save()
+        }
+        let group = state.channels[i]
+        for member in group.members {
+            if let contact = self.contact(id: member) { sendInvite(group, to: contact) }
+        }
+        if isNew { emit(.message("\(card.name.isEmpty ? "Someone" : card.name) joined \(group.name)")) }
     }
 
     private func acceptInvite(_ invite: GroupInvite, from sender: SenderID) {
@@ -1177,6 +1270,12 @@ final class PTTEngine {
     private func sendCard(to contact: Contact) {
         guard let direct = directChannel(for: contact.id), let card = try? myCard(),
               let packet = try? builder.seal(.card, plaintext: card.encoded, keys: direct.keys) else { return }
+        deliverAnyway(packet, to: contact)
+    }
+
+    /// Control messages that must arrive even if they're offline: live link or last known
+    /// addresses, and their relay mailbox.
+    private func deliverAnyway(_ packet: Data, to contact: Contact) {
         sendAnyway(packet, to: contact)
         guard let relay, state.settings.relayEnabled, let mailbox = contact.reachability.relayMailbox,
               let payload = Relay.encode(packets: [packet]) else { return }

@@ -119,6 +119,8 @@ struct PersistedState: Codable {
     var relayUploads: [String: Date] = [:]
     /// Newest first, capped.
     var transfers: [TransferRecord] = []
+    /// Talk-group QR codes we handed out (encoded `GroupJoinCode`s), until they expire.
+    var joinCodes: [Data] = []
 }
 
 enum Store {
@@ -181,6 +183,7 @@ extension PersistedState {
         relayMailbox = try? c.decodeIfPresent(Data.self, forKey: .relayMailbox)
         relayUploads = (try? c.decodeIfPresent([String: Date].self, forKey: .relayUploads)) ?? [:]
         transfers = (try? c.decodeIfPresent(Lossy<TransferRecord>.self, forKey: .transfers))?.items ?? []
+        joinCodes = (try? c.decodeIfPresent([Data].self, forKey: .joinCodes)) ?? []
     }
 }
 

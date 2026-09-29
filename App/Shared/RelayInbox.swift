@@ -309,6 +309,31 @@ enum RelayInbox {
 
     /// The name on a relayed CARD message (contact details after face-to-face pairing), if that's
     /// what the payload is.
+    /// A request to join one of our talk groups (someone scanned our group QR code). The app
+    /// adds them when it next fetches the relay; the extension can only say so.
+    static func containsJoinRequest(_ payload: Data) -> Bool {
+        guard let packets = try? Relay.decode(payload) else { return false }
+        return packets.contains { (try? PacketHeader(packet: $0))?.type == .groupJoin }
+    }
+
+    /// The talk group a relayed GROUP_INVITE adds us to, and who sent it.
+    static func groupInvite(in payload: Data, with sync: WatchSync) -> (group: String, from: String)? {
+        guard let local = try? LocalIdentity(signingSeed: sync.signingSeed, keyAgreementSeed: sync.keyAgreementSeed),
+              let packets = try? Relay.decode(payload) else { return nil }
+        let prekeys = sync.prekeys
+        var processor = PacketProcessor(local: local, agreement: local.keyAgreement(prekeys: { prekeys }))
+        for packet in packets {
+            guard let inbound = try? processor.process(
+                packet, maxAge: Relay.lifetime,
+                channelLookup: { id in sync.channels.first { $0.id == id } },
+                memberLookup: { id in sync.contacts.first { $0.senderID == id }?.identity }),
+                  case .groupInvite(let invite) = inbound.message else { continue }
+            let from = sync.contacts.first { $0.senderID == inbound.header.senderID }?.name ?? "Someone"
+            return (invite.name, from)
+        }
+        return nil
+    }
+
     static func cardSender(in payload: Data, with sync: WatchSync) -> String? {
         guard let local = try? LocalIdentity(signingSeed: sync.signingSeed, keyAgreementSeed: sync.keyAgreementSeed),
               let packets = try? Relay.decode(payload) else { return nil }

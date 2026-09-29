@@ -207,6 +207,7 @@ public struct PacketProcessor {
                                                 recipient: local.senderID, agreement: agreement))
         case .groupLeave: return .groupLeave(try GroupLeave(decoding: plaintext))
         case .card: return .card(try ContactCard(encoded: plaintext))
+        case .groupJoin: throw DecodingError.invalid("GROUP_JOIN is opened with GroupJoin.open")
         }
     }
 }

@@ -128,6 +128,12 @@ final class AppModel: ObservableObject {
             } catch {
                 banner = "That push key link is invalid"
             }
+        } else if link.hasPrefix(GroupJoinCode.uriPrefix) {
+            do {
+                try engine.joinGroup(uri: link)
+            } catch {
+                banner = "That isn't a valid talk group code"
+            }
         } else {
             addContact(uri: link)
         }

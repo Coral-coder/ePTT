@@ -11,6 +11,9 @@ public enum PacketType: UInt8, Codable {
     case groupLeave = 0x11
     /// The sender's full signed contact card, e.g. after pairing face to face (PROTOCOL.md §12).
     case card = 0x12
+    /// "Add me to this group", answering a group QR code (PROTOCOL.md §6.5). Opened with
+    /// `GroupJoin.open`, never by `PacketProcessor` (the sender isn't a contact yet).
+    case groupJoin = 0x13
 }
 
 /// 8-byte message identifier; equals the burst ID for burst packets and WAKE.

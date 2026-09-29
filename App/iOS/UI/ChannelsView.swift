@@ -65,6 +65,7 @@ struct ChannelsView: View {
 struct GroupCard: View {
     @EnvironmentObject private var model: AppModel
     let channel: Channel
+    @State private var inviting = false
 
     private var selected: Bool { model.snapshot.settings.selectedChannel == channel.id }
 
@@ -91,6 +92,18 @@ struct GroupCard: View {
             .buttonStyle(.plain)
             .accessibilityHint("Selects this channel")
 
+            Button {
+                inviting = true
+            } label: {
+                Image(systemName: "qrcode")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(NX.frost)
+                    .frame(width: 40, height: 40)
+                    .background(GlassBackground(shape: Circle(), glow: 0.2))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Invite people to \(channel.name) with a QR code")
+
             Toggle("Scan \(channel.name)", isOn: Binding(
                 get: { channel.isMonitored },
                 set: { model.engine.setMonitored(channel.id, $0) }
@@ -106,7 +119,13 @@ struct GroupCard: View {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .strokeBorder(selected ? NX.ice.opacity(0.85) : .clear, lineWidth: 1)
         )
+        .sheet(isPresented: $inviting) { GroupInviteView(channel: channel) }
         .contextMenu {
+            Button {
+                inviting = true
+            } label: {
+                Label("Invite with QR code", systemImage: "qrcode")
+            }
             Button(role: .destructive) {
                 model.engine.leaveGroup(channel.id)
             } label: {
@@ -247,6 +266,69 @@ struct NewGroupView: View {
         .onAppear {
             if model.snapshot.contacts.count == 1, let only = model.snapshot.contacts.first { selected = [only.id] }
             nameFocused = true
+        }
+    }
+}
+
+/// A QR code for joining a talk group. It carries no group key: scanning it sends this phone a
+/// request, and this phone then sends the key to the new member, sealed to them alone.
+struct GroupInviteView: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+    let channel: Channel
+    @State private var uri: String?
+    @State private var expires: Date?
+
+    var body: some View {
+        ZStack {
+            GridBackground(horizon: 0.94, energy: 0.6, moving: false)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack {
+                        ScreenTitle(text: "Invite")
+                        Spacer()
+                        Button("Done") { dismiss() }
+                            .font(NX.body(16, .medium))
+                            .foregroundStyle(NX.frost)
+                    }
+                    Text("Scan to join \(channel.name)")
+                        .font(NX.label(17, .bold))
+                        .foregroundStyle(NX.text)
+                    QRFrame(uri: uri)
+                        .frame(maxWidth: .infinity)
+                    if let expires {
+                        Text("Works until \(expires.formatted(date: .omitted, time: .shortened)) \(Calendar.current.isDateInToday(expires) ? "today" : "tomorrow"). Anyone who scans it before then can join, so only show it to people you want in the group.")
+                            .font(NX.body(13))
+                            .foregroundStyle(NX.textDim)
+                    }
+                    Text("They'll be added when your phone gets their request: straight away nearby or online, otherwise the next time you open NXTPTT. Everyone in the group then gets their key, sealed to their device.")
+                        .font(NX.body(13))
+                        .foregroundStyle(NX.textMuted)
+                    HStack(spacing: 12) {
+                        if let uri {
+                            ShareLink(item: uri) { Text("SHARE LINK") }
+                                .buttonStyle(NXButtonStyle(kind: .glass))
+                        }
+                        Button("NEW CODE") { load(fresh: true) }
+                            .buttonStyle(NXButtonStyle(kind: .glass))
+                            .accessibilityHint("Stops the current code from working and makes a new one")
+                    }
+                }
+                .padding(.horizontal, 22)
+                .padding(.top, 20)
+                .padding(.bottom, 30)
+            }
+        }
+        .preferredColorScheme(.dark)
+        .onAppear { load(fresh: false) }
+    }
+
+    private func load(fresh: Bool) {
+        uri = nil
+        model.engine.groupJoinURI(for: channel.id, fresh: fresh) { newURI, newExpiry in
+            uri = newURI
+            expires = newExpiry
+            if newURI == nil { model.banner = "Couldn't make a code for this group" }
         }
     }
 }

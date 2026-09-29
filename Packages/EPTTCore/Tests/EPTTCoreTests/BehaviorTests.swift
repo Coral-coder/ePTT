@@ -315,3 +315,46 @@ final class MiscTests: XCTestCase {
         XCTAssertEqual(APNsRequest.packet(fromPayload: payload), Data([1, 2, 3]))
     }
 }
+
+/// Joining a talk group from a QR code (PROTOCOL.md §6.5).
+final class GroupJoinTests: XCTestCase {
+    let alice = LocalIdentity.generate()
+    let carol = LocalIdentity.generate()
+
+    private func code(expires: Date = Date().addingTimeInterval(3600)) throws -> GroupJoinCode {
+        let aliceCard = try ContactCard(signing: alice, name: "Alice", timestamp: currentTimestamp(), reachability: .init())
+        return GroupJoinCode(groupID: .random(), groupName: "Crew", inviter: aliceCard,
+                             expires: UInt64(expires.timeIntervalSince1970 * 1000))
+    }
+
+    func testCodeRoundTripsThroughURI() throws {
+        let code = try code()
+        XCTAssertEqual(try GroupJoinCode(uri: code.uri), code)
+        XCTAssertThrowsError(try GroupJoinCode(uri: "eptt://join/AAAA"))
+    }
+
+    func testInviterOpensARequestForItsCode() throws {
+        let code = try code()
+        let carolCard = try ContactCard(signing: carol, name: "Carol", timestamp: currentTimestamp(), reachability: .init())
+        let packet = try GroupJoin.seal(card: carolCard, for: code, timestamp: currentTimestamp(),
+                                        builder: PacketBuilder(local: carol))
+        let opened = try XCTUnwrap(GroupJoin.open(packet, codes: [code], maxAge: 3600))
+        XCTAssertEqual(opened.join.card, carolCard)
+        XCTAssertEqual(opened.code, code)
+        // Another code, an expired code, or a tampered packet: rejected.
+        XCTAssertNil(GroupJoin.open(packet, codes: [try self.code()], maxAge: 3600))
+        XCTAssertNil(GroupJoin.open(packet, codes: [code], now: Date().addingTimeInterval(7200), maxAge: 86400))
+        var tampered = packet
+        tampered[tampered.count - 1] ^= 1
+        XCTAssertNil(GroupJoin.open(tampered, codes: [code], maxAge: 3600))
+    }
+
+    func testRequestMustCarryTheSendersOwnCard() throws {
+        let code = try code()
+        let someoneElse = try ContactCard(signing: LocalIdentity.generate(), name: "Mallory",
+                                          timestamp: currentTimestamp(), reachability: .init())
+        let packet = try GroupJoin.seal(card: someoneElse, for: code, timestamp: currentTimestamp(),
+                                        builder: PacketBuilder(local: carol))
+        XCTAssertNil(GroupJoin.open(packet, codes: [code], maxAge: 3600))
+    }
+}

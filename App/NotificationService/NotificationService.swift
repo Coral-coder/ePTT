@@ -58,6 +58,17 @@ final class NotificationService: UNNotificationServiceExtension {
                                            sound: "call-alert.caf", date: Date(), logged: true))
                 return
             }
+            // Group QR codes: someone asking to join, or the group key arriving for us.
+            if RelayInbox.containsJoinRequest(payload) {
+                content.title = "NXTPTT"
+                content.body = "Someone scanned your talk group code. Open NXTPTT to let them in."
+                return
+            }
+            if let invite = RelayInbox.groupInvite(in: payload, with: sync) {
+                content.title = "NXTPTT"
+                content.body = "\(invite.from) added you to \(invite.group). Open NXTPTT to join."
+                return
+            }
             // Contact details after face-to-face pairing: say so quietly (the app applies them).
             if let name = RelayInbox.cardSender(in: payload, with: sync) {
                 content.title = "NXTPTT"

@@ -219,6 +219,7 @@ A receiver drops a packet without responding when any of these hold:
 | 0x06 | WAKE | 0 | TLV: name, timestamp, candidate*. `message_id` = the burst ID being woken for. |
 | 0x10 | GROUP_INVITE | 0 | TLV: timestamp, ephemeral_pk, sealed_invite. The sealed contents are TLV: group_id, group_name, group_key, group_epoch, member_card* (§6.3). Direct channels only. |
 | 0x11 | GROUP_LEAVE | 0 | TLV: timestamp, group_id. Direct channels only. |
+| 0x13 | GROUP_JOIN | 0 | TLV: timestamp, member_card. Sealed with a group code's join keys (§6.5), not a channel's. |
 
 BURST_START signature:
 
@@ -278,6 +279,35 @@ sealed_invite = prekey_id_u32 || AEAD-Encrypt(key, 0x00 × 12, inner, R.sender_i
   been verified and whose envelope was opened.
   VOICE that arrives before its BURST_START may be held for up to 1 s.
   Frame indexes already played are dropped.
+
+### 6.5 Joining a group by QR code
+
+Any member can show a code for a talk group:
+
+```
+eptt://join/<base64url TLV: group_id, group_name, invite_secret (32 bytes, tag 0x26),
+                            timestamp (expiry, ms), member_card (the inviter's signed card)>
+```
+
+The code never contains the group key. It is valid for 24 hours; making a new code
+retires the old ones.
+
+```
+join_channel_id = SHA-256("ePTT/1 join-id" || invite_secret)[0..16]
+join_key        = HKDF(ikm=invite_secret, salt="ePTT/1 join", info=join_channel_id, L=32)
+```
+
+1. The scanner adds the inviter from the card, then sends GROUP_JOIN, sealed like any
+   packet (§6) with `join_key`, epoch 0, and `join_channel_id` as the channel ID. It goes
+   to the inviter's last known addresses and relay mailbox. The body carries the scanner's
+   own signed card, whose sender ID must match the header's.
+2. The inviter finds the code by channel ID, opens and checks it (not expired, fresh
+   timestamp, sender matches the card), adds the scanner as a contact and group member,
+   and sends GROUP_INVITE (§6.3) to every member, the new one included. The group key
+   therefore only ever travels sealed to each member's own keys.
+3. Existing members learn the new member's card from that GROUP_INVITE.
+
+Whoever holds the code can join until it expires: it is meant to be shown in person.
 
 ## 7. Bursts and floor control
 
