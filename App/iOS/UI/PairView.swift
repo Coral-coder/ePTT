@@ -3,9 +3,9 @@ import CoreImage.CIFilterBuiltins
 import SwiftUI
 import EPTTCore
 
-/// Pairing: face to face first (both phones add each other in one go), a link for anyone
-/// further away, a scanner for talk-group codes, and your contacts. Contact QR codes are off:
-/// they needed a scan each way.
+/// Contacts, with a + menu to add someone: optical handshake (both phones add each other in
+/// one go), your share link, or a talk group's code. Contact QR codes are off: they needed a
+/// scan each way.
 struct PairView: View {
     @EnvironmentObject private var model: AppModel
     @State private var uri: String?
@@ -18,40 +18,23 @@ struct PairView: View {
                 GridBackground(horizon: 0.92, energy: 0.8)
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
-                        ScreenTitle(text: "Pair")
-                        Text("Tap Optical handshake below on both phones, then hold them screen to screen. They swap keys, addresses and forward-secrecy keys in one go, and you can talk straight away. No server, no directory.")
-                            .font(NX.body(15))
-                            .foregroundStyle(Color(hex: 0xAEEEF8))
-
-                        Button {
-                            facePairing = true
-                        } label: {
-                            FacePairHero()
-                        }
-                        .buttonStyle(.plain)
-                        .frame(maxWidth: .infinity)
-                        .accessibilityLabel("Optical handshake")
-                        .accessibilityHint("Starts the handshake. Do the same on the other phone, then hold them screen to screen.")
-
-                        Text("Not together? Send your link. It carries your current addresses, so send a fresh one if it has been a while.")
-                            .font(NX.body(13))
-                            .foregroundStyle(NX.textMuted)
-
-                        HStack(spacing: 12) {
-                            if let uri {
-                                ShareLink(item: uri) { Text("SHARE LINK") }
-                                    .buttonStyle(NXButtonStyle(kind: .glass))
-                            }
-                            Button("JOIN A GROUP") { scanning = true }
-                                .buttonStyle(NXButtonStyle(kind: .glass))
-                                .accessibilityHint("Scan a talk group's code, or paste a link")
+                        HStack(alignment: .center) {
+                            ScreenTitle(text: "Contacts")
+                            Spacer()
+                            addMenu
                         }
 
-                        SectionCaption(text: "Contacts").padding(.top, 10)
                         if model.snapshot.contacts.isEmpty {
-                            Text("Nobody yet. Do an optical handshake, or open a link someone sends you.")
-                                .font(NX.body(14))
-                                .foregroundStyle(NX.textMuted)
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Nobody yet.")
+                                    .font(NX.label(17, .semibold))
+                                    .foregroundStyle(NX.text)
+                                Text("Tap + and choose Optical handshake on both phones, then hold them screen to screen. They swap keys, addresses and forward-secrecy keys in one go. Not together? Tap + and send your link.")
+                                    .font(NX.body(14))
+                                    .foregroundStyle(NX.textMuted)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .padding(.top, 8)
                         }
                         VStack(spacing: 10) {
                             ForEach(model.snapshot.contacts) { contact in
@@ -75,42 +58,33 @@ struct PairView: View {
         .fullScreenCover(isPresented: $facePairing) { FacePairView() }
         .onAppear { model.engine.myCardURI { uri = $0 } }
     }
-}
 
-/// The big round face-to-face button: a glowing ring with a slowly turning orbit inside.
-private struct FacePairHero: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { context in
-            let t = context.date.timeIntervalSinceReferenceDate
-            ZStack {
-                Circle()
-                    .fill(RadialGradient(colors: [NX.cyan.opacity(0.28), NX.deep[1].opacity(0.9)],
-                                         center: .center, startRadius: 4, endRadius: 120))
-                Circle().strokeBorder(NX.cyan.opacity(0.8), lineWidth: 2)
-                    .shadow(color: NX.cyan.opacity(0.9), radius: 12)
-                ForEach(0..<3) { ring in
-                    Circle()
-                        .trim(from: 0, to: 0.62 - 0.12 * Double(ring))
-                        .stroke(NX.ice.opacity(0.75 - 0.18 * Double(ring)),
-                                style: StrokeStyle(lineWidth: 5 - CGFloat(ring), lineCap: .round))
-                        .frame(width: 150 - CGFloat(ring) * 34, height: 150 - CGFloat(ring) * 34)
-                        .rotationEffect(.degrees(t * (ring % 2 == 0 ? 40 : -55) + Double(ring) * 70))
-                }
-                Capsule().fill(NX.whiteHot).frame(width: 6, height: 38).offset(y: -44)
-                    .shadow(color: NX.cyan, radius: 6)
-                VStack(spacing: 4) {
-                    Image(systemName: "iphone.radiowaves.left.and.right")
-                        .font(.system(size: 22, weight: .semibold))
-                    Text("OPTICAL\nHANDSHAKE").font(NX.label(13, .bold)).tracking(2).multilineTextAlignment(.center)
-                    Text("TAP TO START").font(NX.label(10, .semibold)).tracking(1.5).opacity(0.7)
-                }
-                .foregroundStyle(NX.whiteHot)
-                .offset(y: 30)
+    private var addMenu: some View {
+        Menu {
+            Button {
+                facePairing = true
+            } label: {
+                Label("Optical handshake", systemImage: "iphone.radiowaves.left.and.right")
             }
-            .frame(width: 210, height: 210)
+            if let uri {
+                ShareLink(item: uri) { Label("Share my link", systemImage: "square.and.arrow.up") }
+            }
+            Button {
+                scanning = true
+            } label: {
+                Label("Join a group", systemImage: "qrcode.viewfinder")
+            }
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(NX.whiteHot)
+                .frame(width: 46, height: 46)
+                .background(GlassBackground(shape: Circle(), glow: 0.3))
+                .overlay(Circle().strokeBorder(NX.cyan.opacity(0.7), lineWidth: 1))
+                .shadow(color: NX.cyan.opacity(0.5), radius: 8)
         }
+        .accessibilityLabel("Add")
+        .accessibilityHint("Optical handshake, share your link, or join a group")
     }
 }
 

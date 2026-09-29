@@ -12,7 +12,7 @@ enum NXTab: String, CaseIterable, Identifiable {
         switch self {
         case .talk: return "Talk"
         case .channels: return "Channels"
-        case .pair: return "Pair"
+        case .pair: return "Contacts"
         case .activity: return "Activity"
         case .settings: return "Settings"
         }
@@ -22,7 +22,7 @@ enum NXTab: String, CaseIterable, Identifiable {
         switch self {
         case .talk: return "mic"
         case .channels: return "list.bullet"
-        case .pair: return "qrcode"
+        case .pair: return "person.2"
         case .activity: return "waveform.path.ecg"
         case .settings: return "slider.horizontal.3"
         }

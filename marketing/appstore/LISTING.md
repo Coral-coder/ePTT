@@ -106,7 +106,7 @@ NXTPTT is a push-to-talk walkie-talkie. There is no account or sign-in.
 
 Testing needs two devices with NXTPTT installed (two iPhones, or an iPhone and an iPad):
 1. On first launch, enter any name.
-2. Pair them: on both devices open Pair → OPTICAL HANDSHAKE and hold the screens together, tops touching, about 15–20 cm apart, until both show the same safety code.
+2. Pair them: on both devices open Contacts → + → Optical handshake and hold the screens together, tops touching, about 15–20 cm apart, until both show the same safety code.
 3. Go to Talk, hold the orb on one device and speak; the other device plays it live with a chirp. It also plays when the receiving device is locked, through the Push to Talk framework.
 4. Channels → + creates a talk group; the QR button on a group invites others.
 
