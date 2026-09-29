@@ -1,0 +1,39 @@
+# One-time (or yearly, when the certificate expires): makes the Apple Development certificate
+# the TestFlight workflow signs with, and stores it as the DEV_CERT_P12 / DEV_CERT_PASSWORD
+# secrets of the Coral environment. The certificate goes straight from the runner into GitHub
+# Secrets: nothing is printed, uploaded as an artifact or committed.
+# Needs a SECRETS_TOKEN secret in the Coral environment: a fine-grained token for this repo
+# with Environments and Secrets read/write. Run it from Actions → Make signing certificate →
+# Run workflow, then delete the token.
+name: Make signing certificate
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  make:
+    runs-on: ubuntu-latest
+    environment: Coral
+    env:
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Make the certificate and store it as secrets
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          SECRETS_TOKEN: ${{ secrets.SECRETS_TOKEN }}
+        run: |
+          if [ -z "$SECRETS_TOKEN" ]; then echo "::error::Add a SECRETS_TOKEN secret to the Coral environment first"; exit 1; fi
+          umask 077
+          key_dir=$(mktemp -d)
+          printf '%s\n' "$ASC_KEY_P8" > "$key_dir/AuthKey.p8"
+          python3 -m venv "$key_dir/venv"
+          "$key_dir/venv/bin/pip" install --quiet cryptography pynacl
+          status=0
+          ASC_KEY_PATH="$key_dir/AuthKey.p8" "$key_dir/venv/bin/python" tools/release/make_signing_cert.py || status=$?
+          rm -rf "$key_dir"
+          exit $status
