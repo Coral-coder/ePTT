@@ -358,3 +358,13 @@ final class GroupJoinTests: XCTestCase {
         XCTAssertNil(GroupJoin.open(packet, codes: [code], maxAge: 3600))
     }
 }
+
+final class HelloFlagTests: XCTestCase {
+    func testDoNotDisturbFlagsRoundTrip() throws {
+        let hello = Hello(name: "Sam", timestamp: currentTimestamp(), reachability: .init(),
+                          flags: Hello.replyRequested | Hello.doNotDisturb | Hello.breaksThrough)
+        let decoded = try Hello(decoding: hello.encoded)
+        XCTAssertTrue(decoded.wantsReply && decoded.isDoNotDisturb && decoded.recipientBreaksThrough)
+        XCTAssertFalse(try Hello(decoding: Hello(name: "", timestamp: 1, reachability: .init()).encoded).isDoNotDisturb)
+    }
+}

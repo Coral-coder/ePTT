@@ -162,7 +162,8 @@ struct ContactRow: View {
             InitialsRing(name: contact.name, size: 40, lit: online)
             VStack(alignment: .leading, spacing: 2) {
                 Text(contact.name).font(NX.label(16, .bold)).foregroundStyle(NX.text)
-                Text(model.snapshot.peerRoutes[contact.id].map { "Connected · \($0.shortLabel)" } ?? (contact.isWakeable ? "Not connected · wakes by push" : "Not connected"))
+                Text((model.snapshot.peerQuiet[contact.id] != nil ? "Do Not Disturb · " : "")
+                     + (model.snapshot.peerRoutes[contact.id].map { "Connected · \($0.shortLabel)" } ?? (contact.isWakeable ? "Not connected · wakes by push" : "Not connected")))
                     .font(NX.body(13))
                     .foregroundStyle(NX.textDim)
             }
@@ -201,6 +202,23 @@ struct ContactDetailView: View {
                     }
                 } label: { Label("Talk privately", systemImage: "mic") }
                 Button { model.engine.sendCallAlert(to: contact.id) } label: { Label("Call alert", systemImage: "bell.badge") }
+            }
+            .nxRows()
+            Section {
+                Toggle(isOn: Binding(
+                    get: { model.snapshot.settings.priorityContacts.contains(contact.id) },
+                    set: { model.engine.setPriority(contact.id, $0) }
+                )) {
+                    Label("Priority", systemImage: "star")
+                }
+            } header: {
+                SectionCaption(text: "Do Not Disturb")
+            } footer: {
+                Text(model.snapshot.peerQuiet[contact.id].map { $0
+                        ? "\(contact.name) is on Do Not Disturb, and you break through."
+                        : "\(contact.name) is on Do Not Disturb: your messages are held on their phone until they're done." }
+                     ?? "Priority contacts' messages and call alerts play even when you're on Do Not Disturb.")
+                    .font(NX.body(13))
             }
             .nxRows()
             Section {

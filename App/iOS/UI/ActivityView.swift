@@ -68,7 +68,7 @@ struct TransferRow: View {
                 if let reason = leg.reason {
                     Text(reason)
                         .font(NX.body(12))
-                        .foregroundStyle(Color(hex: 0xFF8A8A, opacity: 0.8))
+                        .foregroundStyle(leg.route == .failed ? Color(hex: 0xFF8A8A, opacity: 0.8) : NX.textMuted)
                         .padding(.leading, 26)
                 }
             }

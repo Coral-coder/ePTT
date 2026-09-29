@@ -85,6 +85,7 @@ struct TalkView: View {
                 VStack(spacing: 16) {
                     header
                     ChannelCapsule()
+                    QuietBar()
                     status
                     Spacer(minLength: 0)
                     orb(diameter: max(150, min(300, geo.size.width - 60, geo.size.height * (model.selectedChannel?.kind == .group ? 0.34 : 0.44))))
@@ -127,6 +128,7 @@ struct TalkView: View {
                 .neonGlow(NX.cyan, radius: 10)
                 .accessibilityAddTraits(.isHeader)
             Spacer()
+            DoNotDisturbButton()
             Button {
                 model.tab = .settings
             } label: {
@@ -386,7 +388,12 @@ struct ChannelCapsule: View {
         }
         let online = channel.members.filter { model.snapshot.onlinePeers.contains($0) }.count
         if channel.kind == .group {
+            let quiet = channel.members.filter { model.snapshot.peerQuiet[$0] == false }.count
             return "Talk group · \(online + 1) of \(channel.members.count + 1) on the grid"
+                + (quiet > 0 ? " · \(quiet) on Do Not Disturb" : "")
+        }
+        if let peer = channel.members.first, let breaksThrough = model.snapshot.peerQuiet[peer] {
+            return breaksThrough ? "Do Not Disturb · you break through" : "Do Not Disturb · your messages are held"
         }
         return online > 0 ? "Private · on the grid" : "Private · wakes by push"
     }
@@ -520,5 +527,145 @@ struct GroupHistory: View {
     private func age(_ date: Date, now: Date) -> String {
         let minutes = Int(now.timeIntervalSince(date) / 60)
         return minutes < 1 ? "now" : "\(minutes)m ago"
+    }
+}
+
+// MARK: - Do Not Disturb
+
+/// The moon in the header: Do Not Disturb for a while, or until turned off.
+struct DoNotDisturbButton: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var choosingTime = false
+
+    private var on: Bool { model.snapshot.settings.quietUntil.map { $0 > Date() } ?? false }
+
+    var body: some View {
+        Menu {
+            if on {
+                Button { model.engine.setDoNotDisturb(until: nil) } label: { Label("Turn off", systemImage: "moon.zzz") }
+            }
+            Button { model.engine.setDoNotDisturb(until: .distantFuture) } label: { Label("Until I turn it off", systemImage: "moon") }
+            Button { model.engine.setDoNotDisturb(until: Date().addingTimeInterval(3600)) } label: { Label("For 1 hour", systemImage: "clock") }
+            Button { model.engine.setDoNotDisturb(until: Self.nextMorning()) } label: { Label("Until 8 AM", systemImage: "sunrise") }
+            Button { choosingTime = true } label: { Label("Until a time…", systemImage: "clock.badge") }
+        } label: {
+            Image(systemName: on ? "moon.fill" : "moon")
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(on ? NX.ink : NX.frost)
+                .frame(width: 44, height: 44)
+                .background {
+                    if on {
+                        Circle().fill(NX.frost).shadow(color: NX.cyan.opacity(0.7), radius: 8)
+                    } else {
+                        GlassBackground(shape: Circle(), glow: 0.25)
+                    }
+                }
+        }
+        .accessibilityLabel("Do Not Disturb")
+        .accessibilityValue(on ? "On" : "Off")
+        .sheet(isPresented: $choosingTime) { QuietUntilPicker() }
+    }
+
+    static func nextMorning(from now: Date = Date()) -> Date {
+        let calendar = Calendar.current
+        let today8 = calendar.date(bySettingHour: 8, minute: 0, second: 0, of: now) ?? now
+        return today8 > now ? today8 : calendar.date(byAdding: .day, value: 1, to: today8) ?? today8
+    }
+}
+
+/// Pick when Do Not Disturb ends.
+private struct QuietUntilPicker: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var time = Date().addingTimeInterval(2 * 3600)
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 20) {
+                DatePicker("Until", selection: $time, in: Date()..., displayedComponents: [.date, .hourAndMinute])
+                    .datePickerStyle(.wheel)
+                    .labelsHidden()
+                Text("Messages are kept on this phone, not played, until then. Then they play one after another. Priority contacts still come through.")
+                    .font(NX.body(14))
+                    .foregroundStyle(NX.textDim)
+                    .multilineTextAlignment(.center)
+                Button("SET") {
+                    model.engine.setDoNotDisturb(until: time)
+                    dismiss()
+                }
+                .buttonStyle(NXButtonStyle(kind: .gel))
+                Spacer()
+            }
+            .padding(22)
+            .background(GridBackground(horizon: 0.96, energy: 0.6, moving: false))
+            .navigationTitle("Do Not Disturb until")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+        }
+        .preferredColorScheme(.dark)
+        .presentationDetents([.medium, .large])
+    }
+}
+
+/// Under the channel: Do Not Disturb status, and held messages ready to play.
+struct QuietBar: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            let until = model.snapshot.settings.quietUntil.flatMap { $0 > context.date ? $0 : nil }
+            let held = model.snapshot.held
+            if until != nil || !held.isEmpty {
+                HStack(spacing: 10) {
+                    if let until {
+                        Image(systemName: "moon.fill").foregroundStyle(NX.frost)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("DO NOT DISTURB").font(NX.label(12, .bold)).tracking(1.5).foregroundStyle(NX.text)
+                            Text(Self.untilText(until, now: context.date)).font(NX.body(12)).foregroundStyle(NX.textDim)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                    if !held.isEmpty {
+                        Button {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            model.engine.playHeld()
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: model.snapshot.playingHeld ? "speaker.wave.2.fill" : "play.fill")
+                                    .font(.system(size: 11, weight: .bold))
+                                Text("\(held.count) HELD").font(NX.label(12, .bold)).tracking(1.2)
+                            }
+                            .foregroundStyle(NX.ink)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(Capsule().fill(NX.frost))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(model.snapshot.playingHeld)
+                        .contextMenu {
+                            Button(role: .destructive) { model.engine.discardHeld() } label: {
+                                Label("Delete held messages", systemImage: "trash")
+                            }
+                        }
+                        .accessibilityLabel("Play \(held.count) held messages")
+                    }
+                    if until != nil {
+                        Button("Turn off") { model.engine.setDoNotDisturb(until: nil) }
+                            .font(NX.body(13, .semibold))
+                            .foregroundStyle(NX.frost)
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .glass(cornerRadius: 16, glow: 0.12)
+            }
+        }
+    }
+
+    static func untilText(_ until: Date, now: Date) -> String {
+        if until == .distantFuture { return "Until you turn it off · messages are held" }
+        let time = until.formatted(date: .omitted, time: .shortened)
+        let day = Calendar.current.isDate(until, inSameDayAs: now) ? "" : " tomorrow"
+        return "Until \(time)\(day) · messages are held"
     }
 }

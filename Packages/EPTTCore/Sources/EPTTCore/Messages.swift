@@ -13,6 +13,10 @@ public func currentTimestamp(_ date: Date = Date()) -> UInt64 {
 /// HELLO (0x01): identity refresh, reachability and keep-alive on a direct channel.
 public struct Hello: Equatable {
     public static let replyRequested: UInt8 = 0x01
+    /// The sender is on Do Not Disturb: their phone holds messages instead of playing them.
+    public static let doNotDisturb: UInt8 = 0x02
+    /// Sent with `doNotDisturb` to a contact the sender marked as priority: you break through.
+    public static let breaksThrough: UInt8 = 0x04
 
     public var name: String
     public var timestamp: UInt64
@@ -27,6 +31,8 @@ public struct Hello: Equatable {
     }
 
     public var wantsReply: Bool { flags & Hello.replyRequested != 0 }
+    public var isDoNotDisturb: Bool { flags & Hello.doNotDisturb != 0 }
+    public var recipientBreaksThrough: Bool { flags & Hello.breaksThrough != 0 }
 
     public var encoded: Data {
         var b = TLVBuilder()

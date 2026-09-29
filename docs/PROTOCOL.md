@@ -211,7 +211,7 @@ A receiver drops a packet without responding when any of these hold:
 
 | Type | Name | seq | Plaintext |
 | --- | --- | --- | --- |
-| 0x01 | HELLO | 0 | TLV: name, timestamp, apns_ptt_token?, apns_device_token?, apns_env?, candidate*, apns_topic?, flags, relay_mailbox?, prekey?. Flags bit 0 = "reply with a HELLO". Direct channels only. |
+| 0x01 | HELLO | 0 | TLV: name, timestamp, apns_ptt_token?, apns_device_token?, apns_env?, candidate*, apns_topic?, flags, relay_mailbox?, prekey?. Flags: bit 0 = "reply with a HELLO"; bit 1 = the sender is on Do Not Disturb; bit 2 (with bit 1) = you, the recipient, break through it. Direct channels only. |
 | 0x02 | BURST_START | 0 | TLV: timestamp, codec, sample_rate, frame_ms, signature, ephemeral_pk, envelope* (one per recipient, §6.2), flags? |
 | 0x03 | VOICE | index of the first frame | `count: u8`, then `count` × (`len: u16`, frame bytes) |
 | 0x04 | BURST_END | total frame count | TLV: timestamp, frame_count |
@@ -229,6 +229,14 @@ Ed25519(sign_sk, "ePTT/1 burst" || channel_id || sender_id || burst_id || timest
 ```
 
 The envelopes are hashed in the order they appear.
+
+**Do Not Disturb.** A phone on Do Not Disturb sets HELLO bit 1 in the HELLOs it
+sends. It sets bit 2 as well for contacts it has marked as priority. Senders don't
+send wake pushes to a contact on Do Not Disturb unless they break through, and they
+report the message as held. The receiving phone doesn't play held messages: it
+records them, keeps them only on the device, and plays them in order afterwards. A
+relayed message held by the notification extension is deleted from the relay at
+once. Held messages are discarded after 24 hours.
 
 BURST_START `flags` (tag 0x09, u8) is optional. Bit 0 set means the talker allows
 recipients to replay this message; absent or clear means they must not. Recipients

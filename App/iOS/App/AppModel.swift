@@ -163,6 +163,15 @@ final class AppModel: ObservableObject {
     /// One line per transmission: "Delivered to Sam · Wi-Fi", "Sent to Sam via iCloud relay",
     /// or "Not delivered to Sam: <reason>".
     static func deliverySummary(_ legs: [TransferRecord.Leg]) -> String? {
+        guard let summary = baseDeliverySummary(legs) else { return nil }
+        // Recipients on Do Not Disturb got it, but their phone holds it for later.
+        let held = legs.filter { $0.route != .failed && ($0.reason?.contains("Do Not Disturb") ?? false) }.map(\.peer)
+        guard !held.isEmpty else { return summary }
+        let who = held.count == 1 ? held[0] : "\(held[0]) and \(held.count - 1) more"
+        return summary + " · held by \(who) (Do Not Disturb)"
+    }
+
+    private static func baseDeliverySummary(_ legs: [TransferRecord.Leg]) -> String? {
         guard !legs.isEmpty else { return nil }
         if let failed = legs.first(where: { $0.route == .failed }) {
             let others = legs.filter { $0.route == .failed }.count - 1

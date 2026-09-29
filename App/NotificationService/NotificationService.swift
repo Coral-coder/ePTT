@@ -20,12 +20,16 @@ final class NotificationService: UNNotificationServiceExtension {
 
         // A call alert pushed straight from the other phone: decrypt it and use the four beeps.
         if let packet = APNsRequest.packet(fromPayload: request.content.userInfo) {
+            var quiet = false
             if let sync = RelayInbox.loadSnapshot(), let alert = RelayInbox.callAlert(packets: [packet], with: sync) {
-                content.title = "Call alert"
+                quiet = RelayInbox.loadQuiet().holds(alert.sender)
+                content.title = quiet ? "Call alert · Do Not Disturb" : "Call alert"
                 content.body = "\(alert.name) is trying to reach you" + (alert.text.map { ": \($0)" } ?? "")
                 content.threadIdentifier = "call-alert"
             }
-            if let sound = RelayInbox.writeCallAlertSound() {
+            if quiet {
+                content.sound = nil
+            } else if let sound = RelayInbox.writeCallAlertSound() {
                 content.sound = UNNotificationSound(named: UNNotificationSoundName(sound))
             }
             deliver()
@@ -49,9 +53,12 @@ final class NotificationService: UNNotificationServiceExtension {
             guard let payload = try? await relay.fetch(recordName: record) else { return }
             // A call alert: the Nextel page, four beeps.
             if let alert = RelayInbox.callAlert(in: payload, with: sync) {
-                content.title = "Call alert"
+                let quiet = RelayInbox.loadQuiet().holds(alert.sender)
+                content.title = quiet ? "Call alert · Do Not Disturb" : "Call alert"
                 content.body = "\(alert.name) is trying to reach you" + (alert.text.map { ": \($0)" } ?? "")
-                if let sound = RelayInbox.writeCallAlertSound() {
+                if quiet {
+                    content.sound = nil
+                } else if let sound = RelayInbox.writeCallAlertSound() {
                     content.sound = UNNotificationSound(named: UNNotificationSoundName(sound))
                 }
                 RelayInbox.markHeard(.init(record: record, talker: alert.name, channel: alert.name, seconds: 0,
@@ -77,6 +84,20 @@ final class NotificationService: UNNotificationServiceExtension {
                 return
             }
             guard let message = RelayInbox.open(payload, with: sync) else { return }
+            // Do Not Disturb: keep it on this phone, silently, and take it out of the relay now.
+            if RelayInbox.loadQuiet().holds(message.sender) {
+                RelayInbox.hold(.init(id: record, date: Date(), talker: message.talker, channel: message.channel,
+                                      seconds: message.seconds, source: .relay), audio: payload)
+                RelayInbox.markHeard(.init(record: record, talker: message.talker, channel: message.channel,
+                                           seconds: message.seconds, sound: "", date: Date()))
+                await relay.delete(recordName: record)
+                content.title = message.talker
+                let length = String(format: "%.0f s", message.seconds.rounded(.up))
+                content.body = "Held · \(message.channel == message.talker ? "voice message" : message.channel) · \(length) · Do Not Disturb"
+                content.sound = nil
+                content.threadIdentifier = "held"
+                return
+            }
             RelayInbox.saveLastReceived(.init(date: Date(), talker: message.talker, channel: message.channel,
                                               seconds: message.seconds, replayable: message.allowsReplay,
                                               source: .relay), audio: payload)

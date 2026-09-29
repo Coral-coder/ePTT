@@ -20,6 +20,11 @@ struct Settings: Codable, Equatable {
     var rogerBeep = false
     /// Mark what we send as replayable: recipients may play it again for an hour.
     var allowReplay = false
+    /// Do Not Disturb until this moment (`distantFuture`: until turned off); nil when off.
+    /// Messages are held on the phone instead of played, except from priority contacts.
+    var quietUntil: Date?
+    /// Contacts whose messages and call alerts break through Do Not Disturb.
+    var priorityContacts: [IdentityID] = []
     var selectedChannel: ChannelID?
 
     var parsedStaticCandidates: [Candidate] {
@@ -121,6 +126,13 @@ struct PersistedState: Codable {
     var transfers: [TransferRecord] = []
     /// Talk-group QR codes we handed out (encoded `GroupJoinCode`s), until they expire.
     var joinCodes: [Data] = []
+    /// Contacts who told us (HELLO) they're on Do Not Disturb, and whether we break through.
+    var peerQuiet: [PeerQuiet] = []
+}
+
+struct PeerQuiet: Codable, Equatable {
+    var id: IdentityID
+    var breaksThrough: Bool
 }
 
 enum Store {
@@ -166,6 +178,8 @@ extension Settings {
         deepChirp = try c.decodeIfPresent(Bool.self, forKey: .deepChirp) ?? d.deepChirp
         rogerBeep = try c.decodeIfPresent(Bool.self, forKey: .rogerBeep) ?? d.rogerBeep
         allowReplay = (try? c.decodeIfPresent(Bool.self, forKey: .allowReplay)) ?? d.allowReplay
+        quietUntil = try? c.decodeIfPresent(Date.self, forKey: .quietUntil)
+        priorityContacts = (try? c.decodeIfPresent([IdentityID].self, forKey: .priorityContacts)) ?? []
         selectedChannel = try c.decodeIfPresent(ChannelID.self, forKey: .selectedChannel)
     }
 }
@@ -184,6 +198,7 @@ extension PersistedState {
         relayUploads = (try? c.decodeIfPresent([String: Date].self, forKey: .relayUploads)) ?? [:]
         transfers = (try? c.decodeIfPresent(Lossy<TransferRecord>.self, forKey: .transfers))?.items ?? []
         joinCodes = (try? c.decodeIfPresent([Data].self, forKey: .joinCodes)) ?? []
+        peerQuiet = (try? c.decodeIfPresent([PeerQuiet].self, forKey: .peerQuiet)) ?? []
     }
 }
 

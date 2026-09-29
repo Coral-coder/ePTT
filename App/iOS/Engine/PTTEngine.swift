@@ -38,6 +38,12 @@ struct EngineSnapshot {
     var peerRoutes: [IdentityID: Route] = [:]
     /// The last message received, when its talker allowed replay and it is under an hour old.
     var replayable: ReplayableInfo?
+    /// Messages held by Do Not Disturb, oldest first.
+    var held: [RelayInbox.Held] = []
+    /// Playing held messages one after another.
+    var playingHeld = false
+    /// Contacts on Do Not Disturb, and whether we break through for them.
+    var peerQuiet: [IdentityID: Bool] = [:]
 }
 
 struct ReplayableInfo: Equatable {
@@ -167,8 +173,17 @@ final class PTTEngine {
         /// Replaying decoded audio (a message a notification played) instead of frames.
         var pcm: [AVAudioPCMBuffer]?
         var pcmEnds: Date?
+        /// Do Not Disturb: record silently instead of playing, and keep it for later.
+        var held = false
+        /// Playing this held message; delete it once it has played to the end.
+        var heldID: String?
     }
     private var rx: Reception?
+    /// Held messages still to play in this run ("play held").
+    private var heldQueue: [RelayInbox.Held] = []
+    /// Do Not Disturb ended: play what was held as soon as we're on screen.
+    private var heldAutoplayPending = false
+    private var wasQuiet = false
     private var playoutTimer: DispatchSourceTimer?
     private var earlyVoice = ExpiringQueue<MessageID, (UInt32, [Data])>()
     /// Burst packets that arrived before their BURST_START could be opened.
@@ -273,6 +288,7 @@ final class PTTEngine {
 
     private func housekeeping() {
         let now = Date()
+        if isQuiet != wasQuiet { quietChanged() }   // a timed Do Not Disturb ran out
         apply(floor.tick(now: now))
         // Links go stale silently (nothing arrives), so re-check who is online on every tick;
         // otherwise the UI keeps showing a peer "on the grid" after the path has died.
@@ -524,6 +540,11 @@ final class PTTEngine {
         tx?.woken.insert(contact.senderID)
         // Their last known addresses may still work; a HELLO costs nothing.
         sendHello(to: contact, replyRequested: true, endpoints: [], candidates: contact.reachability.candidates)
+        if let quiet = state.peerQuiet.first(where: { $0.id == contact.id }), !quiet.breaksThrough {
+            // They're on Do Not Disturb: don't light up their phone; it holds the message.
+            noteWake(contact, "not sent: they're on Do Not Disturb")
+            return
+        }
         guard let apns else {
             noteWake(contact, "not sent: this build has no push key")
             return
@@ -686,8 +707,12 @@ final class PTTEngine {
             rx = r
             apply(floor.remoteBurstEnded(channel: r.channel.id, burst: burst), draining: true)
         case .callAlert(let alert):
-            audioOrNotify(.callAlert, title: "Call alert", body: "\(alert.name) is trying to reach you")
-            emit(.callAlert(from: alert.name, text: alert.text))
+            if holds(sender) {
+                emit(.message("Call alert from \(contact(sender)?.name ?? alert.name) · held by Do Not Disturb"))
+            } else {
+                audioOrNotify(.callAlert, title: "Call alert", body: "\(alert.name) is trying to reach you")
+                emit(.callAlert(from: alert.name, text: alert.text))
+            }
         case .wake(let wake):
             if let contact = self.contact(sender) { respondToWake(wake, from: contact) }
         case .groupInvite(let invite):
@@ -712,6 +737,12 @@ final class PTTEngine {
         guard let i = contactsBySender[sender] else { return }
         if state.contacts[i].apply(hello: hello) { save() }
         let contact = state.contacts[i]
+        let quiet = hello.isDoNotDisturb ? PeerQuiet(id: contact.id, breaksThrough: hello.recipientBreaksThrough) : nil
+        if state.peerQuiet.first(where: { $0.id == contact.id }) != quiet {
+            state.peerQuiet.removeAll { $0.id == contact.id }
+            if let quiet { state.peerQuiet.append(quiet) }
+            save()
+        }
         if hello.wantsReply {
             // Over UDP we reply on the same path. A HELLO relayed by push has no path, so punch
             // towards every candidate it lists (PROTOCOL.md §8.2).
@@ -749,8 +780,16 @@ final class PTTEngine {
         for (index, frames) in earlyVoice.take(burst) {
             for (offset, frame) in frames.enumerated() { r.jitter.insert(index: index + UInt32(offset), frame: frame) }
         }
-        rx = r
         pendingWake = nil
+        if holds(sender) {
+            // Do Not Disturb: no tone, no audio session, no talker on screen; just record it.
+            r.held = true
+            rx = r
+            startPlayout()
+            publish()
+            return
+        }
+        rx = r
         audio.beginPlayback(codec: start?.codec ?? .opus, sampleRate: start?.sampleRate ?? 48_000,
                             frameMilliseconds: start?.frameMilliseconds ?? 20)
         if usesPushToTalk {
@@ -770,10 +809,39 @@ final class PTTEngine {
         guard let finished = rx else { return }
         rx = nil
         if finished.isReplay {
-            finishStop(playEndTone: playEndTone)
+            if let id = finished.heldID, playEndTone {
+                // Played to the end: it's been heard, so it goes.
+                RelayInbox.removeHeld(id)
+                heldQueue.removeAll { $0.id == id }
+            }
+            finishStop(playEndTone: playEndTone && finished.heldID == nil)
+            if finished.heldID != nil {
+                queue.asyncAfter(deadline: .now() + 0.8) { [weak self] in self?.playNextHeld() }
+            }
             return
         }
         processor.forgetBurst(sender: finished.sender, burst: finished.burst)
+        if finished.held {
+            playoutTimer?.cancel()
+            playoutTimer = nil
+            let seconds = Double(finished.recorded.count * finished.frameMilliseconds) / 1000
+            if !finished.recorded.isEmpty {
+                RelayInbox.hold(.init(id: UUID().uuidString, date: Date(), talker: finished.talker,
+                                      channel: displayName(of: finished.channel), seconds: seconds, source: .frames,
+                                      codec: finished.codec.rawValue, sampleRate: finished.sampleRate,
+                                      frameMilliseconds: UInt8(clamping: finished.frameMilliseconds)),
+                                audio: RelayInbox.encodeFrames(finished.recorded))
+                logTransfer(TransferRecord(date: Date(), outgoing: false, channel: displayName(of: finished.channel),
+                                           seconds: seconds,
+                                           legs: [.init(peer: self.contact(finished.sender)?.name ?? "?", route: finished.route,
+                                                        reason: "held · Do Not Disturb")]))
+            }
+            if !relayQueue.isEmpty {
+                queue.asyncAfter(deadline: .now() + 0.2) { [weak self] in self?.playNextRelayed() }
+            }
+            publish()
+            return
+        }
         if finished.framesPlayed > 0 {
             // Only the latest message is kept; its audio only if the talker allowed replay.
             RelayInbox.saveLastReceived(.init(date: Date(), talker: finished.talker,
@@ -829,6 +897,21 @@ final class PTTEngine {
     private func playoutTick() {
         // Until iOS hands us the audio session, keep buffering: the listener hears the burst
         // time-shifted rather than clipped.
+        if var r = rx, r.held {
+            // Held: drain the jitter buffer at the normal pace, recording instead of playing.
+            let pulled = r.jitter.pull()
+            switch pulled {
+            case .frame(let frame): r.recorded.append(frame)
+            case .missing: r.recorded.append(nil)
+            case .waiting: break
+            case .finished:
+                rx = r
+                stopReception(playEndTone: false)
+                return
+            }
+            rx = r
+            return
+        }
         guard audioActive, Date() >= playoutHold, var r = rx else { return }
         if let pcm = r.pcm {
             if let ends = r.pcmEnds {
@@ -861,46 +944,161 @@ final class PTTEngine {
     func replayLast() {
         queue.async { [self] in
             guard rx == nil, tx == nil, let last = RelayInbox.replayableLast() else { return }
-            let info = last.info, data = last.audio
-            let channel = state.channels.first { displayName(of: $0) == info.channel }
-                ?? state.settings.selectedChannel.flatMap { self.channel($0) } ?? state.channels.first
-            guard let channel else { return }
-            let talker = "Replay · " + info.talker
-            let nobody = try! SenderID(bytes: Data(count: 8))
-            var r = Reception(channel: channel, burst: .random(), sender: nobody, talker: talker, route: .internet)
-            r.isReplay = true
-            switch info.source {
-            case .frames:
-                let frames = RelayInbox.decodeFrames(data)
-                guard !frames.isEmpty, let codec = VoiceCodecID(rawValue: info.codec) else { return }
-                r.frameMilliseconds = Int(info.frameMilliseconds == 0 ? 20 : info.frameMilliseconds)
-                r.jitter = JitterBuffer(capacity: frames.count + 1)
-                for (i, frame) in frames.enumerated() {
-                    if let frame { r.jitter.insert(index: UInt32(i), frame: frame) }
-                }
-                r.jitter.markEnded(frameCount: UInt32(frames.count))
-                audio.beginPlayback(codec: codec, sampleRate: info.sampleRate,
-                                    frameMilliseconds: UInt8(clamping: r.frameMilliseconds))
-            case .relay:
-                guard let sync = RelayInbox.loadSnapshot(),
-                      let message = RelayInbox.open(data, with: sync, maxSeconds: .greatestFiniteMagnitude),
-                      !message.buffers.isEmpty else {
-                    emit(.message("That message can't be replayed any more"))
-                    return
-                }
-                r.pcm = message.buffers
+            let info = last.info
+            if !playStored(talker: "Replay · " + info.talker, channelName: info.channel, source: info.source,
+                           audio: last.audio, codec: info.codec, sampleRate: info.sampleRate,
+                           frameMilliseconds: info.frameMilliseconds, heldID: nil) {
+                emit(.message("That message can't be replayed any more"))
             }
-            rx = r
-            if usesPushToTalk {
-                ptt.setActiveRemoteParticipant(talker)
-                if audioActive { playIncomingTone() }
-            } else {
-                if !audioActive { startManualAudio() }
-                playIncomingTone()
+        }
+    }
+
+    // MARK: - Do Not Disturb
+
+    /// Whether a message from this sender is held rather than played right now.
+    private func holds(_ sender: SenderID) -> Bool {
+        guard let until = state.settings.quietUntil, until > Date() else { return false }
+        guard let contact = contact(sender) else { return true }
+        return !state.settings.priorityContacts.contains(contact.id)
+    }
+
+    private var isQuiet: Bool { state.settings.quietUntil.map { $0 > Date() } ?? false }
+
+    /// Turns Do Not Disturb on until a moment (`distantFuture`: until turned off), or off (nil).
+    func setDoNotDisturb(until: Date?) {
+        queue.async { [self] in
+            state.settings.quietUntil = until.flatMap { $0 > Date() ? $0 : nil }
+            save()
+            quietChanged()
+            scheduleQuietEndNotice()
+        }
+    }
+
+    func setPriority(_ id: IdentityID, _ priority: Bool) {
+        queue.async { [self] in
+            state.settings.priorityContacts.removeAll { $0 == id }
+            if priority { state.settings.priorityContacts.append(id) }
+            save()
+            syncQuiet()
+            if isQuiet, let contact = contact(id: id) {
+                sendHello(to: contact, replyRequested: false, endpoints: links[contact.senderID].map { [$0.endpoint] } ?? [],
+                          candidates: contact.reachability.candidates)
             }
-            startPlayout()
+        }
+    }
+
+    /// Plays every held message, oldest first, each deleted once it has played through.
+    func playHeld() {
+        queue.async { [self] in
+            heldQueue = RelayInbox.heldMessages()
+            heldAutoplayPending = false
+            playNextHeld()
+        }
+    }
+
+    func discardHeld() {
+        queue.async { [self] in
+            for item in RelayInbox.heldMessages() { RelayInbox.removeHeld(item.id) }
+            heldQueue = []
             publish()
         }
+    }
+
+    private func playNextHeld() {
+        guard rx == nil, tx == nil else { return }
+        while let next = heldQueue.first {
+            guard let audioData = RelayInbox.heldAudio(next),
+                  playStored(talker: "Held · " + next.talker, channelName: next.channel, source: next.source,
+                             audio: audioData, codec: next.codec, sampleRate: next.sampleRate,
+                             frameMilliseconds: next.frameMilliseconds, heldID: next.id) else {
+                RelayInbox.removeHeld(next.id)
+                heldQueue.removeFirst()
+                continue
+            }
+            return
+        }
+        publish()
+    }
+
+    /// Do Not Disturb turned on or off (or its time ran out): tell contacts, share with the
+    /// notification extension, and play what was held once it's over.
+    private func quietChanged() {
+        // Ran out while the app wasn't running: clear it, and play what was held when we can.
+        if let until = state.settings.quietUntil, until <= Date() {
+            state.settings.quietUntil = nil
+            save()
+            if !RelayInbox.heldMessages().isEmpty { heldAutoplayPending = true }
+        }
+        let quiet = isQuiet
+        syncQuiet()
+        if wasQuiet != quiet {
+            wasQuiet = quiet
+            announceReachability()
+            if !quiet, !RelayInbox.heldMessages().isEmpty {
+                heldAutoplayPending = true
+                if isForeground { playHeld() }
+            }
+        }
+        publish()
+    }
+
+    private func syncQuiet() {
+        let priority = state.settings.priorityContacts.compactMap { id in contact(id: id)?.senderID.bytes }
+        RelayInbox.saveQuiet(.init(until: isQuiet ? state.settings.quietUntil : nil, priority: priority))
+    }
+
+    /// A reminder when a timed Do Not Disturb ends (the app can't start playing by itself in the
+    /// background): tap it and the held messages play.
+    private func scheduleQuietEndNotice() {
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: ["dnd-end"])
+        guard let until = state.settings.quietUntil, until != .distantFuture, until > Date() else { return }
+        let content = UNMutableNotificationContent()
+        content.title = "Do Not Disturb is over"
+        content.body = "Tap to hear any messages that were held."
+        content.threadIdentifier = "held"
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: until.timeIntervalSinceNow, repeats: false)
+        center.add(UNNotificationRequest(identifier: "dnd-end", content: content, trigger: trigger))
+    }
+
+    /// Plays a stored message (replay or held) through the normal playback path.
+    private func playStored(talker: String, channelName: String, source: RelayInbox.LastReceived.Source, audio data: Data,
+                            codec codecID: UInt8, sampleRate: UInt32, frameMilliseconds: UInt8, heldID: String?) -> Bool {
+        let channel = state.channels.first { displayName(of: $0) == channelName }
+            ?? state.settings.selectedChannel.flatMap { self.channel($0) } ?? state.channels.first
+        guard let channel else { return false }
+        let nobody = try! SenderID(bytes: Data(count: 8))
+        var r = Reception(channel: channel, burst: .random(), sender: nobody, talker: talker, route: .internet)
+        r.isReplay = true
+        r.heldID = heldID
+        switch source {
+        case .frames:
+            let frames = RelayInbox.decodeFrames(data)
+            guard !frames.isEmpty, let codec = VoiceCodecID(rawValue: codecID) else { return false }
+            r.frameMilliseconds = Int(frameMilliseconds == 0 ? 20 : frameMilliseconds)
+            r.jitter = JitterBuffer(capacity: frames.count + 1)
+            for (i, frame) in frames.enumerated() {
+                if let frame { r.jitter.insert(index: UInt32(i), frame: frame) }
+            }
+            r.jitter.markEnded(frameCount: UInt32(frames.count))
+            audio.beginPlayback(codec: codec, sampleRate: sampleRate, frameMilliseconds: UInt8(clamping: r.frameMilliseconds))
+        case .relay:
+            guard let sync = RelayInbox.loadSnapshot(),
+                  let message = RelayInbox.open(data, with: sync, maxSeconds: .greatestFiniteMagnitude),
+                  !message.buffers.isEmpty else { return false }
+            r.pcm = message.buffers
+        }
+        rx = r
+        if usesPushToTalk {
+            ptt.setActiveRemoteParticipant(talker)
+            if audioActive { playIncomingTone() }
+        } else {
+            if !audioActive { startManualAudio() }
+            playIncomingTone()
+        }
+        startPlayout()
+        publish()
+        return true
     }
 
     // MARK: - Floor outputs
@@ -944,6 +1142,13 @@ final class PTTEngine {
         }
         let talker = inbound.channel.kind == .group ? "\(contact.name) · \(inbound.channel.name)" : contact.name
         lastWakeReceived = Date()
+        if holds(inbound.header.senderID) {
+            // Do Not Disturb (they didn't know yet): iOS needs a talker, but let it go at once;
+            // the message is held when it arrives. Tell them, so they stop waking us.
+            respondToWake(wake, from: contact)
+            queue.async { [weak self] in self?.ptt.setActiveRemoteParticipant(nil) }
+            return talker
+        }
         respondToWake(wake, from: contact)
         // Stay awake (PushToTalk keeps our audio session and runtime while the talker is shown)
         // long enough for a whole burst: if no direct path appears, e.g. both phones on cellular,
@@ -955,7 +1160,7 @@ final class PTTEngine {
     /// Punch towards the talker and tell them where we are (PROTOCOL.md §8.2).
     private func respondToWake(_ wake: Wake, from contact: Contact) {
         if let apns, let channel = self.directChannel(for: contact.id),
-           let packet = helloPacket(replyRequested: true, keys: channel.keys) {
+           let packet = helloPacket(replyRequested: true, keys: channel.keys, to: contact) {
             apns.sendBackground(packet, to: contact)
         }
         for attempt in 0..<20 {
@@ -1311,16 +1516,21 @@ final class PTTEngine {
                         reachability: myReachability)
     }
 
-    private func helloPacket(replyRequested: Bool, keys: ChannelKeys) -> Data? {
+    private func helloPacket(replyRequested: Bool, keys: ChannelKeys, to contact: Contact) -> Data? {
+        var flags: UInt8 = replyRequested ? Hello.replyRequested : 0
+        if isQuiet {
+            flags |= Hello.doNotDisturb
+            if state.settings.priorityContacts.contains(contact.id) { flags |= Hello.breaksThrough }
+        }
         let hello = Hello(name: state.settings.displayName, timestamp: currentTimestamp(), reachability: myReachability,
-                          flags: replyRequested ? Hello.replyRequested : 0)
+                          flags: flags)
         return try? builder.seal(.hello, plaintext: hello.encoded, keys: keys)
     }
 
     private func sendHello(to contact: Contact, replyRequested: Bool = false, endpoints: [PeerPath],
                            candidates: [Candidate] = []) {
         guard let channel = self.directChannel(for: contact.id),
-              let packet = helloPacket(replyRequested: replyRequested, keys: channel.keys) else { return }
+              let packet = helloPacket(replyRequested: replyRequested, keys: channel.keys, to: contact) else { return }
         for endpoint in endpoints { send(packet, via: endpoint) }
         sendToCandidates(packet, candidates)
     }
@@ -1371,7 +1581,7 @@ final class PTTEngine {
         for member in t.channel.members {
             guard let contact = self.contact(id: member) else { continue }
             if t.delivered.contains(contact.senderID), let link = links[contact.senderID] {
-                legs.append(.init(peer: contact.name, route: PTTEngine.route(for: link.endpoint)))
+                legs.append(.init(peer: contact.name, route: PTTEngine.route(for: link.endpoint), reason: heldNote(contact)))
             } else {
                 missed.append(contact)
             }
@@ -1412,6 +1622,8 @@ final class PTTEngine {
             return
         }
         let directLegs = legs
+        var notes: [IdentityID: String] = [:]
+        for (contact, _) in relayable { notes[contact.id] = heldNote(contact) }
         Task { [weak self] in
             var relayedLegs: [TransferRecord.Leg] = []
             var uploads: [String: Date] = [:]
@@ -1419,7 +1631,7 @@ final class PTTEngine {
                 do {
                     let name = try await relay.upload(payload: payload, tag: Relay.tag(mailbox: mailbox))
                     uploads[name] = Date().addingTimeInterval(Relay.lifetime)
-                    relayedLegs.append(.init(peer: contact.name, route: .relay))
+                    relayedLegs.append(.init(peer: contact.name, route: .relay, reason: notes[contact.id]))
                 } catch {
                     log.error("Relay upload failed: \(String(describing: error), privacy: .public)")
                     relayedLegs.append(.init(peer: contact.name, route: .failed,
@@ -1435,13 +1647,23 @@ final class PTTEngine {
         }
     }
 
+    /// "held · Do Not Disturb" for a recipient whose phone will hold our message.
+    private func heldNote(_ contact: Contact) -> String? {
+        guard let quiet = state.peerQuiet.first(where: { $0.id == contact.id }), !quiet.breaksThrough else { return nil }
+        return "held · Do Not Disturb"
+    }
+
     /// Looks for relayed messages addressed to us and queues them for playback.
     /// Whether the app is on screen. In the background the notification service extension plays
     /// relayed messages (as the notification sound); the app must not play them a second time.
     func setForeground(_ foreground: Bool) {
         queue.async { [self] in
             isForeground = foreground
-            if foreground { fetchRelay() }
+            if foreground {
+                fetchRelay()
+                quietChanged()
+                if heldAutoplayPending, !isQuiet { playHeld() }
+            }
         }
     }
 
@@ -1743,6 +1965,9 @@ final class PTTEngine {
         snapshot.lastWakeSent = lastWakeSent
         snapshot.hasPushToken = state.pttToken != nil
         snapshot.lastWakeReceived = lastWakeReceived
+        snapshot.held = RelayInbox.heldMessages()
+        snapshot.playingHeld = rx?.heldID != nil || !heldQueue.isEmpty
+        snapshot.peerQuiet = Dictionary(state.peerQuiet.map { ($0.id, $0.breaksThrough) }, uniquingKeysWith: { a, _ in a })
         if let last = RelayInbox.replayableLast()?.info {
             snapshot.replayable = ReplayableInfo(talker: last.talker, seconds: last.seconds, date: last.date)
         }

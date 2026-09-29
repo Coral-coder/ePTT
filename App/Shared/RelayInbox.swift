@@ -147,6 +147,86 @@ enum RelayInbox {
         }
     }
 
+    // MARK: - Do Not Disturb (shared with the notification extension)
+
+    /// Whether we're on Do Not Disturb, and whose messages break through (sender IDs).
+    struct QuietState: Codable, Equatable {
+        var until: Date?
+        var priority: [Data] = []
+
+        func holds(_ sender: SenderID?, now: Date = Date()) -> Bool {
+            guard let until, until > now else { return false }
+            return !(sender.map { priority.contains($0.bytes) } ?? false)
+        }
+    }
+
+    private static var quietURL: URL? { container?.appendingPathComponent("quiet.json") }
+
+    static func saveQuiet(_ state: QuietState) {
+        guard let url = quietURL, let data = try? JSONEncoder().encode(state) else { return }
+        try? data.write(to: url, options: .atomic)
+    }
+
+    static func loadQuiet() -> QuietState {
+        guard let url = quietURL, let data = try? Data(contentsOf: url),
+              let state = try? JSONDecoder().decode(QuietState.self, from: data) else { return QuietState() }
+        return state
+    }
+
+    // MARK: - Held messages (Do Not Disturb)
+
+    /// A message received on Do Not Disturb, kept on this phone (never back in the relay) until it
+    /// is played, or for a day at most.
+    struct Held: Codable, Identifiable, Equatable {
+        var id: String
+        var date: Date
+        var talker: String
+        var channel: String
+        var seconds: Double
+        var source: LastReceived.Source
+        var codec: UInt8 = 0
+        var sampleRate: UInt32 = 0
+        var frameMilliseconds: UInt8 = 0
+    }
+
+    static let heldLifetime: TimeInterval = 24 * 3600
+
+    private static var heldDirectory: URL? {
+        guard let dir = container?.appendingPathComponent("held", isDirectory: true) else { return nil }
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    static func hold(_ held: Held, audio: Data) {
+        guard let dir = heldDirectory, let meta = try? JSONEncoder().encode(held) else { return }
+        try? audio.write(to: dir.appendingPathComponent(held.id + ".bin"),
+                         options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        try? meta.write(to: dir.appendingPathComponent(held.id + ".json"), options: .atomic)
+    }
+
+    /// Held messages, oldest first. Drops any older than a day.
+    static func heldMessages(now: Date = Date()) -> [Held] {
+        guard let dir = heldDirectory,
+              let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
+        else { return [] }
+        var held: [Held] = []
+        for file in files where file.pathExtension == "json" {
+            guard let data = try? Data(contentsOf: file), let item = try? JSONDecoder().decode(Held.self, from: data) else { continue }
+            if now.timeIntervalSince(item.date) > heldLifetime { removeHeld(item.id) } else { held.append(item) }
+        }
+        return held.sorted { $0.date < $1.date }
+    }
+
+    static func heldAudio(_ held: Held) -> Data? {
+        heldDirectory.flatMap { try? Data(contentsOf: $0.appendingPathComponent(held.id + ".bin")) }
+    }
+
+    static func removeHeld(_ id: String) {
+        guard let dir = heldDirectory else { return }
+        try? FileManager.default.removeItem(at: dir.appendingPathComponent(id + ".bin"))
+        try? FileManager.default.removeItem(at: dir.appendingPathComponent(id + ".json"))
+    }
+
     // MARK: - The last message received (for replay)
 
     /// The last voice message received, by the app or by a notification. Only the latest one is
@@ -233,6 +313,7 @@ enum RelayInbox {
         var seconds: Double
         /// The talker allowed recipients to replay it.
         var allowsReplay = false
+        var sender: SenderID?
         /// Decoded audio, in the decoder's PCM format.
         var buffers: [AVAudioPCMBuffer]
         var format: AVAudioFormat
@@ -248,6 +329,7 @@ enum RelayInbox {
         var processor = PacketProcessor(local: local, agreement: local.keyAgreement(prekeys: { prekeys }))
         var start: BurstStart?
         var talker = "NXTPTT"
+        var sender: SenderID?
         var channelName = ""
         var frames: [UInt32: Data] = [:]
         for packet in packets {
@@ -259,6 +341,7 @@ enum RelayInbox {
             case .burstStart(let s):
                 start = s
                 talker = sync.contacts.first { $0.senderID == inbound.header.senderID }?.name ?? "NXTPTT"
+                sender = inbound.header.senderID
                 channelName = inbound.channel.kind == .group ? inbound.channel.name : talker
             case .voice(let index, let voiceFrames):
                 for (offset, frame) in voiceFrames.enumerated() { frames[index + UInt32(offset)] = frame }
@@ -278,19 +361,19 @@ enum RelayInbox {
             buffers.append(frames[index].flatMap { decoder.decode($0) } ?? decoder.silence())
         }
         let seconds = Double(Int(last - first) + 1) * frameSeconds
-        return Message(talker: talker, channel: channelName, seconds: seconds, allowsReplay: start.allowsReplay,
+        return Message(talker: talker, channel: channelName, seconds: seconds, allowsReplay: start.allowsReplay, sender: sender,
                        buffers: buffers, format: decoder.pcmFormat)
     }
 
     /// A relayed call alert (a page, not audio): who sent it and any text. Nil if the payload
     /// isn't a call alert for us.
-    static func callAlert(in payload: Data, with sync: WatchSync) -> (name: String, text: String?)? {
+    static func callAlert(in payload: Data, with sync: WatchSync) -> (name: String, text: String?, sender: SenderID)? {
         guard let packets = try? Relay.decode(payload) else { return nil }
         return callAlert(packets: packets, with: sync)
     }
 
     /// The same, for a single sealed packet (a call alert that arrived as a push).
-    static func callAlert(packets: [Data], with sync: WatchSync) -> (name: String, text: String?)? {
+    static func callAlert(packets: [Data], with sync: WatchSync) -> (name: String, text: String?, sender: SenderID)? {
         guard let local = try? LocalIdentity(signingSeed: sync.signingSeed, keyAgreementSeed: sync.keyAgreementSeed)
         else { return nil }
         let prekeys = sync.prekeys
@@ -302,7 +385,7 @@ enum RelayInbox {
                 memberLookup: { id in sync.contacts.first { $0.senderID == id }?.identity }),
                   case .callAlert(let alert) = inbound.message else { continue }
             let name = sync.contacts.first { $0.senderID == inbound.header.senderID }?.name ?? alert.name
-            return (name, alert.text)
+            return (name, alert.text, inbound.header.senderID)
         }
         return nil
     }
