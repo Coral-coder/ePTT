@@ -19,7 +19,7 @@ struct PairView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
                         ScreenTitle(text: "Pair")
-                        Text("Hold both phones screen to screen. They swap keys, addresses and forward-secrecy keys in one go, and you can talk straight away. No server, no directory.")
+                        Text("Tap Optical handshake below on both phones, then hold them screen to screen. They swap keys, addresses and forward-secrecy keys in one go, and you can talk straight away. No server, no directory.")
                             .font(NX.body(15))
                             .foregroundStyle(Color(hex: 0xAEEEF8))
 
@@ -31,7 +31,7 @@ struct PairView: View {
                         .buttonStyle(.plain)
                         .frame(maxWidth: .infinity)
                         .accessibilityLabel("Optical handshake")
-                        .accessibilityHint("Hold two phones screen to screen to pair both ways at once")
+                        .accessibilityHint("Starts the handshake. Do the same on the other phone, then hold them screen to screen.")
 
                         Text("Not together? Send your link. It carries your current addresses, so send a fresh one if it has been a while.")
                             .font(NX.body(13))
@@ -104,6 +104,7 @@ private struct FacePairHero: View {
                     Image(systemName: "iphone.radiowaves.left.and.right")
                         .font(.system(size: 22, weight: .semibold))
                     Text("OPTICAL\nHANDSHAKE").font(NX.label(13, .bold)).tracking(2).multilineTextAlignment(.center)
+                    Text("TAP TO START").font(NX.label(10, .semibold)).tracking(1.5).opacity(0.7)
                 }
                 .foregroundStyle(NX.whiteHot)
                 .offset(y: 30)
