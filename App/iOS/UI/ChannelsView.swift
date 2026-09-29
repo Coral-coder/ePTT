@@ -308,7 +308,7 @@ struct GroupInviteView: View {
                     Button {
                         faceToFace = true
                     } label: {
-                        Label("FACE TO FACE", systemImage: "iphone.radiowaves.left.and.right")
+                        Label("OPTICAL HANDSHAKE", systemImage: "iphone.radiowaves.left.and.right")
                     }
                     .buttonStyle(NXButtonStyle(kind: .gel))
                     .accessibilityHint("Pair by light with someone in front of you and add them to this group")

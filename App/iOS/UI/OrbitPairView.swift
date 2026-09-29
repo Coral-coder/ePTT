@@ -27,7 +27,7 @@ struct FacePairView: View {
                         .foregroundStyle(.white.opacity(0.8))
                         .padding(8)
                     Spacer()
-                    Text(group.map { "ADD TO \($0.name.uppercased())" } ?? "FACE TO FACE")
+                    Text(group.map { "ADD TO \($0.name.uppercased())" } ?? "OPTICAL HANDSHAKE")
                         .font(NX.label(12, .semibold))
                         .tracking(2)
                         .foregroundStyle(.white.opacity(0.5))
@@ -245,7 +245,7 @@ final class OrbitPairingSession: ObservableObject {
         switch stage {
         case .looking:
             return slow
-                ? "Open Face to face on the other phone too. Screens facing, tops together, about 15–20 cm apart. Tilt a little if there's glare."
+                ? "Open Optical handshake on the other phone too. Screens facing, tops together, about 15–20 cm apart. Tilt a little if there's glare."
                 : "Hold the phones screen to screen, tops together, about 15–20 cm apart."
         case .receiving, .confirming:
             return "Keep them still until both finish."

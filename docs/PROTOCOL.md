@@ -419,7 +419,7 @@ recipients can unwrap (§6.2).
   talker deletes its own records once they expire.
 
 
-## 12. Face-to-face pairing
+## 12. Optical handshake (face-to-face pairing)
 
 Two phones held screen to screen, tops together, about 15–20 cm apart, swap
 identities by showing each other **Orbit codes**, a round code of our own, and

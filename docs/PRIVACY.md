@@ -15,7 +15,7 @@ servers run by us.
 - Your name as you entered it, your encryption keys, your contacts and channels.
 - The list of recent transmissions shown in Activity.
 - Microphone audio is captured only while you hold the talk button. Camera images, used to
-  scan pairing codes and to pair face to face, are processed on the device and never stored
+  scan talk group codes and for the optical handshake, are processed on the device and never stored
   or sent.
 
 ## What goes to the people you talk to

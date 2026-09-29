@@ -30,7 +30,7 @@ struct PairView: View {
                         }
                         .buttonStyle(.plain)
                         .frame(maxWidth: .infinity)
-                        .accessibilityLabel("Face to face")
+                        .accessibilityLabel("Optical handshake")
                         .accessibilityHint("Hold two phones screen to screen to pair both ways at once")
 
                         Text("Not together? Send your link. It carries your current addresses, so send a fresh one if it has been a while.")
@@ -49,7 +49,7 @@ struct PairView: View {
 
                         SectionCaption(text: "Contacts").padding(.top, 10)
                         if model.snapshot.contacts.isEmpty {
-                            Text("Nobody yet. Pair face to face, or open a link someone sends you.")
+                            Text("Nobody yet. Do an optical handshake, or open a link someone sends you.")
                                 .font(NX.body(14))
                                 .foregroundStyle(NX.textMuted)
                         }
@@ -103,7 +103,7 @@ private struct FacePairHero: View {
                 VStack(spacing: 4) {
                     Image(systemName: "iphone.radiowaves.left.and.right")
                         .font(.system(size: 22, weight: .semibold))
-                    Text("FACE TO FACE").font(NX.label(13, .bold)).tracking(2)
+                    Text("OPTICAL\nHANDSHAKE").font(NX.label(13, .bold)).tracking(2).multilineTextAlignment(.center)
                 }
                 .foregroundStyle(NX.whiteHot)
                 .offset(y: 30)
@@ -288,8 +288,8 @@ struct AddContactView: View {
                 VStack(spacing: 16) {
                     QRScannerView { code in
                         if code.hasPrefix(ContactCard.uriPrefix) {
-                            // Contacts pair face to face now (or by link); contact QR codes are off.
-                            model.banner = "Add contacts face to face, or open the link they send you"
+                            // Contacts pair by optical handshake now (or by link); contact QR codes are off.
+                            model.banner = "Add contacts with an optical handshake, or open the link they send you"
                         } else {
                             model.open(link: code)
                         }
