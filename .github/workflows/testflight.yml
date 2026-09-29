@@ -124,6 +124,12 @@ jobs:
           printf '%s\n' "$ASC_KEY_P8" > "$RUNNER_TEMP/asc/AuthKey_$ASC_KEY_ID.p8"
           echo "ASC_KEY_PATH=$RUNNER_TEMP/asc/AuthKey_$ASC_KEY_ID.p8" >> "$GITHUB_ENV"
 
+      # Until a persistent signing certificate is stored as a secret, each fresh runner makes
+      # Xcode create a new development certificate, and Apple caps how many an account may
+      # hold: revoke the ones earlier runs left behind ("Created via API" development only).
+      - name: Revoke leftover CI signing certificates
+        run: python3 tools/release/prune_ci_certs.py
+
       - name: Write build configuration
         env:
           EPTT_BUNDLE_ID: ${{ secrets.EPTT_BUNDLE_ID }}
