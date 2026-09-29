@@ -178,16 +178,11 @@ public enum BlinkLink {
                     for (i, level) in bitLevels(round.t0, count: BlinkLink.messageBits).enumerated() {
                         if let level { sums[i] += level }
                     }
-                    var bytes = [UInt8](repeating: 0, count: BlinkLink.messageBits / 8)
-                    var complete = true
-                    for i in 0..<BlinkLink.messageBits {
-                        if sums[i] == 0 { complete = false; break }
-                        if sums[i] > 0 { bytes[i / 8] |= 0x80 >> UInt8(i % 8) }
-                    }
-                    let message = Data(bytes)
-                    let payload = Data(message.prefix(OpticalLink.payloadBytes))
-                    let crc = message.suffix(4).reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
-                    if complete, LightCode.crc32(payload) == crc {
+                    let bits = sums.map { $0 > 0 }
+                    let weakest = sums.indices.sorted { abs(sums[$0]) < abs(sums[$1]) }
+                        .map { (offset: $0, bits: [!bits[$0]]) }
+                    if !sums.contains(0),
+                       let payload = LightCode.recover(bits, alternatives: weakest, payloadBytes: OpticalLink.payloadBytes) {
                         delivered = true
                         events.append(.payload(payload))
                     } else {

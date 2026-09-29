@@ -328,17 +328,20 @@ public enum OpticalLink {
                 let weight = r.checks ? 1.0 : 0.4
                 for e in 0..<n { scores[k * n + e][r.values[e]] += weight * min(1, 0.5 + 3 * r.margins[e]) }
             }
+            // Best level per element; the runner-up, and how close it came, for the weakest ones.
+            let allowed = alphabet == .binary ? [0, 3] : [0, 1, 2, 3]
+            let width = alphabet.bitsPerElement
             var bits: [Bool] = []
-            for s in scores {
-                guard let best = s.indices.max(by: { s[$0] < s[$1] }), s[best] > 0 else { return nil }   // not seen yet
-                bits += self.bits(of: [best])
+            var alternatives: [(gap: Double, offset: Int, bits: [Bool])] = []
+            for (e, s) in scores.enumerated() {
+                let ranked = allowed.sorted { s[$0] > s[$1] }
+                guard s[ranked[0]] > 0 else { return nil }                                   // not seen yet
+                bits += self.bits(of: [ranked[0]])
+                alternatives.append((s[ranked[0]] - s[ranked[1]], e * width, self.bits(of: [ranked[1]])))
             }
-            var bytes = [UInt8](repeating: 0, count: OpticalLink.messageBytes)
-            for i in 0..<(OpticalLink.messageBytes * 8) where bits[i] { bytes[i / 8] |= 0x80 >> UInt8(i % 8) }
-            let message = Data(bytes)
-            let payload = Data(message.prefix(OpticalLink.payloadBytes))
-            let crc = message.suffix(4).reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
-            return LightCode.crc32(payload) == crc ? payload : nil
+            let weakest = alternatives.filter { $0.offset < OpticalLink.messageBytes * 8 }   // not the padding
+                .sorted { $0.gap < $1.gap }.map { (offset: $0.offset, bits: $0.bits) }
+            return LightCode.recover(bits, alternatives: weakest, payloadBytes: OpticalLink.payloadBytes)
         }
     }
 }

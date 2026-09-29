@@ -55,6 +55,31 @@ public enum LightCode {
         return String(digits.prefix(3)) + " " + String(digits.suffix(3))
     }
 
+    /// The payload in `profile ‖ CRC-32` message bits, if the CRC checks.
+    static func payload(fromMessageBits bits: [Bool], payloadBytes: Int) -> Data? {
+        guard bits.count >= (payloadBytes + 4) * 8 else { return nil }
+        var bytes = [UInt8](repeating: 0, count: payloadBytes + 4)
+        for i in 0..<((payloadBytes + 4) * 8) where bits[i] { bytes[i / 8] |= 0x80 >> UInt8(i % 8) }
+        let payload = Data(bytes.prefix(payloadBytes))
+        let crc = bytes.suffix(4).reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
+        return crc32(payload) == crc ? payload : nil
+    }
+
+    /// Like `payload(fromMessageBits:)`, but if the CRC fails, also tries every combination of
+    /// the given alternatives (the least certain readings, weakest first; up to 10, so at most
+    /// 1,024 CRC checks). One or two readings on the fence no longer cost a whole round.
+    static func recover(_ bits: [Bool], alternatives: [(offset: Int, bits: [Bool])], payloadBytes: Int) -> Data? {
+        let alternatives = Array(alternatives.prefix(10))
+        for mask in 0..<(1 << alternatives.count) {
+            var candidate = bits
+            for (k, alt) in alternatives.enumerated() where mask >> k & 1 == 1 {
+                candidate.replaceSubrange(alt.offset..<(alt.offset + alt.bits.count), with: alt.bits)
+            }
+            if let payload = payload(fromMessageBits: candidate, payloadBytes: payloadBytes) { return payload }
+        }
+        return nil
+    }
+
     static func crc32(_ data: Data) -> UInt32 {
         var crc: UInt32 = 0xFFFF_FFFF
         for byte in data {
