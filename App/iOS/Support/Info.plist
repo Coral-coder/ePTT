@@ -52,8 +52,6 @@
 		<string>_eptt._udp</string>
 		<string>_chirp-ptt._tcp</string>
 		<string>_chirp-ptt._udp</string>
-		<string>_nxpt-pair._tcp</string>
-		<string>_nxpt-pair._udp</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>NXTPTT uses the camera to scan contact codes.</string>
