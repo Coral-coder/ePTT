@@ -37,6 +37,10 @@ public struct APNsRequest: Equatable {
         case pushToTalk
         /// Silent background push, used for wake acknowledgements (PROTOCOL.md §8.2).
         case background
+        /// A visible notification carrying a sealed packet (call alerts). Apple only sees the
+        /// generic text; the notification service extension decrypts the packet and fills in
+        /// who it's from and the alert sound.
+        case alert(title: String, body: String)
     }
 
     public let url: URL
@@ -62,6 +66,15 @@ public struct APNsRequest: Equatable {
             headers["apns-priority"] = "5"
             body = try! JSONSerialization.data(
                 withJSONObject: ["aps": ["content-available": 1], "eptt": packetString] as [String: Any], options: [.sortedKeys])
+        case .alert(let title, let text):
+            headers["apns-push-type"] = "alert"
+            headers["apns-topic"] = bundleID
+            headers["apns-priority"] = "10"
+            // Keep it for an hour if the phone is offline.
+            headers["apns-expiration"] = String(Int(Date().timeIntervalSince1970) + 3600)
+            let aps: [String: Any] = ["alert": ["title": title, "body": text], "sound": "default", "mutable-content": 1]
+            body = try! JSONSerialization.data(withJSONObject: ["aps": aps, "eptt": packetString] as [String: Any],
+                                               options: [.sortedKeys])
         }
         self.headers = headers
     }

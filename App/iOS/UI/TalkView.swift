@@ -244,21 +244,69 @@ struct TalkView: View {
                 .multilineTextAlignment(.center)
                 .frame(minHeight: 50)
         case .idle:
-            if let channel = model.selectedChannel, channel.kind == .direct, let peer = channel.members.first {
-                Button {
-                    model.engine.sendCallAlert(to: peer)
-                } label: {
-                    Label("CALL ALERT", systemImage: "bell")
+            VStack(spacing: 10) {
+                if let channel = model.selectedChannel, channel.kind == .direct, let peer = channel.members.first {
+                    Button {
+                        model.engine.sendCallAlert(to: peer)
+                    } label: {
+                        Label("CALL ALERT", systemImage: "bell")
+                    }
+                    .buttonStyle(NXButtonStyle(kind: .glass))
+                    .frame(maxWidth: 220)
+                } else {
+                    Text("Hold the orb to key up")
+                        .font(NX.body(13))
+                        .foregroundStyle(NX.textMuted)
+                        .frame(minHeight: 50)
                 }
-                .buttonStyle(NXButtonStyle(kind: .glass))
-                .frame(maxWidth: 220)
-            } else {
-                Text("Hold the orb to key up")
-                    .font(NX.body(13))
-                    .foregroundStyle(NX.textMuted)
-                    .frame(minHeight: 50)
+                ReplayChip()
             }
         }
+    }
+}
+
+/// Replays the last message received; shown for an hour after it arrived.
+struct ReplayChip: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            if let last = model.snapshot.lastMessage, last.expires > context.date {
+                Button {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    model.engine.replayLast()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("REPLAY")
+                            .font(NX.label(12, .bold))
+                            .tracking(2)
+                        Text("\(last.talker) · \(Self.length(last.seconds)) · \(Self.age(last.date, now: context.date))")
+                            .font(NX.body(12))
+                            .foregroundStyle(NX.textDim)
+                            .lineLimit(1)
+                    }
+                    .foregroundStyle(NX.text)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(.ultraThinMaterial))
+                    .overlay(Capsule().strokeBorder(NX.frost.opacity(0.35), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Replay last message from \(last.talker)")
+            }
+        }
+    }
+
+    private static func length(_ seconds: Double) -> String {
+        let s = max(1, Int(seconds.rounded()))
+        return s < 60 ? "\(s)s" : "\(s / 60)m \(s % 60)s"
+    }
+
+    private static func age(_ date: Date, now: Date) -> String {
+        let minutes = Int(now.timeIntervalSince(date) / 60)
+        return minutes < 1 ? "just now" : "\(minutes) min ago"
     }
 }
 

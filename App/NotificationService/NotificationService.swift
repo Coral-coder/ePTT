@@ -18,6 +18,19 @@ final class NotificationService: UNNotificationServiceExtension {
         let content = (request.content.mutableCopy() as? UNMutableNotificationContent) ?? UNMutableNotificationContent()
         self.content = content
 
+        // A call alert pushed straight from the other phone: decrypt it and use the four beeps.
+        if let packet = APNsRequest.packet(fromPayload: request.content.userInfo) {
+            if let sync = RelayInbox.loadSnapshot(), let alert = RelayInbox.callAlert(packets: [packet], with: sync) {
+                content.title = "Call alert"
+                content.body = "\(alert.name) is trying to reach you" + (alert.text.map { ": \($0)" } ?? "")
+                content.threadIdentifier = "call-alert"
+            }
+            if let sound = RelayInbox.writeCallAlertSound() {
+                content.sound = UNNotificationSound(named: UNNotificationSoundName(sound))
+            }
+            deliver()
+            return
+        }
         guard let record = CloudRelay.recordName(inNotification: request.content.userInfo),
               let sync = RelayInbox.loadSnapshot(), let relay = CloudRelay() else {
             deliver()

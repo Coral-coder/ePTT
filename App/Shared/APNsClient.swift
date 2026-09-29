@@ -71,6 +71,16 @@ final class APNsClient {
         send(.pushToTalk, packet: packet, token: token, contact: contact, completion: completion)
     }
 
+    /// A call alert as a visible notification (decrypted and completed by the extension).
+    func sendAlert(_ packet: Data, to contact: Contact, completion: ((String?) -> Void)? = nil) {
+        guard let token = contact.reachability.apnsDeviceToken else {
+            completion?("no notification token for them")
+            return
+        }
+        send(.alert(title: "Call alert", body: "Someone is trying to reach you"), packet: packet, token: token,
+             contact: contact, completion: completion)
+    }
+
     /// Delivers a HELLO to a (foreground) talker as a silent background push.
     func sendBackground(_ packet: Data, to contact: Contact) {
         guard let token = contact.reachability.apnsDeviceToken else { return }

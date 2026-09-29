@@ -203,8 +203,14 @@ enum RelayInbox {
     /// A relayed call alert (a page, not audio): who sent it and any text. Nil if the payload
     /// isn't a call alert for us.
     static func callAlert(in payload: Data, with sync: WatchSync) -> (name: String, text: String?)? {
-        guard let local = try? LocalIdentity(signingSeed: sync.signingSeed, keyAgreementSeed: sync.keyAgreementSeed),
-              let packets = try? Relay.decode(payload) else { return nil }
+        guard let packets = try? Relay.decode(payload) else { return nil }
+        return callAlert(packets: packets, with: sync)
+    }
+
+    /// The same, for a single sealed packet (a call alert that arrived as a push).
+    static func callAlert(packets: [Data], with sync: WatchSync) -> (name: String, text: String?)? {
+        guard let local = try? LocalIdentity(signingSeed: sync.signingSeed, keyAgreementSeed: sync.keyAgreementSeed)
+        else { return nil }
         let prekeys = sync.prekeys
         var processor = PacketProcessor(local: local, agreement: local.keyAgreement(prekeys: { prekeys }))
         for packet in packets {

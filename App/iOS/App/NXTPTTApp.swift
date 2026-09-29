@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import UserNotifications
+import EPTTCore
 
 @main
 struct NXTPTTApp: App {
@@ -68,6 +69,10 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
                 AppModel.shared.engine.fetchRelay(force: true)
             }
             completionHandler([])
+        } else if APNsRequest.packet(fromPayload: userInfo) != nil {
+            // A call alert push while on screen: the app shows its own banner; keep the sound.
+            AppModel.shared.engine.handlePushPacket(userInfo)
+            completionHandler([.sound, .list])
         } else {
             completionHandler([.banner, .sound])
         }
