@@ -220,7 +220,7 @@ function bars(n, maxH) {
 }
 
 function tabbar(active) {
-  const tabs = [['talk', 'Talk', I.mic], ['channels', 'Channels', I.list], ['pair', 'Pair', I.qrcode], ['activity', 'Activity', I.wave], ['settings', 'Settings', I.sliders]];
+  const tabs = [['talk', 'Talk', I.mic], ['channels', 'Channels', I.list], ['pair', 'Contacts', I.people], ['activity', 'Activity', I.wave], ['settings', 'Settings', I.sliders]];
   return `<div class="tabbar glass">${tabs.map(([k, t, ic]) => `<div class="tab ${k === active ? 'on' : ''}">${ic(21)}<span>${t}</span></div>`).join('')}</div>`;
 }
 
@@ -421,6 +421,33 @@ const CAPTIONS = {
   face: ['Pair face to face,<br>by light', 'No servers. No accounts. No phone numbers.'],
 };
 
+function contactsScreen(menuOpen) {
+  const row = (name, status, online) => `<div class="glass" style="border-radius:18px;min-height:64px;display:flex;align-items:center;gap:12px;padding:0 14px">
+    <div class="ring ${online ? '' : 'off'}" style="width:40px;height:40px;font-size:11.5px">${name.split(' ').slice(0, 2).map(p => p[0]).join('')}</div>
+    <div style="flex:1;min-width:0"><div class="label" style="font-size:16px">${name}</div>
+      <div style="font-size:13px;color:var(--textDim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${status}</div></div>
+    <div style="color:var(--frost);opacity:.7">${I.chevron(16)}</div></div>`;
+  const menu = !menuOpen ? '' : `<div style="position:absolute;inset:0;background:rgba(0,6,12,.35)"></div>
+    <div style="position:absolute;top:118px;right:22px;width:250px;border-radius:14px;overflow:hidden;
+      background:rgba(38,52,62,.92);backdrop-filter:blur(20px);box-shadow:0 12px 40px rgba(0,0,0,.5);font-family:-apple-system,'Helvetica Neue',sans-serif">
+      ${[['Optical handshake', I.phones], ['Share my link', I.up], ['Join a group', I.qrcode]].map(([t, ic], i) =>
+        `<div style="display:flex;align-items:center;justify-content:space-between;padding:13px 16px;color:#fff;font-size:17px;${i ? 'border-top:.5px solid rgba(255,255,255,.14)' : ''}">
+          <span>${t}</span><span style="opacity:.9">${ic(20)}</span></div>`).join('')}
+    </div>`;
+  return { energy: .8, horizon: .92, html: `<div class="content pad" style="gap:10px;padding-top:12px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><div class="title">Contacts</div>
+      <div class="glass" style="width:46px;height:46px;border-radius:50%;display:grid;place-items:center;color:#E6FFFF;
+        border-color:rgba(0,229,255,.7);box-shadow:0 0 10px rgba(0,229,255,.5)">${I.plus(20)}</div></div>
+    ${row('Sam', 'Connected · Internet', true)}
+    ${row('Alex', 'Connected · Wi-Fi', true)}
+    ${row('Jordan', 'Connected · Nearby', true)}
+    ${row('Riley', 'Do Not Disturb · Connected · Internet', true)}
+    ${row('Casey', 'Not connected · wakes by push', false)}
+    ${row('Morgan', 'Not connected · wakes by push', false)}
+    ${row('Taylor', 'Not connected', false)}
+  </div>${menu}${tabbar('pair')}` };
+}
+
 function build() {
   const dev = DEVICES[DEVICE];
   const appW = DEVICE === 'ipad' ? 1032 : DEVICE === 'watch' ? 208 : 440;
@@ -433,6 +460,8 @@ function build() {
     case 'channels': scr = channelsScreen(); break;
     case 'invite': scr = inviteScreen(); break;
     case 'face': scr = facePairScreen(appW, appH); break;
+    case 'contacts': scr = contactsScreen(false); break;
+    case 'contacts-menu': scr = contactsScreen(true); break;
     case 'watch-idle': scr = watchScreen(appW, appH, 'idle'); break;
     case 'watch-rx': scr = watchScreen(appW, appH, 'rx'); break;
   }
