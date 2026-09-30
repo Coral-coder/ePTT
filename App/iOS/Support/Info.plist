@@ -25,6 +25,7 @@
 			<string>app.eptt.links</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
+				<string>nxtptt</string>
 				<string>eptt</string>
 			</array>
 		</dict>
