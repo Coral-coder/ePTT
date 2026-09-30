@@ -18,6 +18,18 @@ struct RootView: View {
             NeonTabBar(selection: $model.tab)
         }
         .overlay(alignment: .top) { BannerView() }
+        .alert(model.linkPrompt?.title ?? "", isPresented: Binding(
+            get: { model.linkPrompt != nil },
+            set: { if !$0 { model.linkPrompt = nil } }
+        ), presenting: model.linkPrompt) { prompt in
+            Button(prompt.confirm) {
+                model.linkPrompt = nil
+                model.open(link: prompt.link)
+            }
+            Button("Cancel", role: .cancel) { model.linkPrompt = nil }
+        } message: { prompt in
+            Text(prompt.message)
+        }
         .sheet(item: Binding(get: { model.snapshot.joinRequests.first }, set: { _ in })) { request in
             JoinRequestView(request: request)
         }

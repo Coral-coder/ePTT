@@ -8,14 +8,29 @@ enum IdentityKeychain {
     private static let service = "app.eptt.identity"
     private static let account = "local-identity-v1"
 
+    /// The Keychain couldn't be read (locked since the phone started): the identity in use is a
+    /// throwaway, and nothing may be saved over the real one.
+    private(set) static var unavailable = false
+
     static func loadOrCreate() -> LocalIdentity {
-        if let stored = load() { return stored }
-        let identity = LocalIdentity.generate()
-        save(identity)
-        return identity
+        switch load() {
+        case .found(let stored):
+            return stored
+        case .missing:
+            let identity = LocalIdentity.generate()
+            save(identity)
+            return identity
+        case .unreadable:
+            unavailable = true
+            return LocalIdentity.generate()
+        }
     }
 
-    private static func load() -> LocalIdentity? {
+    private enum Lookup {
+        case found(LocalIdentity), missing, unreadable
+    }
+
+    private static func load() -> Lookup {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -24,9 +39,14 @@ enum IdentityKeychain {
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
         var result: AnyObject?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-              let data = result as? Data, data.count == 64 else { return nil }
-        return try? LocalIdentity(signingSeed: data.prefix(32), keyAgreementSeed: data.suffix(32))
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound { return .missing }
+        guard status == errSecSuccess else { return .unreadable }
+        // Read fine but damaged: nothing to protect, start over.
+        guard let data = result as? Data, data.count == 64,
+              let identity = try? LocalIdentity(signingSeed: data.prefix(32), keyAgreementSeed: data.suffix(32))
+        else { return .missing }
+        return .found(identity)
     }
 
     private static func save(_ identity: LocalIdentity) {

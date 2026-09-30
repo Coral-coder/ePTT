@@ -243,6 +243,42 @@ final class AppModel: ObservableObject {
     // MARK: - Actions
 
     /// Handles any `nxtptt://` link (or an old `eptt://` one): a contact card or a shared push key.
+    /// A link opened from outside NXTPTT (Messages, Safari, the Camera app): say what it will
+    /// do and wait for a yes. Links scanned or pasted inside the app open straight away.
+    @Published var linkPrompt: LinkPrompt?
+
+    func openFromOutside(_ raw: String) {
+        let link = LinkScheme.normalize(raw)
+        if link.hasPrefix(PushKey.uriPrefix) {
+            guard (try? PushKey(uri: link)) != nil else {
+                banner = "That push key link is invalid"
+                return
+            }
+            linkPrompt = LinkPrompt(
+                title: "Install this push key?", confirm: "Install",
+                message: (snapshot.wakeAvailable ? "It replaces the push key already on this phone. " : "")
+                    + "Wake-ups and call alerts are sent with it. Only accept one from someone you trust.",
+                link: link)
+        } else if link.hasPrefix(GroupJoinCode.uriPrefix) {
+            guard let code = try? GroupJoinCode(uri: link) else {
+                banner = "That isn't a valid talk group code"
+                return
+            }
+            let inviter = code.inviter.name.isEmpty ? "The person who shared it" : code.inviter.name
+            linkPrompt = LinkPrompt(
+                title: "Join \(code.groupName)?", confirm: "Ask to join",
+                message: "\(inviter) will be asked to let you in, and gets your contact details (name, push tokens and addresses).",
+                link: link)
+        } else if let card = try? ContactCard(uri: link) {
+            linkPrompt = LinkPrompt(
+                title: "Add \(card.name.isEmpty ? "this contact" : card.name)?", confirm: "Add",
+                message: "They're added to your contacts, and your phone says hello to them so you can talk.",
+                link: link)
+        } else {
+            banner = "That isn't a valid NXTPTT link"
+        }
+    }
+
     func open(link: String) {
         let link = LinkScheme.normalize(link)
         if link.hasPrefix(PushKey.uriPrefix) {
@@ -355,4 +391,13 @@ struct RecentChannel: Identifiable {
         if s < 86_400 { return "\(s / 3600)h" }
         return "\(s / 86_400)d"
     }
+}
+
+/// "Install this push key?" / "Join Crew?" / "Add Sam?" for a link opened from outside.
+struct LinkPrompt: Identifiable {
+    let id = UUID()
+    var title: String
+    var confirm: String
+    var message: String
+    var link: String
 }

@@ -12,7 +12,7 @@ struct NXTPTTApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(AppModel.shared)
-                .onOpenURL { url in AppModel.shared.open(link: url.absoluteString) }
+                .onOpenURL { url in AppModel.shared.openFromOutside(url.absoluteString) }
         }
         .onChange(of: scenePhase) { phase in
             AppModel.shared.engine.setForeground(phase == .active)
@@ -26,9 +26,18 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         NXAppearance.apply()
-        // Start before anything else: a PushToTalk wake may be what launched us.
-        AppModel.shared.start()
-        application.registerForRemoteNotifications()
+        // Start before anything else: a PushToTalk wake may be what launched us. But not before
+        // the phone's first unlock since it started: keys and contacts can't be read until then.
+        if application.isProtectedDataAvailable {
+            AppModel.shared.start()
+            application.registerForRemoteNotifications()
+        } else {
+            NotificationCenter.default.addObserver(forName: UIApplication.protectedDataDidBecomeAvailableNotification,
+                                                   object: nil, queue: .main) { _ in
+                AppModel.shared.start()
+                application.registerForRemoteNotifications()
+            }
+        }
         UNUserNotificationCenter.current().delegate = self
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
         return true

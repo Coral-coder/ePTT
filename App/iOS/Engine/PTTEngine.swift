@@ -283,6 +283,12 @@ final class PTTEngine {
     // MARK: - Lifecycle
 
     func start() {
+        // Launched before the phone's first unlock: our keys and saved state can't be read yet.
+        // Stay dormant rather than run as a stranger (the next launch loads everything).
+        guard !IdentityKeychain.unavailable, !Store.readFailed else {
+            log.error("Protected data unavailable at launch; not starting")
+            return
+        }
         wirePushToTalk()
         queue.async { [self] in
             audio.onEncodedFrame = { [weak self] frame in
@@ -339,7 +345,7 @@ final class PTTEngine {
         // Links go stale silently (nothing arrives), so re-check who is online on every tick;
         // otherwise the UI keeps showing a peer "on the grid" after the path has died.
         publishIfOnlineChanged()
-        if !state.pendingJoins.isEmpty, now.timeIntervalSince(lastJoinRetry) > 15 { retryJoins(loud: false) }
+        if !state.pendingJoins.isEmpty, now.timeIntervalSince(lastJoinRetry) > joinRetryInterval { retryJoins(loud: false) }
 
         if var t = tx {
             if now.timeIntervalSince(t.lastStartResend) >= 0.5 {
@@ -799,6 +805,7 @@ final class PTTEngine {
                     let name = try await relay.upload(payload: payload, tag: Relay.tag(mailbox: mailbox))
                     self?.queue.async {
                         self?.state.relayUploads[name] = Date().addingTimeInterval(Relay.lifetime)
+                        self?.save()
                         self?.emit(.message("Call alert sent to \(contact.name) via iCloud relay"))
                     }
                 } catch {
@@ -1038,6 +1045,7 @@ final class PTTEngine {
         if finished.isReplay {
             if let id = finished.heldID, playEndTone {
                 // Played to the end: it's been heard, so it goes.
+                diskCache = nil
                 RelayInbox.removeHeld(id)
                 heldQueue.removeAll { $0.id == id }
             }
@@ -1053,6 +1061,7 @@ final class PTTEngine {
             playoutTimer = nil
             let seconds = Double(finished.recorded.count * finished.frameMilliseconds) / 1000
             if !finished.recorded.isEmpty {
+                diskCache = nil
                 RelayInbox.hold(.init(id: UUID().uuidString, date: Date(), talker: finished.talker,
                                       channel: displayName(of: finished.channel), seconds: seconds, source: .frames,
                                       codec: finished.codec.rawValue, sampleRate: finished.sampleRate,
@@ -1072,6 +1081,7 @@ final class PTTEngine {
         }
         if finished.framesPlayed > 0 {
             // Only the latest message is kept; its audio only if the talker allowed replay.
+            diskCache = nil
             RelayInbox.saveLastReceived(.init(date: Date(), talker: finished.talker,
                                               channel: displayName(of: finished.channel),
                                               seconds: Double(finished.framesPlayed * finished.frameMilliseconds) / 1000,
@@ -1227,6 +1237,7 @@ final class PTTEngine {
 
     func discardHeld() {
         queue.async { [self] in
+            diskCache = nil
             for item in RelayInbox.heldMessages() { RelayInbox.removeHeld(item.id) }
             heldQueue = []
             publish()
@@ -1240,6 +1251,7 @@ final class PTTEngine {
                   playStored(talker: "Held · " + next.talker, channelName: next.channel, source: next.source,
                              audio: audioData, codec: next.codec, sampleRate: next.sampleRate,
                              frameMilliseconds: next.frameMilliseconds, heldID: next.id) else {
+                diskCache = nil
                 RelayInbox.removeHeld(next.id)
                 heldQueue.removeFirst()
                 continue
@@ -1568,6 +1580,7 @@ final class PTTEngine {
             state.pendingJoins = pending.map(\.encoded)
             save()
             sendJoin(code, loud: true)
+            joinRetryInterval = 15
             publish()
             let name = code.inviter.name.isEmpty ? "the inviter" : code.inviter.name
             emit(.message("Asked \(name) to let you into \(code.groupName). It shows under Channels until you're in."))
@@ -1579,6 +1592,8 @@ final class PTTEngine {
     }
 
     private var lastJoinRetry = Date.distantPast
+    /// 15 s, doubling to 10 min: the owner may be away, or may have said no (we aren't told).
+    private var joinRetryInterval: TimeInterval = 15
 
     /// Sends (again) the request to join `code`'s group, freshly sealed. Loud also pushes it to
     /// the inviter's phone as a notification and leaves it in the relay; otherwise only their
@@ -1601,6 +1616,7 @@ final class PTTEngine {
     /// Drops joins that finished or expired, and re-sends the rest.
     private func retryJoins(loud: Bool) {
         lastJoinRetry = Date()
+        joinRetryInterval = min(joinRetryInterval * 2, 600)
         let pending = pendingJoinCodes.filter { !$0.isExpired && channel($0.groupID) == nil }
         if pending.count != state.pendingJoins.count {
             state.pendingJoins = pending.map(\.encoded)
@@ -1636,22 +1652,31 @@ final class PTTEngine {
               let group = channel(opened.code.groupID), group.kind == .group else { return }
         let card = opened.join.card
         guard card.id != identity.id else { return }
+        let key = group.id.bytes + card.id.bytes
         if group.members.contains(card.id) {
-            // Already let in; the key hasn't reached them yet: send it to them again.
+            // Already let in; the key hasn't reached them yet: send it to them again, but at most
+            // once a minute (their phone retries, and a copied request could be replayed).
+            if let last = lastReinvite[key], Date().timeIntervalSince(last) < 60 { return }
+            lastReinvite[key] = Date()
             addContact(card, announce: false)
             if let contact = self.contact(id: card.id) { sendInvite(group, to: contact) }
             return
         }
-        let key = group.id.bytes + card.id.bytes
         guard !state.deniedJoins.contains(key) else { return }
         // Ask first. Their phone repeats the request until let in, so a newer card replaces this one.
-        heldJoins.removeAll { $0.key == key }
-        heldJoins.append((key, group.id, card))
+        // Capped, and forgotten after a while: anyone with a photo of the code could send many.
+        let now = Date()
+        heldJoins.removeAll { $0.key == key || now.timeIntervalSince($0.received) > PTTEngine.heldJoinLifetime }
+        guard heldJoins.count < PTTEngine.maxHeldJoins else { return }
+        heldJoins.append((key, group.id, card, now))
         publish()
     }
 
     /// Join requests waiting for a yes or no.
-    private var heldJoins: [(key: Data, groupID: ChannelID, card: ContactCard)] = []
+    private var heldJoins: [(key: Data, groupID: ChannelID, card: ContactCard, received: Date)] = []
+    private static let maxHeldJoins = 10
+    private static let heldJoinLifetime: TimeInterval = 15 * 60
+    private var lastReinvite: [Data: Date] = [:]
 
     /// Let them in, or not. No is remembered, so their retries don't ask again.
     func answerJoinRequest(_ id: Data, allow: Bool) {
@@ -1882,7 +1907,10 @@ final class PTTEngine {
               let payload = Relay.encode(packets: [packet]) else { return }
         Task { [weak self] in
             if let name = try? await relay.upload(payload: payload, tag: Relay.tag(mailbox: mailbox)) {
-                self?.queue.async { self?.state.relayUploads[name] = Date().addingTimeInterval(Relay.lifetime) }
+                self?.queue.async {
+                    self?.state.relayUploads[name] = Date().addingTimeInterval(Relay.lifetime)
+                    self?.save()
+                }
             }
         }
     }
@@ -2151,7 +2179,14 @@ final class PTTEngine {
     private func playNextRelayed() {
         guard rx == nil, tx == nil, !relayQueue.isEmpty else { return }
         let next = relayQueue.removeFirst()
+        if RelayInbox.isReplayedCopy(next.packets, record: next.record) {
+            // An old message posted again under a new record: don't play it twice.
+            log.notice("Skipped a replayed relay record")
+            if !relayQueue.isEmpty { playNextRelayed() }
+            return
+        }
         for packet in next.packets { handleDatagram(packet, from: nil, relayed: true) }
+        if rx != nil { RelayInbox.markRelayed(next.packets, record: next.record) }
         if let relay { Task { await relay.delete(recordName: next.record) } }
         // Not playable (e.g. not addressed to this device, or sealed to a deleted prekey): move on.
         if rx == nil, !relayQueue.isEmpty { playNextRelayed() }
@@ -2401,6 +2436,18 @@ final class PTTEngine {
         if onlinePeers() != lastOnline { publish() }
     }
 
+    /// Held messages and the replayable one live in files; publish() runs often, on the audio
+    /// queue, so read them at most every couple of seconds.
+    private var diskCache: (at: Date, held: [RelayInbox.Held], replay: RelayInbox.LastReceived?)?
+
+    private func diskInfo() -> (held: [RelayInbox.Held], replay: RelayInbox.LastReceived?) {
+        if let cache = diskCache, Date().timeIntervalSince(cache.at) < 2 { return (cache.held, cache.replay) }
+        let held = RelayInbox.heldMessages()
+        let replay = RelayInbox.replayableInfo()
+        diskCache = (Date(), held, replay)
+        return (held, replay)
+    }
+
     private func publish() {
         var snapshot = EngineSnapshot()
         snapshot.contacts = state.contacts
@@ -2430,7 +2477,8 @@ final class PTTEngine {
         snapshot.lastWakeSent = lastWakeSent
         snapshot.hasPushToken = state.pttToken != nil
         snapshot.lastWakeReceived = lastWakeReceived
-        snapshot.held = RelayInbox.heldMessages()
+        let disk = diskInfo()
+        snapshot.held = disk.held
         snapshot.playingHeld = rx?.heldID != nil || !heldQueue.isEmpty
         snapshot.pendingJoins = pendingJoinCodes.map {
             PendingJoin(id: $0.groupID, group: $0.groupName, inviter: $0.inviter.name.isEmpty ? "the inviter" : $0.inviter.name)
@@ -2442,7 +2490,7 @@ final class PTTEngine {
                                members: (group?.members ?? []).compactMap { self.contact(id: $0)?.name })
         }
         snapshot.peerQuiet = Dictionary(state.peerQuiet.map { ($0.id, $0.breaksThrough) }, uniquingKeysWith: { a, _ in a })
-        if let last = RelayInbox.replayableLast()?.info {
+        if let last = disk.replay {
             snapshot.replayable = ReplayableInfo(talker: last.talker, seconds: last.seconds, date: last.date)
         }
         DispatchQueue.main.async { [weak self] in self?.onSnapshot?(snapshot) }

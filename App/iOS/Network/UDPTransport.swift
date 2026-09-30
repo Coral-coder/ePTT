@@ -171,7 +171,7 @@ final class UDPTransport {
 
     func send(_ data: Data, to candidate: Candidate) {
         guard candidate.port != 0, let remotePort = NWEndpoint.Port(rawValue: candidate.port) else {
-            transportLog.debug("Dropping send to candidate with invalid port: \(candidate.description, privacy: .public)")
+            transportLog.debug("Dropping send to candidate with invalid port: \(candidate.description, privacy: .private)")
             return
         }
         let host = NWEndpoint.Host(candidate.hostString)
@@ -213,7 +213,7 @@ final class UDPTransport {
         let endpoint = conn.endpoint
         conn.connection.send(content: data, completion: .contentProcessed { error in
             if let error {
-                transportLog.debug("Send to \(String(describing: endpoint), privacy: .public) failed: \(String(describing: error), privacy: .public)")
+                transportLog.debug("Send to \(String(describing: endpoint), privacy: .private) failed: \(String(describing: error), privacy: .public)")
             }
         })
     }
@@ -257,7 +257,16 @@ final class UDPTransport {
         return conn
     }
 
+    /// Every new source address becomes a connection; spoofed sources could otherwise open
+    /// thousands. Past this, the least recently active inbound one makes room.
+    private static let maxInboundConnections = 128
+
     private func adoptInbound(_ connection: NWConnection) {
+        let inbound = connections.values.filter { !$0.isOutbound && !$0.closed }
+        if inbound.count >= Self.maxInboundConnections,
+           let oldest = inbound.min(by: { $0.lastActivity < $1.lastActivity }) {
+            close(oldest)
+        }
         let conn = Conn(connection: connection, endpoint: connection.endpoint, isOutbound: false, boundPort: nil)
         adopt(conn)
     }
@@ -290,9 +299,9 @@ final class UDPTransport {
             }
             flushPending(conn)
         case .waiting(let error):
-            transportLog.debug("Connection to \(String(describing: conn.endpoint), privacy: .public) waiting: \(String(describing: error), privacy: .public)")
+            transportLog.debug("Connection to \(String(describing: conn.endpoint), privacy: .private) waiting: \(String(describing: error), privacy: .public)")
         case .failed(let error):
-            transportLog.info("Connection to \(String(describing: conn.endpoint), privacy: .public) failed: \(String(describing: error), privacy: .public)")
+            transportLog.info("Connection to \(String(describing: conn.endpoint), privacy: .private) failed: \(String(describing: error), privacy: .public)")
             close(conn)
         case .cancelled:
             close(conn)
@@ -310,7 +319,7 @@ final class UDPTransport {
             }
             if conn.closed { return } // a callback may have stopped the transport
             if let error {
-                transportLog.debug("Receive from \(String(describing: conn.endpoint), privacy: .public) failed: \(String(describing: error), privacy: .public)")
+                transportLog.debug("Receive from \(String(describing: conn.endpoint), privacy: .private) failed: \(String(describing: error), privacy: .public)")
                 self.close(conn)
                 return
             }
@@ -360,7 +369,7 @@ final class UDPTransport {
         let cutoff = Self.now() - Self.idleTimeout
         let idle = connections.values.filter { $0.lastActivity < cutoff }
         for conn in idle {
-            transportLog.debug("Closing idle connection to \(String(describing: conn.endpoint), privacy: .public)")
+            transportLog.debug("Closing idle connection to \(String(describing: conn.endpoint), privacy: .private)")
             close(conn)
         }
     }
@@ -454,7 +463,7 @@ final class UDPTransport {
             for change in changes {
                 guard case .added(let result) = change else { continue }
                 guard case .service(let name, _, _, _) = result.endpoint, name != self.serviceName else { continue }
-                transportLog.debug("Discovered peer \(name, privacy: .public)")
+                transportLog.debug("Discovered peer \(name, privacy: .private)")
                 self.onPeerDiscovered?(result.endpoint)
             }
         }

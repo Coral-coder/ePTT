@@ -28,13 +28,17 @@ final class NotificationService: UNNotificationServiceExtension {
                 deliver()
                 return
             }
-            var quiet = false
-            if let sync = RelayInbox.loadSnapshot(), let alert = RelayInbox.callAlert(packets: [packet], with: sync) {
-                quiet = RelayInbox.loadQuiet().holds(alert.sender)
-                content.title = quiet ? "Call alert · Do Not Disturb" : "Call alert"
-                content.body = "\(alert.name) is trying to reach you" + (alert.text.map { ": \($0)" } ?? "")
-                content.threadIdentifier = "call-alert"
+            guard let sync = RelayInbox.loadSnapshot(), let alert = RelayInbox.callAlert(packets: [packet], with: sync) else {
+                // Not a call alert from a contact (anyone holding a push key can send pushes):
+                // never show text we didn't write.
+                showGeneric(content)
+                deliver()
+                return
             }
+            let quiet = RelayInbox.loadQuiet().holds(alert.sender)
+            content.title = quiet ? "Call alert · Do Not Disturb" : "Call alert"
+            content.body = "\(alert.name) is trying to reach you" + (alert.text.map { ": \($0)" } ?? "")
+            content.threadIdentifier = "call-alert"
             if quiet {
                 content.sound = nil
             } else if let sound = RelayInbox.writeCallAlertSound() {
@@ -43,8 +47,13 @@ final class NotificationService: UNNotificationServiceExtension {
             deliver()
             return
         }
-        guard let record = CloudRelay.recordName(inNotification: request.content.userInfo),
-              let sync = RelayInbox.loadSnapshot(), let relay = CloudRelay() else {
+        guard let record = CloudRelay.recordName(inNotification: request.content.userInfo) else {
+            // Neither ours nor iCloud's: don't pass on someone else's text.
+            showGeneric(content)
+            deliver()
+            return
+        }
+        guard let sync = RelayInbox.loadSnapshot(), let relay = CloudRelay() else {
             deliver()
             return
         }
@@ -66,8 +75,15 @@ final class NotificationService: UNNotificationServiceExtension {
         work = Task { @MainActor [weak self] in
             defer { self?.deliver() }
             guard let payload = try? await relay.fetch(recordName: record) else { return }
+            // The same message already played from another record: a replay.
+            let packets = (try? Relay.decode(payload)) ?? []
+            if RelayInbox.isReplayedCopy(packets, record: record) {
+                self?.showGeneric(content)
+                return
+            }
             // A call alert: the Nextel page, four beeps.
             if let alert = RelayInbox.callAlert(in: payload, with: sync) {
+                RelayInbox.markRelayed(packets, record: record)
                 let quiet = RelayInbox.loadQuiet().holds(alert.sender)
                 content.title = quiet ? "Call alert · Do Not Disturb" : "Call alert"
                 content.body = "\(alert.name) is trying to reach you" + (alert.text.map { ": \($0)" } ?? "")
@@ -99,6 +115,7 @@ final class NotificationService: UNNotificationServiceExtension {
                 return
             }
             guard let message = RelayInbox.open(payload, with: sync) else { return }
+            RelayInbox.markRelayed(packets, record: record)
             // Do Not Disturb: keep it on this phone, silently, and take it out of the relay now.
             if RelayInbox.loadQuiet().holds(message.sender) {
                 RelayInbox.hold(.init(id: record, date: Date(), talker: message.talker, channel: message.channel,
@@ -136,6 +153,15 @@ final class NotificationService: UNNotificationServiceExtension {
     override func serviceExtensionTimeWillExpire() {
         work?.cancel()
         deliver()
+    }
+
+    /// Fixed wording, no sound: for pushes we can't verify.
+    private func showGeneric(_ content: UNMutableNotificationContent) {
+        content.title = "NXTPTT"
+        content.subtitle = ""
+        content.body = "Open NXTPTT to see what's new."
+        content.sound = nil
+        content.attachments = []
     }
 
     private func deliver() {

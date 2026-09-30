@@ -280,6 +280,16 @@ enum RelayInbox {
         if let data = try? JSONEncoder().encode(info) { try? data.write(to: infoURL, options: .atomic) }
     }
 
+    /// The last message's details if it can be replayed, without reading its audio (cheap).
+    static func replayableInfo(now: Date = Date()) -> LastReceived? {
+        guard let infoURL = lastInfoURL, let dataURL = lastDataURL,
+              let raw = try? Data(contentsOf: infoURL),
+              let info = try? JSONDecoder().decode(LastReceived.self, from: raw),
+              info.replayable, now.timeIntervalSince(info.date) < replayLifetime,
+              FileManager.default.fileExists(atPath: dataURL.path) else { return nil }
+        return info
+    }
+
     /// The last message, if it is replayable, less than an hour old and its audio is still there.
     static func replayableLast(now: Date = Date()) -> (info: LastReceived, audio: Data)? {
         guard let infoURL = lastInfoURL, let dataURL = lastDataURL,
@@ -407,6 +417,51 @@ enum RelayInbox {
 
     /// The name on a relayed CARD message (contact details after face-to-face pairing), if that's
     /// what the payload is.
+    // MARK: - Relayed bursts already played (replay protection)
+
+    /// Someone could copy a relay record and post it again (under a new name) to replay an old
+    /// message. Each burst or call alert played from the relay is remembered for a day, with the
+    /// record that carried it; the same message in a different record is a replay. Shared by the
+    /// app and the notification extension.
+    private static var relayedURL: URL? { container?.appendingPathComponent("relayed-bursts.json") }
+
+    private struct RelayedEntry: Codable {
+        var record: String
+        var date: Date
+    }
+
+    private static func relayedIDs(_ packets: [Data]) -> [String] {
+        packets.compactMap { packet in
+            guard let header = try? PacketHeader(packet: packet),
+                  header.type == .burstStart || header.type == .callAlert else { return nil }
+            return (header.senderID.bytes + header.messageID.bytes).base64EncodedString()
+        }
+    }
+
+    private static func loadRelayed() -> [String: RelayedEntry] {
+        guard let url = relayedURL, let data = try? Data(contentsOf: url) else { return [:] }
+        return (try? JSONDecoder().decode([String: RelayedEntry].self, from: data)) ?? [:]
+    }
+
+    /// True when these packets were already played from a *different* relay record.
+    static func isReplayedCopy(_ packets: [Data], record: String) -> Bool {
+        let seen = loadRelayed()
+        return relayedIDs(packets).contains { id in seen[id].map { $0.record != record } ?? false }
+    }
+
+    /// Call once the message authenticated and played (or was held).
+    static func markRelayed(_ packets: [Data], record: String) {
+        let ids = relayedIDs(packets)
+        guard !ids.isEmpty, let url = relayedURL else { return }
+        let cutoff = Date().addingTimeInterval(-(Relay.lifetime + 3600))
+        var seen = loadRelayed().filter { $0.value.date > cutoff }
+        for id in ids where seen[id] == nil { seen[id] = RelayedEntry(record: record, date: Date()) }
+        if seen.count > 1000 {
+            for (key, _) in seen.sorted(by: { $0.value.date < $1.value.date }).prefix(seen.count - 1000) { seen[key] = nil }
+        }
+        if let data = try? JSONEncoder().encode(seen) { try? data.write(to: url, options: .atomic) }
+    }
+
     private static var pushedURL: URL? { container?.appendingPathComponent("pushed-packets.json") }
 
     /// Keeps a packet that arrived in a push (a request to join one of our talk groups) for the

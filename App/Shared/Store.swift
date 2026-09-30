@@ -162,8 +162,19 @@ enum Store {
         return dir.appendingPathComponent("eptt-state.json")
     }
 
+    /// The state file exists but couldn't be read (the phone hasn't been unlocked since it
+    /// started, so file protection still applies): never write over it with an empty state.
+    private(set) static var readFailed = false
+
     static func load() -> PersistedState {
-        guard let data = try? Data(contentsOf: url) else { return PersistedState() }
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+            readFailed = false
+        } catch {
+            readFailed = FileManager.default.fileExists(atPath: url.path)
+            return PersistedState()
+        }
         do {
             return try JSONDecoder().decode(PersistedState.self, from: data)
         } catch {
@@ -176,7 +187,7 @@ enum Store {
     }
 
     static func save(_ state: PersistedState) {
-        guard let data = try? JSONEncoder().encode(state) else { return }
+        guard !readFailed, let data = try? JSONEncoder().encode(state) else { return }
         // Readable after first unlock so a push can wake a locked phone and still load contacts.
         try? data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }

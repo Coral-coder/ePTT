@@ -278,6 +278,19 @@ key           = HKDF(ikm=X25519(eph_sk, target), salt=message_id,
 sealed_invite = prekey_id_u32 || AEAD-Encrypt(key, 0x00 × 12, inner, R.sender_id || prekey_id_u32)
 ```
 
+A receiver accepts a GROUP_INVITE only when:
+
+- its channel ID is unknown and is not the direct-channel ID it would share with any
+  listed member (a new group), or
+- its channel ID is an existing **group** (never a direct channel), the sender is already
+  a member of it, and the epoch is higher (a rekey) or the same with the same key (a
+  member-list update).
+
+**Trust within a group.** Members share the group key and, for each burst, the burst key.
+Only BURST_START is signed, so a member could send CALL_ALERT or WAKE in another member's
+name, or add frames to another member's burst. Groups are for people who trust each
+other; outsiders can do none of this.
+
 ### 6.4 Replay protection
 
 - HELLO, BURST_START, CALL_ALERT, WAKE and GROUP_* packets with a
@@ -289,6 +302,13 @@ sealed_invite = prekey_id_u32 || AEAD-Encrypt(key, 0x00 × 12, inner, R.sender_i
   been verified and whose envelope was opened.
   VOICE that arrives before its BURST_START may be held for up to 1 s.
   Frame indexes already played are dropped.
+- VOICE with `seq` above 2^24, or whose frames would run past it, is dropped.
+- A burst's WAKE is sealed once (its nonce is fixed by `message_id` and seq 0) and the
+  same bytes are sent to every member and on every retry.
+- The relay can hold a packet for a day, longer than the 300 s window, and anyone can
+  re-post a record. So receivers also remember, for a day, each BURST_START and CALL_ALERT
+  they played from the relay along with the record that carried it. The same
+  `(sender_id, message_id)` in a different record is a replay and is not played.
 
 ### 6.5 Joining a group by QR code
 

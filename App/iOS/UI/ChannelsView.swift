@@ -35,6 +35,9 @@ struct ChannelsView: View {
                     }
 
                     SectionCaption(text: "Talk groups · scan")
+                    ForEach(model.snapshot.joinRequests) { request in
+                        JoinRequestRow(request: request)
+                    }
                     ForEach(model.snapshot.pendingJoins) { join in
                         PendingJoinCard(join: join)
                     }
@@ -66,6 +69,40 @@ struct ChannelsView: View {
         }
         .sheet(isPresented: $creatingGroup) { NewGroupView() }
         .sheet(isPresented: $joining) { AddContactView() }
+    }
+}
+
+/// "Sam wants to join Crew" with Let in / No, inline (Channels list, the invite sheet).
+struct JoinRequestRow: View {
+    @EnvironmentObject private var model: AppModel
+    let request: JoinRequest
+
+    var body: some View {
+        HStack(spacing: 12) {
+            InitialsRing(name: request.name, size: 42, lit: true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(request.name)
+                    .font(NX.label(16, .bold))
+                    .foregroundStyle(NX.text)
+                    .lineLimit(1)
+                Text("Wants to join \(request.group)")
+                    .font(NX.body(13))
+                    .foregroundStyle(NX.textDim)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            Button("No") { model.engine.answerJoinRequest(request.id, allow: false) }
+                .font(NX.label(14, .bold))
+                .foregroundStyle(NX.textMuted)
+                .buttonStyle(.plain)
+                .frame(minWidth: 44, minHeight: 44)
+            Button("LET IN") { model.engine.answerJoinRequest(request.id, allow: true) }
+                .buttonStyle(NXButtonStyle(kind: .gel))
+                .fixedSize()
+        }
+        .padding(.horizontal, 14)
+        .frame(minHeight: 72)
+        .glass(cornerRadius: 20, glow: 0.35, strong: true)
     }
 }
 
@@ -352,6 +389,11 @@ struct GroupInviteView: View {
                         Button("Done") { dismiss() }
                             .font(NX.body(16, .medium))
                             .foregroundStyle(NX.frost)
+                    }
+                    // Someone scanning right now: answer here (the full-screen prompt can't open
+                    // over this sheet).
+                    ForEach(model.snapshot.joinRequests) { request in
+                        JoinRequestRow(request: request)
                     }
                     Text("Scan to join \(channel.name)")
                         .font(NX.label(17, .bold))
