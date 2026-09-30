@@ -66,7 +66,7 @@ struct SettingsView: View {
                 .nxRows()
 
                 Section {
-                    Toggle("Play received audio on watch", isOn: binding(\.forwardAudioToWatch))
+                    Toggle("Play received audio on watch", isOn: binding(\.playOnWatch))
                     Toggle("Standalone watch", isOn: binding(\.standaloneWatch))
                 } header: {
                     Text("Apple Watch")

@@ -91,6 +91,13 @@ final class APNsClient {
         send(.relayNotice(record: record), packet: Data(), token: token, contact: contact, completion: completion)
     }
 
+    /// Tells a recipient's Apple Watch app that a relayed message is waiting (silent push; the
+    /// watch checks the relay and, if the iPhone isn't around, shows a notification).
+    func sendRelayNoticeToWatch(to contact: Contact) {
+        guard let token = contact.reachability.apnsWatchToken else { return }
+        send(.background, packet: Data(), token: token, contact: contact, topicSuffix: ".watchkitapp")
+    }
+
     /// Delivers a HELLO to a (foreground) talker as a silent background push.
     func sendBackground(_ packet: Data, to contact: Contact) {
         guard let token = contact.reachability.apnsDeviceToken else { return }
@@ -98,7 +105,7 @@ final class APNsClient {
     }
 
     private func send(_ kind: APNsRequest.Kind, packet: Data, token: Data, contact: Contact,
-                      completion: ((String?) -> Void)? = nil) {
+                      topicSuffix: String = "", completion: ((String?) -> Void)? = nil) {
         guard let providerToken = providerToken() else {
             completion?("the push key couldn't sign a request")
             return
@@ -107,7 +114,7 @@ final class APNsClient {
             kind: kind,
             deviceToken: token,
             environment: contact.reachability.apnsEnvironment ?? .production,
-            bundleID: contact.reachability.apnsTopic ?? bundleID,
+            bundleID: (contact.reachability.apnsTopic ?? bundleID) + topicSuffix,
             providerToken: providerToken,
             packet: packet
         )

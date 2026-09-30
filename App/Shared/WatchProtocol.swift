@@ -33,6 +33,8 @@ enum WatchProtocol {
 extension WatchProtocol {
     /// userInfo key carrying an encoded `WatchSync` (phone → watch, via `transferUserInfo`).
     static let sync = "sync"
+    /// userInfo key carrying the watch app's push token (watch → phone, via `transferUserInfo`).
+    static let watchToken = "watchToken"
 }
 
 /// Everything the watch needs to act as this user when the iPhone is out of range.

@@ -38,7 +38,16 @@ final class WatchModel: NSObject, ObservableObject {
         }
         engine.onPlayback = { [weak self] pcm in self?.audio.play(pcm) }
         refreshStandalone()
+        // On its own, keep checking the relay while the app is open.
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.isStandalone, WKApplication.shared().applicationState == .active else { return }
+                self.engine.fetchRelay()
+            }
+        }
     }
+
+    private var pollTimer: Timer?
 
     /// With the iPhone out of range, a set-up watch talks on its own through the iCloud relay.
     var isStandalone: Bool { !phoneReachable && standaloneReady }
@@ -153,6 +162,7 @@ extension WatchModel: WCSessionDelegate {
             self.refreshReachability()
             self.apply(context)
             self.send([WatchProtocol.command: WatchProtocol.Command.sync.rawValue])
+            WatchAppDelegate.sendTokenToPhone()
         }
     }
 

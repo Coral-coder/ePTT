@@ -9,7 +9,9 @@ struct Settings: Codable, Equatable {
     var stunEnabled = true
     /// Extra candidates to advertise, e.g. an overlay-VPN host name ("me.tailnet.ts.net:47474").
     var staticCandidates: [String] = []
-    var forwardAudioToWatch = false
+    /// Forward received audio to the watch app (when it is open). On by default; stored under a new
+    /// key, so the old default-off setting ("forwardAudioToWatch") no longer applies.
+    var playOnWatch = true
     /// Leave messages in the iCloud relay for people who couldn't be reached directly.
     var relayEnabled = true
     /// Give the paired Apple Watch this identity so it can talk without the iPhone nearby.
@@ -128,6 +130,8 @@ struct PersistedState: Codable {
     var joinCodes: [Data] = []
     /// Contacts who told us (HELLO) they're on Do Not Disturb, and whether we break through.
     var peerQuiet: [PeerQuiet] = []
+    /// The paired Apple Watch app's push token, shared with contacts (PROTOCOL.md §11).
+    var watchToken: Data?
 }
 
 struct PeerQuiet: Codable, Equatable {
@@ -172,7 +176,7 @@ extension Settings {
         nameConfirmed = (try? c.decodeIfPresent(Bool.self, forKey: .nameConfirmed)) ?? d.nameConfirmed
         stunEnabled = try c.decodeIfPresent(Bool.self, forKey: .stunEnabled) ?? d.stunEnabled
         staticCandidates = try c.decodeIfPresent([String].self, forKey: .staticCandidates) ?? d.staticCandidates
-        forwardAudioToWatch = try c.decodeIfPresent(Bool.self, forKey: .forwardAudioToWatch) ?? d.forwardAudioToWatch
+        playOnWatch = try c.decodeIfPresent(Bool.self, forKey: .playOnWatch) ?? d.playOnWatch
         relayEnabled = try c.decodeIfPresent(Bool.self, forKey: .relayEnabled) ?? d.relayEnabled
         standaloneWatch = try c.decodeIfPresent(Bool.self, forKey: .standaloneWatch) ?? d.standaloneWatch
         deepChirp = try c.decodeIfPresent(Bool.self, forKey: .deepChirp) ?? d.deepChirp
@@ -195,6 +199,7 @@ extension PersistedState {
         pttToken = try? c.decodeIfPresent(Data.self, forKey: .pttToken)
         deviceToken = try? c.decodeIfPresent(Data.self, forKey: .deviceToken)
         relayMailbox = try? c.decodeIfPresent(Data.self, forKey: .relayMailbox)
+        watchToken = try? c.decodeIfPresent(Data.self, forKey: .watchToken)
         relayUploads = (try? c.decodeIfPresent([String: Date].self, forKey: .relayUploads)) ?? [:]
         transfers = (try? c.decodeIfPresent(Lossy<TransferRecord>.self, forKey: .transfers))?.items ?? []
         joinCodes = (try? c.decodeIfPresent([Data].self, forKey: .joinCodes)) ?? []

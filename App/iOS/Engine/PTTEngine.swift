@@ -264,7 +264,7 @@ final class PTTEngine {
                 self?.queue.async { self?.appendCapturedFrame(frame) }
             }
             audio.onPlaybackPCM16k = { [weak self] pcm in
-                guard let self, self.state.settings.forwardAudioToWatch else { return }
+                guard let self, self.state.settings.playOnWatch else { return }
                 self.onWatchAudio?(pcm)
             }
             transport.onPacket = { [weak self] data, endpoint in self?.handleDatagram(data, from: .udp(endpoint)) }
@@ -454,6 +454,29 @@ final class PTTEngine {
             pendingPress = nil
             guard tx != nil else { return }
             if usesPushToTalk { ptt.stopTransmitting() } else { endBurst() }
+        }
+    }
+
+    /// Talk from the Apple Watch. The watch's microphone audio arrives over WatchConnectivity
+    /// (injectWatchAudio), so the phone only seals and sends it; it doesn't need a PushToTalk
+    /// transmission, which iOS won't start while NXTPTT is in the background.
+    private var watchTalking = false
+
+    func pressTalkFromWatch() {
+        queue.async { [self] in
+            guard tx == nil, let channel = state.settings.selectedChannel, channelIndex[channel] != nil else { return }
+            if beginBurst(on: channel) {
+                watchTalking = true
+                audio.startCapture()
+            }
+        }
+    }
+
+    func releaseTalkFromWatch() {
+        queue.async { [self] in
+            guard watchTalking else { return }
+            watchTalking = false
+            endBurst()
         }
     }
 
@@ -1587,7 +1610,8 @@ final class PTTEngine {
         return Reachability(apnsPTTToken: state.pttToken, apnsDeviceToken: state.deviceToken, apnsEnvironment: env,
                             apnsTopic: Bundle.main.bundleIdentifier, candidates: transport.localCandidates,
                             prekey: prekeys.signed,
-                            relayMailbox: relay != nil && state.settings.relayEnabled ? state.relayMailbox : nil)
+                            relayMailbox: relay != nil && state.settings.relayEnabled ? state.relayMailbox : nil,
+                            apnsWatchToken: state.settings.standaloneWatch ? state.watchToken : nil)
     }
 
     // MARK: - Face-to-face pairing
@@ -1795,7 +1819,11 @@ final class PTTEngine {
                     relayedLegs.append(.init(peer: contact.name, route: .relay, reason: notes[contact.id]))
                     // Announce it ourselves: iCloud's own alert (a subscription) isn't always allowed.
                     // Not for someone on Do Not Disturb: their phone collects it quietly instead.
-                    if notes[contact.id] == nil { pusher?.sendRelayNotice(record: name, to: contact) }
+                    if notes[contact.id] == nil {
+                        pusher?.sendRelayNotice(record: name, to: contact)
+                        // Their watch too, for when their iPhone is away.
+                        pusher?.sendRelayNoticeToWatch(to: contact)
+                    }
                 } catch {
                     log.error("Relay upload failed: \(String(describing: error), privacy: .public)")
                     relayedLegs.append(.init(peer: contact.name, route: .failed,
@@ -2088,6 +2116,17 @@ final class PTTEngine {
         guard sync != lastWatchSync else { return }
         lastWatchSync = sync
         onWatchSync?(sync)
+    }
+
+    /// The paired watch app's push token (from the watch, over WatchConnectivity). Shared with
+    /// contacts so they can tell the watch about relayed messages when this iPhone is away.
+    func setWatchToken(_ token: Data) {
+        queue.async { [self] in
+            guard token != state.watchToken else { return }
+            state.watchToken = token
+            save()
+            announceReachability()
+        }
     }
 
     /// Re-sends the watch sync (e.g. after the watch app is reinstalled).

@@ -35,7 +35,7 @@ final class WatchBridge: NSObject {
             WatchProtocol.selected: snapshot.settings.selectedChannel?.bytes.hex ?? "",
             WatchProtocol.state: state.rawValue,
             WatchProtocol.talker: talker,
-            WatchProtocol.listening: snapshot.settings.forwardAudioToWatch,
+            WatchProtocol.listening: snapshot.settings.playOnWatch,
         ]
         guard !NSDictionary(dictionary: context).isEqual(to: lastContext) else { return }
         lastContext = context
@@ -73,9 +73,9 @@ extension WatchBridge: WCSessionDelegate {
               let command = WatchProtocol.Command(rawValue: raw) else { return }
         switch command {
         case .press:
-            engine.pressTalk()
+            engine.pressTalkFromWatch()
         case .release:
-            engine.releaseTalk()
+            engine.releaseTalkFromWatch()
         case .select:
             if let hex = message[WatchProtocol.channelID] as? String, let bytes = Data(hex: hex),
                let id = try? ChannelID(bytes: bytes) {
@@ -83,7 +83,7 @@ extension WatchBridge: WCSessionDelegate {
             }
         case .listenOnWatch:
             let enabled = message[WatchProtocol.enabled] as? Bool ?? false
-            engine.updateSettings { $0.forwardAudioToWatch = enabled }
+            engine.updateSettings { $0.playOnWatch = enabled }
         case .sync:
             DispatchQueue.main.async {
                 self.lastContext = [:]
@@ -91,6 +91,11 @@ extension WatchBridge: WCSessionDelegate {
             }
             engine.resyncWatch()
         }
+    }
+
+    /// The watch app's push token (queued by the watch with transferUserInfo).
+    func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
+        if let token = userInfo[WatchProtocol.watchToken] as? Data { engine?.setWatchToken(token) }
     }
 
     func session(_ session: WCSession, didReceiveMessageData messageData: Data) {

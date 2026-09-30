@@ -22,10 +22,12 @@ public struct Reachability: Equatable, Codable {
     public var prekey: SignedPrekey?
     /// Secret relay mailbox (PROTOCOL.md §11).
     public var relayMailbox: Data?
+    /// The user's Apple Watch app push token: told about relayed messages when the iPhone is away.
+    public var apnsWatchToken: Data?
 
     public init(apnsPTTToken: Data? = nil, apnsDeviceToken: Data? = nil, apnsEnvironment: APNsEnvironment? = nil,
                 apnsTopic: String? = nil, candidates: [Candidate] = [], prekey: SignedPrekey? = nil,
-                relayMailbox: Data? = nil) {
+                relayMailbox: Data? = nil, apnsWatchToken: Data? = nil) {
         self.apnsPTTToken = apnsPTTToken
         self.apnsDeviceToken = apnsDeviceToken
         self.apnsEnvironment = apnsEnvironment
@@ -33,6 +35,7 @@ public struct Reachability: Equatable, Codable {
         self.candidates = candidates
         self.prekey = prekey
         self.relayMailbox = relayMailbox
+        self.apnsWatchToken = apnsWatchToken
     }
 
     func add(to builder: inout TLVBuilder) {
@@ -43,6 +46,7 @@ public struct Reachability: Equatable, Codable {
         if let topic = apnsTopic { builder.add(.apnsTopic, topic, maxBytes: 255) }
         if let prekey { builder.add(.prekey, prekey.encoded) }
         if let relayMailbox { builder.add(.relayMailbox, relayMailbox) }
+        builder.addIfPresent(.apnsWatchToken, apnsWatchToken)
     }
 
     init(fields: TLVFields) throws {
@@ -54,6 +58,7 @@ public struct Reachability: Equatable, Codable {
         candidates = fields.all(.candidate).compactMap { try? Candidate(encoded: $0) }
         prekey = try fields.first(.prekey).map(SignedPrekey.init(encoded:))
         relayMailbox = fields.first(.relayMailbox).flatMap { $0.count == 16 ? $0 : nil }
+        apnsWatchToken = fields.first(.apnsWatchToken)
     }
 
     /// Drops a prekey whose signature does not verify against `identity`.
@@ -72,6 +77,7 @@ public struct Reachability: Equatable, Codable {
         if !newer.candidates.isEmpty { candidates = newer.candidates }
         if let incoming = newer.prekey, incoming.id > (prekey?.id ?? 0) { prekey = incoming }
         relayMailbox = newer.relayMailbox ?? relayMailbox
+        apnsWatchToken = newer.apnsWatchToken ?? apnsWatchToken
     }
 }
 

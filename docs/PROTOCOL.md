@@ -41,6 +41,7 @@ tag: u8 | length: u16 | value: length bytes
 | 0x08 | platform | u8: 1 = iOS, 2 = Android, 3 = other |
 | 0x09 | flags | u8, meaning depends on the message |
 | 0x0A | relay_mailbox | 16 bytes, secret relay mailbox ID (§11) |
+| 0x0B | apns_watch_token | bytes: the Apple Watch app's remote-notification token (§11) |
 | 0x10 | codec | u8: 1 = Opus, 2 = PCM signed 16-bit little-endian |
 | 0x11 | sample_rate | u32, in Hz |
 | 0x12 | frame_ms | u8, milliseconds of audio per frame |
@@ -442,6 +443,11 @@ recipients can unwrap (§6.2).
   The recipient's notification service extension fetches the record and plays
   it. If both a relay notice and a subscription alert arrive, only the first
   one plays. No relay notice is sent to a recipient on Do Not Disturb.
+- **Apple Watch.** A contact whose details include `apns_watch_token` also gets a
+  silent background push, sent to the watch app's topic (bundle ID +
+  `.watchkitapp`). The watch checks the relay. If its iPhone isn't around, it
+  shows "New voice message", and the message plays when the watch app is opened.
+  While open without the iPhone, the watch app also checks the relay every 10 s.
 
 
 ## 12. Optical handshake (face-to-face pairing)

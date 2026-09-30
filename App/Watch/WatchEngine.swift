@@ -1,6 +1,7 @@
 import AVFoundation
 import Foundation
 import Security
+import UserNotifications
 import os
 import EPTTCore
 
@@ -205,6 +206,32 @@ final class WatchEngine {
             }
         }
     }
+
+    /// A silent push said a relayed message is waiting. Without the iPhone around, show a
+    /// notification (the message plays when the app opens); records are left in place.
+    func announceWaitingMessages(unlessPhoneAround phoneAround: Bool, done: @escaping () -> Void) {
+        queue.async { [self] in
+            guard !phoneAround, let relay, let mailbox = sync?.relayMailbox else { done(); return }
+            let tags = Relay.inboxTags(mailbox: mailbox)
+            Task { [weak self] in
+                let records = (try? await relay.fetch(tags: tags)) ?? []
+                self?.queue.async {
+                    guard let self else { done(); return }
+                    let fresh = records.filter { !self.seenRecords.contains($0.name) && !self.announced.contains($0.name) }
+                    for record in fresh { self.announced.insert(record.name) }
+                    guard !fresh.isEmpty else { done(); return }
+                    let content = UNMutableNotificationContent()
+                    content.title = "NXTPTT"
+                    content.body = fresh.count == 1 ? "New voice message" : "\(fresh.count) new voice messages"
+                    content.sound = .default
+                    let request = UNNotificationRequest(identifier: "relay-\(fresh[0].name)", content: content, trigger: nil)
+                    UNUserNotificationCenter.current().add(request) { _ in done() }
+                }
+            }
+        }
+    }
+
+    private var announced: Set<String> = []
 
     private func play(_ payload: Data) {
         guard var processor, let sync, let packets = try? Relay.decode(payload) else { return }
