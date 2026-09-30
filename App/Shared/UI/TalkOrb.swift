@@ -13,6 +13,7 @@ struct TalkOrb: View {
     var pressed = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var spin = SpinClock()
 
     private var orbSize: CGFloat { diameter * 0.667 }
     private var hot: Bool { mode == .transmitting }
@@ -52,36 +53,46 @@ struct TalkOrb: View {
 
     private var rings: some View {
         TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { timeline in
-            let t = timeline.date.timeIntervalSinceReferenceDate
-            let angle = reduceMotion ? 0 : (t / spinPeriod).truncatingRemainder(dividingBy: 1) * 360
+            // Turns so far, advanced at the current speed, so changing speed (idle → talking)
+            // never makes the rings jump, and the slower inner ring never snaps back at a lap.
+            let turns = reduceMotion ? 0 : spin.advance(to: timeline.date, period: spinPeriod)
+            let outer = turns.truncatingRemainder(dividingBy: 1) * 360
+            let inner = -(turns * 0.65).truncatingRemainder(dividingBy: 1) * 360
             ZStack {
                 // Identity-disc segments.
                 Circle()
                     .inset(by: 3)
                     .stroke(hot ? NX.whiteHot : NX.cyan,
-                            style: StrokeStyle(lineWidth: hot ? 3 : 2, dash: dash([120, 18, 24, 18, 60, 18])))
-                    .rotationEffect(.degrees(angle))
+                            style: StrokeStyle(lineWidth: hot ? 3 : 2,
+                                               dash: fitted([120, 18, 24, 18, 60, 18], radius: diameter / 2 - 3)))
+                    .rotationEffect(.degrees(outer))
                 // Inner tick ring, counter-rotating.
                 Circle()
                     .inset(by: diameter * 0.073)
-                    .stroke(NX.frost.opacity(hot ? 0.9 : 0.55), style: StrokeStyle(lineWidth: 1, dash: [3, 9]))
-                    .rotationEffect(.degrees(-angle * 0.65))
+                    .stroke(NX.frost.opacity(hot ? 0.9 : 0.55),
+                            style: StrokeStyle(lineWidth: 1, dash: fitted([3, 9], radius: diameter * (0.5 - 0.073))))
+                    .rotationEffect(.degrees(inner))
                 // Four index marks.
                 ForEach(0..<4) { i in
                     Capsule()
                         .fill(hot ? NX.whiteHot : NX.cyan)
                         .frame(width: 2, height: diameter * 0.06)
                         .offset(y: -diameter * 0.44)
-                        .rotationEffect(.degrees(Double(i) * 90 - angle * 0.65))
+                        .rotationEffect(.degrees(Double(i) * 90 + inner))
                 }
             }
             .neonGlow(NX.cyan, radius: hot ? 10 : 6)
         }
     }
 
-    /// Scales dash lengths drawn for a 300 pt ring to this ring's size.
-    private func dash(_ values: [CGFloat]) -> [CGFloat] {
-        values.map { $0 * diameter / 300 }
+    /// Scales dash lengths drawn for a 300 pt ring to this ring's size, then stretches them so
+    /// the pattern repeats a whole number of times around the circle (no odd piece where it meets).
+    private func fitted(_ values: [CGFloat], radius: CGFloat) -> [CGFloat] {
+        let circumference = 2 * .pi * max(1, radius)
+        let pattern = values.reduce(0, +) * diameter / 300
+        let repeats = max(1, (circumference / pattern).rounded())
+        let scale = circumference / (repeats * values.reduce(0, +))
+        return values.map { $0 * scale }
     }
 
     private var orb: some View {
@@ -167,5 +178,22 @@ struct ActivityBars: View {
             .neonGlow(NX.cyan, radius: 4)
         }
         .accessibilityHidden(true)
+    }
+}
+
+/// Accumulates rotation at a speed that can change, so the rings keep turning smoothly.
+final class SpinClock {
+    private var turns: Double = 0
+    private var last: Date?
+
+    func advance(to now: Date, period: Double) -> Double {
+        if let last {
+            let dt = min(max(0, now.timeIntervalSince(last)), 0.25)   // resume without a leap
+            turns += dt / period
+            // Keep it small; 20 turns is also a whole number (13) of inner-ring turns.
+            if turns >= 20 { turns -= 20 }
+        }
+        last = now
+        return turns
     }
 }
