@@ -2082,7 +2082,9 @@ final class PTTEngine {
                              contacts: state.contacts, channels: state.channels,
                              selectedChannel: state.settings.selectedChannel,
                              relayMailbox: relay != nil && state.settings.relayEnabled ? state.relayMailbox : nil,
-                             pushKey: PushKeyKeychain.load())
+                             // A key shared by link, else the one bundled into this build: without it
+                             // the watch can leave messages in the relay but wake nobody.
+                             pushKey: PushKeyKeychain.load() ?? PushKey.fromBundle())
         guard sync != lastWatchSync else { return }
         lastWatchSync = sync
         onWatchSync?(sync)

@@ -70,6 +70,15 @@ struct PushKey: Codable, Equatable {
     var uri: String {
         PushKey.uriPrefix + ((try? JSONEncoder().encode(self)) ?? Data()).base64URLEncoded
     }
+
+    /// The key bundled into this build (TestFlight builds carry one), if any.
+    static func fromBundle(_ bundle: Bundle = .main) -> PushKey? {
+        guard let teamID = bundle.object(forInfoDictionaryKey: "EPTTAPNsTeamID") as? String, !teamID.isEmpty,
+              let keyID = bundle.object(forInfoDictionaryKey: "EPTTAPNsKeyID") as? String, !keyID.isEmpty,
+              let url = bundle.url(forResource: "APNsAuthKey", withExtension: "p8"),
+              let pem = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        return PushKey(teamID: teamID, keyID: keyID, pem: pem)
+    }
 }
 
 enum PushKeyKeychain {
