@@ -1837,11 +1837,8 @@ final class PTTEngine {
                     relayedLegs.append(.init(peer: contact.name, route: .relay, reason: notes[contact.id]))
                     // Announce it ourselves: iCloud's own alert (a subscription) isn't always allowed.
                     // Not for someone on Do Not Disturb: their phone collects it quietly instead.
-                    if notes[contact.id] == nil {
-                        pusher?.sendRelayNotice(record: name, to: contact)
-                        // Their watch too, for when their iPhone is away.
-                        pusher?.sendRelayNoticeToWatch(to: contact)
-                    }
+                    // Tell their watch, for when their iPhone is away (not on Do Not Disturb).
+                    if notes[contact.id] == nil { pusher?.sendRelayNoticeToWatch(to: contact) }
                 } catch {
                     log.error("Relay upload failed: \(String(describing: error), privacy: .public)")
                     relayedLegs.append(.init(peer: contact.name, route: .failed,
@@ -1985,10 +1982,7 @@ final class PTTEngine {
                 self?.queue.async {
                     guard let self else { return }
                     self.subscribedTags = []   // retry on the next housekeeping pass
-                    self.relayAlerts = (self.apns != nil
-                        ? "Using push instead (iCloud refused its own alerts: "
-                        : "Failed (")
-                        + CloudRelay.describe(error) + ")"
+                    self.relayAlerts = "Failed: \(CloudRelay.describe(error))"
                     self.publish()
                 }
             }

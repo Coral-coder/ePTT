@@ -314,18 +314,6 @@ final class MiscTests: XCTestCase {
         let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: r.body) as? [String: Any])
         XCTAssertEqual(APNsRequest.packet(fromPayload: payload), Data([1, 2, 3]))
     }
-
-    func testRelayNoticeCarriesOnlyTheRecordName() throws {
-        let r = APNsRequest(kind: .relayNotice(record: "ABC-123"), deviceToken: Data(repeating: 1, count: 32),
-                            environment: .production, bundleID: "com.example.eptt", providerToken: "jwt", packet: Data())
-        XCTAssertEqual(r.headers["apns-push-type"], "alert")
-        XCTAssertEqual(r.headers["apns-topic"], "com.example.eptt")
-        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: r.body) as? [String: Any])
-        XCTAssertEqual(APNsRequest.relayRecord(fromPayload: payload), "ABC-123")
-        XCTAssertNil(APNsRequest.packet(fromPayload: payload))
-        let aps = try XCTUnwrap(payload["aps"] as? [String: Any])
-        XCTAssertEqual(aps["mutable-content"] as? Int, 1)
-    }
 }
 
 /// Joining a talk group from a QR code (PROTOCOL.md §6.5).

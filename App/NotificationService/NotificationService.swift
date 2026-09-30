@@ -35,9 +35,7 @@ final class NotificationService: UNNotificationServiceExtension {
             deliver()
             return
         }
-        // From iCloud (a subscription) or pushed by the talker's phone (a relay notice).
-        guard let record = CloudRelay.recordName(inNotification: request.content.userInfo)
-                ?? APNsRequest.relayRecord(fromPayload: request.content.userInfo),
+        guard let record = CloudRelay.recordName(inNotification: request.content.userInfo),
               let sync = RelayInbox.loadSnapshot(), let relay = CloudRelay() else {
             deliver()
             return
@@ -46,12 +44,6 @@ final class NotificationService: UNNotificationServiceExtension {
         if RelayInbox.isHandedOff {
             content.sound = nil
             content.body = "Voice message · on your Apple Watch"
-            deliver()
-            return
-        }
-        // Both announced the same message: only the first one plays it.
-        if RelayInbox.heard().contains(where: { $0.record == record }) {
-            content.sound = nil
             deliver()
             return
         }

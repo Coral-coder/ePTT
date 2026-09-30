@@ -199,15 +199,10 @@ final class WatchEngine {
             var delivered = direct
             for contact in members {
                 guard let mailbox = contact.reachability.relayMailbox else { continue }
-                if let name = try? await relay.upload(payload: payload, tag: Relay.tag(mailbox: mailbox)) {
+                if (try? await relay.upload(payload: payload, tag: Relay.tag(mailbox: mailbox))) != nil {
                     delivered += 1
                     // The wake makes their phone chirp; it then finds the burst in the relay.
-                    // Without a PushToTalk token, a visible notification that plays it instead.
-                    if contact.reachability.apnsPTTToken != nil, let wakePacket {
-                        apns?.sendWake(wakePacket, to: contact)
-                    } else {
-                        apns?.sendRelayNotice(record: name, to: contact)
-                    }
+                    if let wakePacket { apns?.sendWake(wakePacket, to: contact) }
                 }
             }
             self?.status(delivered > 0 ? .sent(recipients: delivered) : .failed("Nobody reachable"))

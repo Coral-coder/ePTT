@@ -81,16 +81,6 @@ final class APNsClient {
              contact: contact, completion: completion)
     }
 
-    /// Tells a recipient a voice message is waiting in their relay mailbox (visible notification;
-    /// their notification service extension fetches and plays it).
-    func sendRelayNotice(record: String, to contact: Contact, completion: ((String?) -> Void)? = nil) {
-        guard let token = contact.reachability.apnsDeviceToken else {
-            completion?("no notification token for them")
-            return
-        }
-        send(.relayNotice(record: record), packet: Data(), token: token, contact: contact, completion: completion)
-    }
-
     /// Tells a recipient's Apple Watch app that a relayed message is waiting (silent push; the
     /// watch checks the relay and, if the iPhone isn't around, shows a notification).
     func sendRelayNoticeToWatch(to contact: Contact) {
