@@ -142,6 +142,7 @@ struct TalkView: View {
                 VStack(spacing: 16) {
                     header
                     switch layout {
+                    case .classic: classicLayout(geo)
                     case .strip: stripLayout(geo)
                     case .log: logLayout(geo)
                     case .board: boardLayout(geo)
@@ -169,6 +170,19 @@ struct TalkView: View {
     }
 
     // MARK: Layouts
+
+    @ViewBuilder
+    private func classicLayout(_ geo: GeometryProxy) -> some View {
+        ChannelCapsule()
+        WatchHandoffBar()
+        QuietBar()
+        status
+        Spacer(minLength: 0)
+        orb(diameter: max(150, min(300, geo.size.width - 60, geo.size.height * (model.selectedChannel?.kind == .group ? 0.34 : 0.44))))
+        Spacer(minLength: 0)
+        footer
+        replayRow
+    }
 
     @ViewBuilder
     private func stripLayout(_ geo: GeometryProxy) -> some View {

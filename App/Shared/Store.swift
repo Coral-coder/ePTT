@@ -31,7 +31,7 @@ struct Settings: Codable, Equatable {
     var priorityContacts: [IdentityID] = []
     var selectedChannel: ChannelID?
     /// How the Talk screen is laid out (Settings › Talk screen).
-    var talkLayout: TalkLayout = .strip
+    var talkLayout: TalkLayout = .classic
     /// Up to three channels kept at the top of the Pinned layout.
     var pinnedChannels: [ChannelID] = []
 
@@ -209,6 +209,8 @@ extension Settings {
 
 /// The Talk screen's four layouts for keeping track of many conversations.
 enum TalkLayout: String, Codable, CaseIterable, Identifiable {
+    /// The original Talk screen: the selected channel and the orb.
+    case classic
     /// The selected channel, with a row of recent channels to switch to.
     case strip
     /// A live log of every key-up; tap one to talk back.
@@ -222,6 +224,7 @@ enum TalkLayout: String, Codable, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
+        case .classic: return "Classic"
         case .strip: return "Recent strip"
         case .log: return "Radio log"
         case .board: return "Talk board"
@@ -231,6 +234,7 @@ enum TalkLayout: String, Codable, CaseIterable, Identifiable {
 
     var summary: String {
         switch self {
+        case .classic: return "Your channel and the talk button, nothing else."
         case .strip: return "Your channel, plus a row of recent ones to tap."
         case .log: return "A live log of every key-up. Tap one to talk back."
         case .board: return "Every channel is its own hold-to-talk tile."
