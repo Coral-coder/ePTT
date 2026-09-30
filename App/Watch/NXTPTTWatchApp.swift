@@ -15,6 +15,7 @@ struct NXTPTTWatchApp: App {
         }
         .onChange(of: scenePhase) { phase in
             if phase == .active { model.fetchRelay() }
+            model.setActive(phase == .active)
         }
     }
 }

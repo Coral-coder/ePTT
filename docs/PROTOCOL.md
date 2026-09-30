@@ -448,6 +448,13 @@ recipients can unwrap (§6.2).
   `.watchkitapp`). The watch checks the relay. If its iPhone isn't around, it
   shows "New voice message", and the message plays when the watch app is opened.
   While open without the iPhone, the watch app also checks the relay every 10 s.
+- **Watch on its own, live.** With the watch app open and its iPhone out of reach,
+  the watch runs the same direct transport as a phone (§2, §7). It sends HELLOs
+  that carry its own addresses but no push tokens, so contacts keep the iPhone's,
+  and it answers receipts. It streams bursts live to members it is linked with,
+  and relays to the rest. watchOS only permits this networking during an active
+  audio session, which the watch holds while live. When the iPhone becomes
+  reachable again, the watch sends an away HELLO and hands back to the phone.
 
 
 ## 12. Optical handshake (face-to-face pairing)

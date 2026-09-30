@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import Network
 import Security
 import UserNotifications
 import os
@@ -44,6 +45,8 @@ final class WatchEngine {
         let burst: OutgoingBurst
         let encoder: CaptureEncoder
         var packets: [Data]
+        /// Members we stream to live (linked when the burst began).
+        var live: Set<SenderID> = []
         var pending: [Data] = []
         var nextFrame: UInt32 = 0
         let started = Date()
@@ -111,7 +114,10 @@ final class WatchEngine {
                                               sampleRate: UInt32(encoder.sampleRate), frameMilliseconds: 20)
                 let start = try PacketBuilder(local: identity).seal(.burstStart, plaintext: burst.start.encoded,
                                                                    keys: channel.keys, messageID: burst.burstID)
-                recording = Recording(channel: channel, burst: burst, encoder: encoder, packets: [start])
+                var r = Recording(channel: channel, burst: burst, encoder: encoder, packets: [start])
+                r.live = Set(channel.members.map(\.senderID).filter { isLinked($0) })
+                recording = r
+                sendLive(start, to: r.live)
                 status(.recording)
                 return true
             } catch {
@@ -139,9 +145,11 @@ final class WatchEngine {
             burstKey: r.burst.burstKey, seq: r.nextFrame) else { return }
         r.nextFrame += UInt32(frames.count)
         r.packets.append(packet)
+        sendLive(packet, to: r.live)
     }
 
-    /// Finishes the burst and leaves it in the relay for every member.
+    /// Finishes the burst. Members reached live who confirm it (a receipt) are done; everyone
+    /// else gets it through the relay, with a wake or notification.
     func endBurst() {
         queue.async { [self] in
             guard var r = recording, let identity, let sync else { return }
@@ -153,34 +161,237 @@ final class WatchEngine {
                 .burstEnd, plaintext: end.encoded, keys: r.channel.keys, burstID: r.burst.burstID,
                 burstKey: r.burst.burstKey, seq: r.nextFrame) {
                 r.packets.append(packet)
-            }
-            guard let relay, let payload = Relay.encode(packets: r.packets) else {
-                status(.failed(relay == nil ? "iCloud unavailable" : "Too long"))
-                return
-            }
-            let members = r.channel.members.compactMap { id in sync.contacts.first { $0.id == id } }
-            let wakePacket = try? PacketBuilder(local: identity).seal(
-                .wake, plaintext: Wake(name: sync.displayName, timestamp: currentTimestamp(), candidates: []).encoded,
-                keys: r.channel.keys, messageID: r.burst.burstID)
-            let apns = self.apns
-            status(.sending)
-            Task { [weak self] in
-                var delivered = 0
-                for contact in members {
-                    guard let mailbox = contact.reachability.relayMailbox else { continue }
-                    if let name = try? await relay.upload(payload: payload, tag: Relay.tag(mailbox: mailbox)) {
-                        delivered += 1
-                        // The wake makes their phone chirp; it then finds the burst in the relay.
-                        // Without a PushToTalk token, a visible notification that plays it instead.
-                        if contact.reachability.apnsPTTToken != nil, let wakePacket {
-                            apns?.sendWake(wakePacket, to: contact)
-                        } else {
-                            apns?.sendRelayNotice(record: name, to: contact)
-                        }
+                // Three copies 40 ms apart, like the phone.
+                for i in 0..<3 {
+                    queue.asyncAfter(deadline: .now() + .milliseconds(40 * i)) { [weak self] in
+                        self?.sendLive(packet, to: r.live)
                     }
                 }
-                self?.status(delivered > 0 ? .sent(recipients: delivered) : .failed("Nobody reachable"))
             }
+            let endedAt = Date()
+            status(.sending)
+            // Give live members a moment to send their receipts.
+            queue.asyncAfter(deadline: .now() + (r.live.isEmpty ? 0 : 1.5)) { [weak self] in
+                self?.relay(r, sync: sync, identity: identity, endedAt: endedAt)
+            }
+        }
+    }
+
+    private func relay(_ r: Recording, sync: WatchSync, identity: LocalIdentity, endedAt: Date) {
+        let confirmed = r.live.filter { (lastReceipt[$0] ?? .distantPast) >= endedAt.addingTimeInterval(-0.05) }
+        let members = r.channel.members.compactMap { id in sync.contacts.first { $0.id == id } }
+            .filter { !confirmed.contains($0.senderID) }
+        guard !members.isEmpty else {
+            status(.sent(recipients: confirmed.count))
+            return
+        }
+        guard let relay, let payload = Relay.encode(packets: r.packets) else {
+            status(confirmed.isEmpty ? .failed(relay == nil ? "iCloud unavailable" : "Too long")
+                                     : .sent(recipients: confirmed.count))
+            return
+        }
+        let wakePacket = try? PacketBuilder(local: identity).seal(
+            .wake, plaintext: Wake(name: sync.displayName, timestamp: currentTimestamp(), candidates: []).encoded,
+            keys: r.channel.keys, messageID: r.burst.burstID)
+        let apns = self.apns
+        let direct = confirmed.count
+        Task { [weak self] in
+            var delivered = direct
+            for contact in members {
+                guard let mailbox = contact.reachability.relayMailbox else { continue }
+                if let name = try? await relay.upload(payload: payload, tag: Relay.tag(mailbox: mailbox)) {
+                    delivered += 1
+                    // The wake makes their phone chirp; it then finds the burst in the relay.
+                    // Without a PushToTalk token, a visible notification that plays it instead.
+                    if contact.reachability.apnsPTTToken != nil, let wakePacket {
+                        apns?.sendWake(wakePacket, to: contact)
+                    } else {
+                        apns?.sendRelayNotice(record: name, to: contact)
+                    }
+                }
+            }
+            self?.status(delivered > 0 ? .sent(recipients: delivered) : .failed("Nobody reachable"))
+        }
+    }
+
+    // MARK: - Live (on its own, app open)
+
+    /// While the watch app is open without its iPhone, it keeps its own direct links, like the
+    /// phone does (PROTOCOL.md §2, §7). watchOS only allows this networking during an active audio
+    /// session, which WatchModel holds for as long as live mode is on.
+    private var transport: UDPTransport?
+    private var links: [SenderID: (endpoint: NWEndpoint, lastHeard: Date)] = [:]
+    private var lastReceipt: [SenderID: Date] = [:]
+    private var keepalive: DispatchSourceTimer?
+    private var liveRx: LiveReception?
+    private static let linkFreshness: TimeInterval = 30
+
+    private struct LiveReception {
+        let burst: MessageID
+        let decoder: VoiceDecoder
+        let converter: PlaybackConverter
+        var nextIndex: UInt32?
+    }
+
+    var isLive: Bool { queue.sync { transport != nil } }
+
+    func startLive() {
+        queue.async { [self] in
+            guard transport == nil, identity != nil else { return }
+            let t = UDPTransport(queue: queue)
+            t.onPacket = { [weak self] data, endpoint in self?.handleLive(data, from: endpoint) }
+            t.onPeerDiscovered = { [weak self] endpoint in self?.helloEveryone(at: endpoint) }
+            t.onCandidatesChanged = { [weak self] _ in self?.helloAll() }
+            t.start()
+            transport = t
+            helloAll()
+            let timer = DispatchSource.makeTimerSource(queue: queue)
+            timer.schedule(deadline: .now() + 15, repeating: 15)
+            timer.setEventHandler { [weak self] in self?.helloLinked() }
+            timer.resume()
+            keepalive = timer
+        }
+    }
+
+    /// Leaving live mode (the iPhone is back, or the app closed): tell linked contacts we're away.
+    func stopLive() {
+        queue.async { [self] in
+            guard let transport else { return }
+            for (sender, link) in links where isLinked(sender) {
+                if let contact = contact(sender), let packet = hello(for: contact, away: true) {
+                    transport.send(packet, to: link.endpoint)
+                }
+            }
+            keepalive?.cancel()
+            keepalive = nil
+            let old = transport
+            // Let the away HELLOs go out before closing the socket.
+            queue.asyncAfter(deadline: .now() + 0.3) { old.stop() }
+            self.transport = nil
+            links = [:]
+            liveRx = nil
+        }
+    }
+
+    private func isLinked(_ sender: SenderID) -> Bool {
+        guard let link = links[sender] else { return false }
+        return Date().timeIntervalSince(link.lastHeard) < Self.linkFreshness
+    }
+
+    private func contact(_ sender: SenderID) -> Contact? { sync?.contacts.first { $0.senderID == sender } }
+
+    private func sendLive(_ packet: Data, to senders: Set<SenderID>) {
+        guard let transport else { return }
+        for sender in senders { if let link = links[sender] { transport.send(packet, to: link.endpoint) } }
+    }
+
+    private func hello(for contact: Contact, reply: Bool = false, receipt: Bool = false, away: Bool = false) -> Data? {
+        guard let identity, let sync, let transport,
+              let channel = sync.channels.first(where: { $0.kind == .direct && $0.members == [contact.id] }) else { return nil }
+        var flags: UInt8 = Hello.sendsReceipts
+        if reply { flags |= Hello.replyRequested }
+        if receipt { flags |= Hello.receipt }
+        if away { flags |= Hello.away }
+        let prekey = try? sync.prekeys.current(signedBy: identity)
+        // Our addresses only: no push tokens, so contacts keep the iPhone's.
+        let reachability = Reachability(candidates: transport.localCandidates, prekey: prekey,
+                                        relayMailbox: sync.relayMailbox)
+        let body = Hello(name: sync.displayName, timestamp: currentTimestamp(), reachability: reachability, flags: flags)
+        return try? PacketBuilder(local: identity).seal(.hello, plaintext: body.encoded, keys: channel.keys)
+    }
+
+    /// Everyone: linked contacts on their link, the rest at every address they last gave us.
+    private func helloAll() {
+        guard let sync, let transport else { return }
+        for contact in sync.contacts {
+            if let link = links[contact.senderID], isLinked(contact.senderID) {
+                if let packet = hello(for: contact) { transport.send(packet, to: link.endpoint) }
+            } else if let packet = hello(for: contact, reply: true) {
+                for candidate in contact.reachability.candidates where candidate.isRoutable {
+                    transport.send(packet, to: candidate)
+                }
+            }
+        }
+    }
+
+    private func helloLinked() {
+        guard let transport else { return }
+        for (sender, link) in links where isLinked(sender) {
+            if let contact = contact(sender), let packet = hello(for: contact) { transport.send(packet, to: link.endpoint) }
+        }
+        helloAll()
+    }
+
+    /// A Bonjour neighbour on the local network: greet each contact there.
+    private func helloEveryone(at endpoint: NWEndpoint) {
+        guard let sync, let transport else { return }
+        for contact in sync.contacts.prefix(32) {
+            if let packet = hello(for: contact, reply: true) { transport.send(packet, to: endpoint) }
+        }
+    }
+
+    private func handleLive(_ data: Data, from endpoint: NWEndpoint) {
+        guard var processor, let sync else { return }
+        let inbound: InboundPacket
+        do {
+            inbound = try processor.process(
+                data,
+                channelLookup: { id in sync.channels.first { $0.id == id } },
+                memberLookup: { id in sync.contacts.first { $0.senderID == id }?.identity })
+        } catch {
+            self.processor = processor
+            return
+        }
+        self.processor = processor
+        let sender = inbound.header.senderID
+        guard let contact = contact(sender), let transport else { return }
+        let burst = inbound.header.messageID
+        switch inbound.message {
+        case .hello(let hello):
+            if hello.isReceipt || hello.isAway { lastReceipt[sender] = Date() }
+            if hello.isAway {
+                links[sender] = nil
+                return
+            }
+            links[sender] = (endpoint, Date())
+            if hello.wantsReply, let packet = self.hello(for: contact) { transport.send(packet, to: endpoint) }
+        case .burstStart(let start):
+            links[sender] = (endpoint, Date())
+            guard liveRx?.burst != burst else { return }
+            if let packet = hello(for: contact, receipt: true) { transport.send(packet, to: endpoint) }
+            guard let decoder = VoiceCodecFactory.makeDecoder(codec: start.codec, sampleRate: start.sampleRate,
+                                                              frameMilliseconds: start.frameMilliseconds),
+                  let converter = PlaybackConverter(from: decoder.pcmFormat) else { return }
+            liveRx = LiveReception(burst: burst, decoder: decoder, converter: converter)
+            let name = contact.name
+            status(.playing(inbound.channel.kind == .group ? "\(name) · \(inbound.channel.name)" : name))
+        case .voice(let index, let frames):
+            links[sender] = (endpoint, Date())
+            guard var r = liveRx, r.burst == burst else { return }
+            var pcm = Data()
+            for (offset, frame) in frames.enumerated() {
+                let i = index + UInt32(offset)
+                if let next = r.nextIndex {
+                    guard i >= next else { continue }                     // late or duplicate
+                    for _ in 0..<min(i - next, 25) { pcm += r.converter.convert(r.decoder.silence()) }  // lost
+                }
+                if let buffer = r.decoder.decode(frame) { pcm += r.converter.convert(buffer) }
+                r.nextIndex = i + 1
+            }
+            liveRx = r
+            let playback = onPlayback
+            if !pcm.isEmpty { DispatchQueue.main.async { playback?(pcm) } }
+        case .burstEnd:
+            links[sender] = (endpoint, Date())
+            if let packet = hello(for: contact, receipt: true) { transport.send(packet, to: endpoint) }
+            if liveRx?.burst == burst {
+                liveRx = nil
+                processor.forgetBurst(sender: sender, burst: burst)
+                self.processor = processor
+                queue.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.status(.idle) }
+            }
+        default:
+            links[sender] = (endpoint, Date())
         }
     }
 

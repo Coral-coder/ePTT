@@ -135,6 +135,9 @@ targets:
     sources:
       - path: App/Watch
       - path: App/Shared
+      # The iPhone's UDP transport, for live talk when the watch is on its own.
+      - path: App/iOS/Network/UDPTransport.swift
+      - path: App/iOS/Network/LocalAddresses.swift
     dependencies:
       - package: EPTTCore
     settings:
@@ -168,4 +171,6 @@ targets:
         EPTTAPNsEnvironment: $(EPTT_APNS_ENVIRONMENT)
         EPTTCloudContainer: iCloud.$(EPTT_BUNDLE_ID)
         NSMicrophoneUsageDescription: NXTPTT uses the microphone while you hold the talk button.
+        NSLocalNetworkUsageDescription: NXTPTT talks directly to nearby devices on your network, with no server in between.
+        NSBonjourServices: [_eptt._udp]
     scheme: {}

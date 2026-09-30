@@ -101,6 +101,7 @@ final class WatchModel: NSObject, ObservableObject {
 
     fileprivate func refreshStandalone() {
         standaloneReady = engine.isConfigured
+        defer { updateLive() }
         guard standaloneReady, channels.isEmpty || !phoneReachable else { return }
         // Without the phone, list channels from the mirrored state.
         let names = engine.channels.map { channel -> ChannelItem in
@@ -146,7 +147,31 @@ final class WatchModel: NSObject, ObservableObject {
         phoneReachable = session?.isReachable ?? false
         if !phoneReachable { state = .offline }
         refreshStandalone()
+        updateLive()
     }
+
+    /// The app is on screen (or not).
+    func setActive(_ active: Bool) {
+        appActive = active
+        updateLive()
+    }
+
+    private var appActive = true
+
+    /// On its own with the app open: keep direct links, like the phone. With the iPhone
+    /// reachable, the phone's connection is used instead.
+    private func updateLive() {
+        let want = isStandalone && appActive
+        guard want != liveOn else { return }
+        liveOn = want
+        if want {
+            audio.holdSession { [engine] ok in if ok { engine.startLive() } }
+        } else {
+            engine.stopLive()
+        }
+    }
+
+    private var liveOn = false
 
     fileprivate func playReceived(_ pcm: Data) {
         guard listening else { return }
@@ -213,6 +238,19 @@ final class WatchAudio {
     private var converter: AVAudioConverter?
     private var recording = false
     private var playerAttached = false
+
+    /// Activates the audio session for live mode: watchOS only allows the direct (UDP) links
+    /// while an audio session is active.
+    func holdSession(_ done: @escaping (Bool) -> Void) {
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setCategory(.playAndRecord, mode: .default, options: [])
+        } catch {
+            done(false)
+            return
+        }
+        session.activate(options: []) { success, _ in done(success) }
+    }
 
     private func activateSession(_ then: @escaping () -> Void) {
         let session = AVAudioSession.sharedInstance()
