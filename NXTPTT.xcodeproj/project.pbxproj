@@ -13,6 +13,7 @@
 		14D7602921593D983C1F9895 /* VoiceCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB79D2E432560F598AE275FF /* VoiceCodec.swift */; };
 		16CD6B4B382D10EC22ACA38F /* Hind-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 0CAE6B4531BEC9AA6608A108 /* Hind-Medium.ttf */; };
 		18116EF38271E1E692E10191 /* WatchModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D11E4A1C1C9BE40767F906E /* WatchModel.swift */; };
+		1C2681F1170516875BE51FFB /* UDPTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26DDD1D519B9A057A89F92C3 /* UDPTransport.swift */; };
 		1CEA506A8124FB124D3874CA /* WatchTalkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B87B1D6A78B0BF42AB8164DA /* WatchTalkView.swift */; };
 		1D02B4A4052FAC307F18B41A /* Exo2-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 5D3D231AD3D8DD38D27C6E84 /* Exo2-OFL.txt */; };
 		1DFFA2E5B927BECD035BA852 /* Hind-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 86C6075D9CF35FBF29F82B4D /* Hind-OFL.txt */; };
@@ -66,6 +67,7 @@
 		B7427C19AAA77A6D303EE2AC /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F6736A86DBDC21FCC5FD41 /* Keychain.swift */; };
 		BBCFA036AEC89DAFC03BB613 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 019D70435FCEB590B528B9CA /* Assets.xcassets */; };
 		BEB8740E3B00D50D568F8D19 /* EPTTCore in Frameworks */ = {isa = PBXBuildFile; productRef = 0D98BC3C79FB3D4E3E051F68 /* EPTTCore */; };
+		C37BE463C99B19DD6240699F /* LocalAddresses.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D027783C645D958288C8A85 /* LocalAddresses.swift */; };
 		C3C698E53D06432948E6857C /* PushToTalkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A8DE5195AC098334AD17FE /* PushToTalkManager.swift */; };
 		C503B435FB25F5B640E74FF2 /* ActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF0F72AD79C914F4229FE377 /* ActivityView.swift */; };
 		CB69F5B4DB157871B0AB6369 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84B06BD68E2E389EF003458D /* Theme.swift */; };
@@ -644,12 +646,14 @@
 				7072DB12A07222DA3EBAED42 /* CloudRelay.swift in Sources */,
 				DE954D70350E230150A96F1C /* GridBackground.swift in Sources */,
 				8FD58ACB811C4A82A5C6C342 /* Keychain.swift in Sources */,
+				C37BE463C99B19DD6240699F /* LocalAddresses.swift in Sources */,
 				77D702F41080827A847D8E84 /* NXTPTTWatchApp.swift in Sources */,
 				01407DC5CA759755EF3CC374 /* RelayInbox.swift in Sources */,
 				913B3DACE8A7011E0E370F19 /* Store.swift in Sources */,
 				311920887632C35D7CCDCC30 /* TalkOrb.swift in Sources */,
 				CB69F5B4DB157871B0AB6369 /* Theme.swift in Sources */,
 				A174F562A5BEE8848D134DBB /* Tones.swift in Sources */,
+				1C2681F1170516875BE51FFB /* UDPTransport.swift in Sources */,
 				38D5CFB2945070E2AA58406B /* VoiceCodec.swift in Sources */,
 				B5999114D66376CDC4304B26 /* WatchEngine.swift in Sources */,
 				18116EF38271E1E692E10191 /* WatchModel.swift in Sources */,

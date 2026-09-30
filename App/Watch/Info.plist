@@ -26,6 +26,12 @@
 	<string>iCloud.$(EPTT_BUNDLE_ID)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_eptt._udp</string>
+	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>NXTPTT talks directly to nearby devices on your network, with no server in between.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>NXTPTT uses the microphone while you hold the talk button.</string>
 	<key>UIAppFonts</key>
