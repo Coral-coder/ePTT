@@ -18,6 +18,9 @@ struct RootView: View {
             NeonTabBar(selection: $model.tab)
         }
         .overlay(alignment: .top) { BannerView() }
+        .sheet(item: Binding(get: { model.snapshot.groupOffers.first }, set: { _ in })) { offer in
+            GroupOfferView(offer: offer)
+        }
         .fullScreenCover(isPresented: Binding(get: { model.needsOnboarding }, set: { _ in })) {
             OnboardingView()
         }
@@ -41,7 +44,9 @@ struct BannerView: View {
                 .padding(.vertical, 10)
                 .glass(cornerRadius: 22, glow: 0.35, strong: true)
                 .padding(.horizontal, 16)
-                .padding(.top, 8)
+                // On Talk, sit below the header and channel capsule so the person we're talking
+                // to stays visible.
+                .padding(.top, model.tab == .talk ? 140 : 8)
                 .transition(.move(edge: .top).combined(with: .opacity))
                 .onTapGesture { withAnimation { model.banner = nil } }
                 .task(id: text) {
@@ -51,6 +56,53 @@ struct BannerView: View {
                     withAnimation { model.banner = nil }
                 }
         }
+    }
+}
+
+/// "Sam added you to Crew": join or decline before the group appears.
+struct GroupOfferView: View {
+    @EnvironmentObject private var model: AppModel
+    let offer: GroupOffer
+
+    var body: some View {
+        ZStack {
+            GridBackground(horizon: 0.9, energy: 0.7, moving: false)
+            VStack(spacing: 18) {
+                Spacer(minLength: 0)
+                InitialsRing(name: offer.group, size: 84, lit: true)
+                Text("Talk group invite")
+                    .font(NX.label(14, .semibold))
+                    .foregroundStyle(NX.textDim)
+                Text(offer.group)
+                    .font(NX.display(26))
+                    .foregroundStyle(NX.text)
+                    .multilineTextAlignment(.center)
+                Text("\(offer.inviter) wants to add you to this talk group.")
+                    .font(NX.body(15))
+                    .foregroundStyle(NX.textDim)
+                    .multilineTextAlignment(.center)
+                if !offer.members.isEmpty {
+                    Text("Members: " + offer.members.map { $0.isEmpty ? "Unnamed" : $0 }.joined(separator: ", "))
+                        .font(NX.body(13))
+                        .foregroundStyle(NX.textMuted)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(4)
+                }
+                Text("Everyone in the group can talk to you on it.")
+                    .font(NX.body(13))
+                    .foregroundStyle(NX.textMuted)
+                    .multilineTextAlignment(.center)
+                Spacer(minLength: 0)
+                Button("JOIN GROUP") { model.engine.answerGroupOffer(offer.id, join: true) }
+                    .buttonStyle(NXButtonStyle(kind: .gel))
+                Button("DECLINE") { model.engine.answerGroupOffer(offer.id, join: false) }
+                    .buttonStyle(NXButtonStyle(kind: .glass))
+            }
+            .padding(.horizontal, 26)
+            .padding(.bottom, 30)
+        }
+        .preferredColorScheme(.dark)
+        .interactiveDismissDisabled()
     }
 }
 

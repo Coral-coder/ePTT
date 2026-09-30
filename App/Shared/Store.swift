@@ -132,6 +132,8 @@ struct PersistedState: Codable {
     var joinCodes: [Data] = []
     /// Talk-group codes we scanned (encoded `GroupJoinCode`s) whose group key hasn't arrived yet.
     var pendingJoins: [Data] = []
+    /// Talk groups we were added to and said no to (channel IDs), so re-sent invites don't ask again.
+    var declinedGroups: [Data] = []
     /// Contacts who told us (HELLO) they're on Do Not Disturb, and whether we break through.
     var peerQuiet: [PeerQuiet] = []
     /// The paired Apple Watch app's push token, shared with contacts (PROTOCOL.md §11).
@@ -215,6 +217,7 @@ extension PersistedState {
         transfers = (try? c.decodeIfPresent(Lossy<TransferRecord>.self, forKey: .transfers))?.items ?? []
         joinCodes = (try? c.decodeIfPresent([Data].self, forKey: .joinCodes)) ?? []
         pendingJoins = (try? c.decodeIfPresent([Data].self, forKey: .pendingJoins)) ?? []
+        declinedGroups = (try? c.decodeIfPresent([Data].self, forKey: .declinedGroups)) ?? []
         peerQuiet = (try? c.decodeIfPresent([PeerQuiet].self, forKey: .peerQuiet)) ?? []
     }
 }

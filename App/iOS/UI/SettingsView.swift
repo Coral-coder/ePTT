@@ -104,6 +104,24 @@ struct SettingsView: View {
                     }
                 }
                 .nxRows()
+
+                Section {
+                    ShareLink(item: ShareAppView.link,
+                              subject: Text("NXTPTT"),
+                              message: Text("Get NXTPTT on TestFlight so we can talk:")) {
+                        Label("Share NXTPTT", systemImage: "square.and.arrow.up")
+                    }
+                    NavigationLink {
+                        ShareAppView()
+                    } label: {
+                        Label("Show download QR code", systemImage: "qrcode")
+                    }
+                } header: {
+                    Text("Invite someone")
+                } footer: {
+                    Text("Sends the TestFlight link so they can install NXTPTT.")
+                }
+                .nxRows()
             }
             .nxForm()
             .toggleStyle(NeonToggleStyle())
@@ -201,5 +219,47 @@ struct PushKeyView: View {
         .nxForm()
         .navigationTitle("Push key")
         .onAppear { shareURI = model.engine.pushKeyURI() }
+    }
+}
+
+/// The TestFlight link as a big QR code, for someone standing next to you.
+struct ShareAppView: View {
+    static let link = URL(string: "https://testflight.apple.com/join/Uz9Gks2E")!
+
+    var body: some View {
+        ZStack {
+            GridBackground(horizon: 0.9, energy: 0.7, moving: false)
+            VStack(spacing: 18) {
+                Text("Scan with the Camera app to get NXTPTT")
+                    .font(NX.label(16, .semibold))
+                    .foregroundStyle(NX.text)
+                    .multilineTextAlignment(.center)
+                if let image = QRCode.image(for: ShareAppView.link.absoluteString) {
+                    Image(uiImage: image)
+                        .interpolation(.none)
+                        .resizable()
+                        .scaledToFit()
+                        .padding(16)
+                        .background(Color.white, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        .frame(maxWidth: 300)
+                        .accessibilityLabel("QR code for the NXTPTT TestFlight link")
+                }
+                Text(ShareAppView.link.absoluteString)
+                    .font(NX.body(13))
+                    .foregroundStyle(NX.textDim)
+                    .textSelection(.enabled)
+                ShareLink(item: ShareAppView.link, subject: Text("NXTPTT"),
+                          message: Text("Get NXTPTT on TestFlight so we can talk:")) {
+                    Text("SHARE LINK")
+                }
+                .buttonStyle(NXButtonStyle(kind: .gel))
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 26)
+            .padding(.top, 20)
+        }
+        .navigationTitle("Get NXTPTT")
+        .navigationBarTitleDisplayMode(.inline)
+        .preferredColorScheme(.dark)
     }
 }

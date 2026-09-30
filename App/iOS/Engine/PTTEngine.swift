@@ -50,6 +50,15 @@ struct EngineSnapshot {
     var peerQuiet: [IdentityID: Bool] = [:]
     /// Talk groups we asked to join, still waiting for the inviter to let us in.
     var pendingJoins: [PendingJoin] = []
+    /// Talk groups someone added us to, waiting for us to say yes or no.
+    var groupOffers: [GroupOffer] = []
+}
+
+struct GroupOffer: Identifiable, Equatable {
+    var id: ChannelID
+    var group: String
+    var inviter: String
+    var members: [String]
 }
 
 struct PendingJoin: Identifiable, Equatable {
@@ -1511,6 +1520,7 @@ final class PTTEngine {
             let selected = state.settings.selectedChannel
             addContact(code.inviter)
             state.settings.selectedChannel = selected
+            state.declinedGroups.removeAll { $0 == code.groupID.bytes }
             var pending = pendingJoinCodes.filter { $0.groupID != code.groupID }
             pending.append(code)
             state.pendingJoins = pending.map(\.encoded)
@@ -1598,11 +1608,43 @@ final class PTTEngine {
         if isNew { emit(.message("\(card.name.isEmpty ? "Someone" : card.name) joined \(group.name)")) }
     }
 
+    /// Invites to groups we aren't in and didn't ask to join, waiting for a yes or no.
+    private var offeredInvites: [ChannelID: (invite: GroupInvite, inviter: String)] = [:]
+
     private func acceptInvite(_ invite: GroupInvite, from sender: SenderID) {
         let memberIDs = invite.memberCards.map(\.id)
         guard memberIDs.contains(identity.id), let inviter = self.contact(sender), memberIDs.contains(inviter.id) else {
             return
         }
+        let id = invite.keys.channelID
+        let asked = state.pendingJoins.contains { (try? GroupJoinCode(encoded: $0))?.groupID == id }
+        if channelIndex[id] == nil, !asked {
+            // Someone added us: ask first (the member list and key wait here until we answer).
+            guard !state.declinedGroups.contains(id.bytes) else { return }
+            if let offered = offeredInvites[id], offered.invite.keys.epoch > invite.keys.epoch { return }
+            offeredInvites[id] = (invite, inviter.name)
+            publish()
+            return
+        }
+        applyInvite(invite)
+    }
+
+    /// The answer to "X added you to Y": join it, or turn it down for good.
+    func answerGroupOffer(_ id: ChannelID, join: Bool) {
+        queue.async { [self] in
+            guard let offer = offeredInvites.removeValue(forKey: id) else { return }
+            if join {
+                applyInvite(offer.invite, select: true)
+            } else {
+                state.declinedGroups = Array((state.declinedGroups.filter { $0 != id.bytes } + [id.bytes]).suffix(50))
+                save()
+            }
+            publish()
+        }
+    }
+
+    private func applyInvite(_ invite: GroupInvite, select: Bool = false) {
+        let memberIDs = invite.memberCards.map(\.id)
         for card in invite.memberCards where card.id != identity.id { addContact(card, announce: false) }
         let others = memberIDs.filter { $0 != identity.id }
         if let i = channelIndex[invite.keys.channelID] {
@@ -1619,6 +1661,8 @@ final class PTTEngine {
                 state.pendingJoins.removeAll { (try? GroupJoinCode(encoded: $0))?.groupID == invite.keys.channelID }
                 state.settings.selectedChannel = invite.keys.channelID
             }
+            if select { state.settings.selectedChannel = invite.keys.channelID }
+            state.declinedGroups.removeAll { $0 == invite.keys.channelID.bytes }
             save()
             publish()
             emit(.joinedGroup(invite.name))
@@ -2331,6 +2375,10 @@ final class PTTEngine {
         snapshot.pendingJoins = pendingJoinCodes.map {
             PendingJoin(id: $0.groupID, group: $0.groupName, inviter: $0.inviter.name.isEmpty ? "the inviter" : $0.inviter.name)
         }
+        snapshot.groupOffers = offeredInvites.map { id, offer in
+            GroupOffer(id: id, group: offer.invite.name, inviter: offer.inviter,
+                       members: offer.invite.memberCards.filter { $0.id != identity.id }.map(\.name))
+        }.sorted { $0.group < $1.group }
         snapshot.peerQuiet = Dictionary(state.peerQuiet.map { ($0.id, $0.breaksThrough) }, uniquingKeysWith: { a, _ in a })
         if let last = RelayInbox.replayableLast()?.info {
             snapshot.replayable = ReplayableInfo(talker: last.talker, seconds: last.seconds, date: last.date)
