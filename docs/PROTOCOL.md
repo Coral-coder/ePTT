@@ -455,6 +455,13 @@ recipients can unwrap (§6.2).
   and relays to the rest. watchOS only permits this networking during an active
   audio session, which the watch holds while live. When the iPhone becomes
   reachable again, the watch sends an away HELLO and hands back to the phone.
+- **Which device is in charge.** Whichever of the user's devices had its app opened
+  last. Opening the watch app makes the watch take over, even with the iPhone in
+  reach. The phone then sends away HELLOs and ignores live traffic, wakes and the
+  relay; its notification extension leaves relayed messages for the watch. The
+  watch stays in charge until the iPhone app is opened or talk is pressed there.
+  Claims are timestamped and pass over WatchConnectivity (a message if the other
+  device is reachable, else queued user info), and the later claim wins.
 
 
 ## 12. Optical handshake (face-to-face pairing)

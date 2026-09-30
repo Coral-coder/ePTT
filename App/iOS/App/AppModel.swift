@@ -36,6 +36,9 @@ final class AppModel: ObservableObject {
         engine.onWatchSync = { [weak self] sync in
             Task { @MainActor in self?.watch.sendSync(sync) }
         }
+        engine.onPhoneClaim = { [weak self] date in
+            Task { @MainActor in self?.watch.sendPhoneClaim(date) }
+        }
         watch.engine = engine
     }
 

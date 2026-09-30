@@ -132,6 +132,10 @@ struct PersistedState: Codable {
     var peerQuiet: [PeerQuiet] = []
     /// The paired Apple Watch app's push token, shared with contacts (PROTOCOL.md §11).
     var watchToken: Data?
+    /// The watch took over (its app was opened): this phone stays quiet until its app is opened.
+    var watchPrimary = false
+    /// When this phone last took over; a watch claim older than this is stale.
+    var lastPhoneClaim: Date?
 }
 
 struct PeerQuiet: Codable, Equatable {
@@ -200,6 +204,8 @@ extension PersistedState {
         deviceToken = try? c.decodeIfPresent(Data.self, forKey: .deviceToken)
         relayMailbox = try? c.decodeIfPresent(Data.self, forKey: .relayMailbox)
         watchToken = try? c.decodeIfPresent(Data.self, forKey: .watchToken)
+        watchPrimary = (try? c.decodeIfPresent(Bool.self, forKey: .watchPrimary)) ?? false
+        lastPhoneClaim = try? c.decodeIfPresent(Date.self, forKey: .lastPhoneClaim)
         relayUploads = (try? c.decodeIfPresent([String: Date].self, forKey: .relayUploads)) ?? [:]
         transfers = (try? c.decodeIfPresent(Lossy<TransferRecord>.self, forKey: .transfers))?.items ?? []
         joinCodes = (try? c.decodeIfPresent([Data].self, forKey: .joinCodes)) ?? []

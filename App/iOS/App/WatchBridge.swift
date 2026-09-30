@@ -36,6 +36,7 @@ final class WatchBridge: NSObject {
             WatchProtocol.state: state.rawValue,
             WatchProtocol.talker: talker,
             WatchProtocol.listening: snapshot.settings.playOnWatch,
+            WatchProtocol.phoneClaim: snapshot.lastPhoneClaim?.timeIntervalSince1970 ?? 0,
         ]
         guard !NSDictionary(dictionary: context).isEqual(to: lastContext) else { return }
         lastContext = context
@@ -53,6 +54,17 @@ final class WatchBridge: NSObject {
             transfer.cancel()
         }
         session.transferUserInfo([WatchProtocol.sync: data])
+    }
+
+    /// This phone took over: tell the watch now if it's reachable, and queue it otherwise.
+    func sendPhoneClaim(_ date: Date) {
+        guard let session, session.activationState == .activated, session.isWatchAppInstalled else { return }
+        let message = [WatchProtocol.phoneClaim: date.timeIntervalSince1970]
+        if session.isReachable {
+            session.sendMessage(message, replyHandler: nil) { _ in session.transferUserInfo(message) }
+        } else {
+            session.transferUserInfo(message)
+        }
     }
 
     func sendAudio(_ pcm: Data) {
@@ -84,6 +96,9 @@ extension WatchBridge: WCSessionDelegate {
         case .listenOnWatch:
             let enabled = message[WatchProtocol.enabled] as? Bool ?? false
             engine.updateSettings { $0.playOnWatch = enabled }
+        case .claim:
+            let at = message[WatchProtocol.claimedAt] as? Double ?? Date().timeIntervalSince1970
+            engine.watchClaimed(at: Date(timeIntervalSince1970: at))
         case .sync:
             DispatchQueue.main.async {
                 self.lastContext = [:]
@@ -96,6 +111,9 @@ extension WatchBridge: WCSessionDelegate {
     /// The watch app's push token (queued by the watch with transferUserInfo).
     func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
         if let token = userInfo[WatchProtocol.watchToken] as? Data { engine?.setWatchToken(token) }
+        if let at = userInfo[WatchProtocol.claimedAt] as? Double {
+            engine?.watchClaimed(at: Date(timeIntervalSince1970: at))
+        }
     }
 
     func session(_ session: WCSession, didReceiveMessageData messageData: Data) {

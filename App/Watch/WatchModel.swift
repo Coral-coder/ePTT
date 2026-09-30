@@ -49,8 +49,41 @@ final class WatchModel: NSObject, ObservableObject {
 
     private var pollTimer: Timer?
 
-    /// With the iPhone out of range, a set-up watch talks on its own through the iCloud relay.
-    var isStandalone: Bool { !phoneReachable && standaloneReady }
+    /// The watch is in charge: its app was opened more recently than the iPhone's. It then uses
+    /// its own connection (live links while open, the relay otherwise) until the iPhone app is
+    /// opened again. Stored so it survives relaunches.
+    @Published private(set) var primary = UserDefaults.standard.bool(forKey: WatchModel.primaryKey)
+    static let primaryKey = "watchPrimary"
+    private static let claimKey = "watchClaimedAt"
+
+    /// Talk on our own connection: when in charge, or when the iPhone can't be reached.
+    var isStandalone: Bool { standaloneReady && (primary || !phoneReachable) }
+
+    /// The watch app was opened: take over from the iPhone.
+    private func claim() {
+        let now = Date().timeIntervalSince1970
+        UserDefaults.standard.set(now, forKey: Self.claimKey)
+        UserDefaults.standard.set(true, forKey: Self.primaryKey)
+        primary = true
+        guard let session, session.activationState == .activated else { return }
+        let message: [String: Any] = [WatchProtocol.command: WatchProtocol.Command.claim.rawValue,
+                                      WatchProtocol.claimedAt: now]
+        if session.isReachable {
+            session.sendMessage(message, replyHandler: nil) { _ in
+                session.transferUserInfo([WatchProtocol.claimedAt: now])
+            }
+        } else {
+            session.transferUserInfo([WatchProtocol.claimedAt: now])
+        }
+    }
+
+    /// The iPhone app was opened at `time`: if that's after our claim, hand back to the phone.
+    fileprivate func phoneClaimed(at time: Double) {
+        guard primary, time > UserDefaults.standard.double(forKey: Self.claimKey) else { return }
+        UserDefaults.standard.set(false, forKey: Self.primaryKey)
+        primary = false
+        refreshStandalone()
+    }
 
     var selectedName: String { channels.first { $0.id == selected }?.name ?? "No channel" }
 
@@ -132,6 +165,7 @@ final class WatchModel: NSObject, ObservableObject {
             }
         }
         if let selected = context[WatchProtocol.selected] as? String { self.selected = selected }
+        if let claim = context[WatchProtocol.phoneClaim] as? Double { phoneClaimed(at: claim) }
         if let listening = context[WatchProtocol.listening] as? Bool { self.listening = listening }
         let newTalker = context[WatchProtocol.talker] as? String ?? ""
         if let raw = context[WatchProtocol.state] as? String, let newState = WatchProtocol.TalkState(rawValue: raw) {
@@ -153,6 +187,7 @@ final class WatchModel: NSObject, ObservableObject {
     /// The app is on screen (or not).
     func setActive(_ active: Bool) {
         appActive = active
+        if active { claim() }
         updateLive()
     }
 
@@ -188,6 +223,7 @@ extension WatchModel: WCSessionDelegate {
             self.apply(context)
             self.send([WatchProtocol.command: WatchProtocol.Command.sync.rawValue])
             WatchAppDelegate.sendTokenToPhone()
+            if self.appActive { self.claim() }
         }
     }
 
@@ -210,6 +246,9 @@ extension WatchModel: WCSessionDelegate {
     }
 
     nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
+        if let claim = userInfo[WatchProtocol.phoneClaim] as? Double {
+            Task { @MainActor in self.phoneClaimed(at: claim) }
+        }
         guard let data = userInfo[WatchProtocol.sync] as? Data,
               let sync = try? JSONDecoder().decode(WatchSync.self, from: data) else { return }
         WatchEngine.shared.apply(sync)

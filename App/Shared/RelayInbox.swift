@@ -160,6 +160,21 @@ enum RelayInbox {
         }
     }
 
+    // MARK: - Watch hand-off
+
+    private static var handedOffURL: URL? { container?.appendingPathComponent("handed-off") }
+
+    /// The Apple Watch has taken over: the notification service extension then leaves relayed
+    /// messages for the watch instead of playing them on the phone.
+    static func setHandedOff(_ on: Bool) {
+        guard let url = handedOffURL else { return }
+        if on { try? Data().write(to: url) } else { try? FileManager.default.removeItem(at: url) }
+    }
+
+    static var isHandedOff: Bool {
+        handedOffURL.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
+    }
+
     private static var quietURL: URL? { container?.appendingPathComponent("quiet.json") }
 
     static func saveQuiet(_ state: QuietState) {

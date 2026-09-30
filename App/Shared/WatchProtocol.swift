@@ -9,8 +9,14 @@ enum WatchProtocol {
     enum Command: String {
         case press, release, select, sync
         case listenOnWatch = "listen"
+        /// The watch app was opened: the watch takes over (with `claimedAt`).
+        case claim
     }
     static let enabled = "on"
+    /// Seconds since 1970 of a claim (watch → phone: `claim`; phone → watch: `phoneClaim`).
+    static let claimedAt = "at"
+    /// Phone → watch (application context and messages): when the phone last took over.
+    static let phoneClaim = "phoneClaim"
 
     // Phone → watch application context / messages.
     static let channels = "channels"      // [[String: String]] with keys "id" (hex) and "name"

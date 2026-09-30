@@ -82,7 +82,7 @@ struct WatchTalkView: View {
     private var statusText: String {
         if model.isStandalone {
             switch model.standaloneStatus {
-            case .idle: return "Via iCloud · hold to talk"
+            case .idle: return "On your watch · hold to talk"
             case .recording: return "Recording…"
             case .sending: return "Sending…"
             case .sent(let n): return n == 1 ? "Sent" : "Sent to \(n)"

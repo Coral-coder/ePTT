@@ -85,6 +85,7 @@ struct TalkView: View {
                 VStack(spacing: 16) {
                     header
                     ChannelCapsule()
+                    WatchHandoffBar()
                     QuietBar()
                     status
                     Spacer(minLength: 0)
@@ -604,6 +605,39 @@ private struct QuietUntilPicker: View {
         }
         .preferredColorScheme(.dark)
         .presentationDetents([.medium, .large])
+    }
+}
+
+/// The Apple Watch has taken over (its app was opened); this phone is standing by.
+struct WatchHandoffBar: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        if model.snapshot.usingWatch {
+            HStack(spacing: 10) {
+                Image(systemName: "applewatch").foregroundStyle(NX.frost)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("USING APPLE WATCH").font(NX.label(12, .bold)).tracking(1.5).foregroundStyle(NX.text)
+                    Text("Messages go to your watch").font(NX.body(12)).foregroundStyle(NX.textDim)
+                }
+                Spacer(minLength: 0)
+                Button {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    model.engine.takeOverFromWatch()
+                } label: {
+                    Text("USE IPHONE").font(NX.label(12, .bold)).tracking(1.2)
+                        .foregroundStyle(NX.ink)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(Capsule().fill(NX.frost))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .glass(cornerRadius: 18, glow: 0.12)
+            .accessibilityElement(children: .combine)
+        }
     }
 }
 

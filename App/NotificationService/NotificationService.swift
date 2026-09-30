@@ -42,6 +42,13 @@ final class NotificationService: UNNotificationServiceExtension {
             deliver()
             return
         }
+        // The Apple Watch has taken over: leave the message for it.
+        if RelayInbox.isHandedOff {
+            content.sound = nil
+            content.body = "Voice message · on your Apple Watch"
+            deliver()
+            return
+        }
         // Both announced the same message: only the first one plays it.
         if RelayInbox.heard().contains(where: { $0.record == record }) {
             content.sound = nil

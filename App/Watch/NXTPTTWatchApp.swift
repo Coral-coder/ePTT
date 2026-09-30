@@ -44,8 +44,10 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate {
 
     func didReceiveRemoteNotification(_ userInfo: [AnyHashable: Any],
                                       fetchCompletionHandler completionHandler: @escaping (WKBackgroundFetchResult) -> Void) {
-        // A relayed message is waiting. With the iPhone around, it plays there; otherwise say so.
-        let phoneAround = WCSession.isSupported() && WCSession.default.isReachable
+        // A relayed message is waiting. If the iPhone is in charge and around, it plays there;
+        // otherwise say so here.
+        let watchInCharge = UserDefaults.standard.bool(forKey: WatchModel.primaryKey)
+        let phoneAround = !watchInCharge && WCSession.isSupported() && WCSession.default.isReachable
         WatchEngine.shared.announceWaitingMessages(unlessPhoneAround: phoneAround) {
             completionHandler(.newData)
         }

@@ -21,6 +21,9 @@ struct EngineSnapshot {
     var settings = Settings()
     var talk: Talk = .idle
     var onlinePeers: Set<IdentityID> = []
+    /// The Apple Watch has taken over; this phone is standing by.
+    var usingWatch = false
+    var lastPhoneClaim: Date?
     var candidates: [Candidate] = []
     var pushToTalkAvailable = false
     var wakeAvailable = false
@@ -335,7 +338,7 @@ final class PTTEngine {
             lastKeepalive = now
             // Not from the background: we told peers we're away, and a keep-alive would re-link us
             // just before iOS freezes our sockets.
-            if isForeground || tx != nil || rx != nil {
+            if (isForeground || tx != nil || rx != nil) && !state.watchPrimary {
                 for (sender, link) in links where now.timeIntervalSince(link.lastHeard) < 120 {
                     if let contact = self.contact(sender) { sendHello(to: contact, endpoints: [link.endpoint]) }
                 }
@@ -434,6 +437,7 @@ final class PTTEngine {
 
     func pressTalk() {
         queue.async { [self] in
+            if state.watchPrimary { takeOverNow() }
             guard let channel = state.settings.selectedChannel, channelIndex[channel] != nil else {
                 emit(.message("Pick a channel first"))
                 return
@@ -796,7 +800,15 @@ final class PTTEngine {
         }
 
         let sender = inbound.header.senderID
-        if let endpoint {
+        // The watch has taken over: no links, no playing, no answering. Other messages (cards,
+        // group invites) are still applied.
+        if state.watchPrimary {
+            switch inbound.message {
+            case .hello, .burstStart, .voice, .burstEnd, .wake, .callAlert: return
+            default: break
+            }
+        }
+        if let endpoint, !state.watchPrimary {
             // An away HELLO must not re-link the peer it's about to drop.
             if case .hello(let hello) = inbound.message, hello.isAway {
                 lastPath[sender] = endpoint
@@ -1284,6 +1296,11 @@ final class PTTEngine {
 
     /// Runs synchronously inside PushToTalk's push callback. Returns the name to display.
     private func handleWakePush(_ payload: [String: Any]) -> String? {
+        if state.watchPrimary {
+            // The watch has taken over: don't play here.
+            queue.async { [weak self] in self?.ptt.setActiveRemoteParticipant(nil) }
+            return nil
+        }
         transport.start()
         guard let packet = APNsRequest.packet(fromPayload: payload),
               let inbound = try? processor.process(packet, channelLookup: { [self] in channel($0) },
@@ -1734,6 +1751,7 @@ final class PTTEngine {
 
     /// Our addresses or tokens changed: tell everyone we can reach.
     private func announceReachability() {
+        guard !state.watchPrimary else { return }
         for contact in state.contacts {
             let endpoints = links[contact.senderID].map { [$0.endpoint] } ?? []
             sendHello(to: contact, replyRequested: endpoints.isEmpty, endpoints: endpoints,
@@ -1853,6 +1871,7 @@ final class PTTEngine {
         queue.async { [self] in
             isForeground = foreground
             if foreground {
+                takeOverNow()
                 fetchRelay()
                 quietChanged()
                 if heldAutoplayPending, !isQuiet { playHeld() }
@@ -1888,6 +1907,7 @@ final class PTTEngine {
 
     func fetchRelay(force: Bool = false) {
         queue.async { [self] in
+            guard !state.watchPrimary else { return }   // the watch collects them
             // In the background the notification extension handles the relay, except while a wake
             // keeps us running: then we play relayed audio live through PushToTalk.
             guard isForeground || pendingWake != nil, let relay, state.settings.relayEnabled,
@@ -2118,6 +2138,49 @@ final class PTTEngine {
         onWatchSync?(sync)
     }
 
+    // MARK: - Watch hand-off
+
+    /// Tells the watch this phone has taken over.
+    var onPhoneClaim: ((Date) -> Void)?
+
+    /// The watch app was opened: the watch takes over until this phone's app is opened. We tell
+    /// linked contacts we're away and stop linking, playing, fetching the relay and taking wakes.
+    func watchClaimed(at date: Date) {
+        queue.async { [self] in
+            guard !state.watchPrimary, date > (state.lastPhoneClaim ?? .distantPast) else { return }
+            for (sender, link) in links where isLinked(sender) {
+                if let contact = self.contact(sender) { sendHello(to: contact, endpoints: [link.endpoint], away: true) }
+            }
+            links = [:]
+            state.watchPrimary = true
+            RelayInbox.setHandedOff(true)
+            save()
+            emit(.message("Using your Apple Watch. Open NXTPTT here or press talk to switch back."))
+        }
+    }
+
+    /// This phone takes over again (its app was opened, or talk pressed). Always tells the watch,
+    /// with the time, so a claim that crossed ours in flight loses.
+    func takeOverFromWatch() {
+        queue.async { [self] in takeOverNow() }
+    }
+
+    /// On `queue`.
+    private func takeOverNow() {
+        let now = Date()
+        state.lastPhoneClaim = now
+        onPhoneClaim?(now)
+        guard state.watchPrimary else {
+            save()
+            return
+        }
+        state.watchPrimary = false
+        RelayInbox.setHandedOff(false)
+        save()
+        announceReachability()
+        fetchRelay()
+    }
+
     /// The paired watch app's push token (from the watch, over WatchConnectivity). Shared with
     /// contacts so they can tell the watch about relayed messages when this iPhone is away.
     func setWatchToken(_ token: Data) {
@@ -2160,6 +2223,8 @@ final class PTTEngine {
         }
         lastOnline = onlinePeers()
         snapshot.onlinePeers = lastOnline
+        snapshot.usingWatch = state.watchPrimary
+        snapshot.lastPhoneClaim = state.lastPhoneClaim
         for contact in state.contacts where lastOnline.contains(contact.id) {
             snapshot.peerRoutes[contact.id] = PTTEngine.route(for: links[contact.senderID]?.endpoint)
         }
