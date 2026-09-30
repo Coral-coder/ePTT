@@ -16,6 +16,10 @@ struct Settings: Codable, Equatable {
     var relayEnabled = true
     /// Give the paired Apple Watch this identity so it can talk without the iPhone nearby.
     var standaloneWatch = true
+    /// Join iOS's PushToTalk channel: lets a locked phone be woken to play messages live, but
+    /// iOS then shows a push-to-talk indicator (Dynamic Island / status bar) all the time.
+    /// Off: no indicator; messages that can't reach us directly arrive as notifications instead.
+    var systemPushToTalk = true
     /// Use the 911 Hz chirp instead of the classic 1800 Hz one.
     var deepChirp = false
     /// Beep when the other side releases. Nextel didn't, so it's off by default.
@@ -179,6 +183,7 @@ extension Settings {
         playOnWatch = try c.decodeIfPresent(Bool.self, forKey: .playOnWatch) ?? d.playOnWatch
         relayEnabled = try c.decodeIfPresent(Bool.self, forKey: .relayEnabled) ?? d.relayEnabled
         standaloneWatch = try c.decodeIfPresent(Bool.self, forKey: .standaloneWatch) ?? d.standaloneWatch
+        systemPushToTalk = (try? c.decodeIfPresent(Bool.self, forKey: .systemPushToTalk)) ?? d.systemPushToTalk
         deepChirp = try c.decodeIfPresent(Bool.self, forKey: .deepChirp) ?? d.deepChirp
         rogerBeep = try c.decodeIfPresent(Bool.self, forKey: .rogerBeep) ?? d.rogerBeep
         allowReplay = (try? c.decodeIfPresent(Bool.self, forKey: .allowReplay)) ?? d.allowReplay
