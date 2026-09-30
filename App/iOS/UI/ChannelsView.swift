@@ -4,6 +4,7 @@ import EPTTCore
 struct ChannelsView: View {
     @EnvironmentObject private var model: AppModel
     @State private var creatingGroup = false
+    @State private var joining = false
 
     private var directs: [Channel] { model.snapshot.channels.filter { $0.kind == .direct } }
 
@@ -15,19 +16,30 @@ struct ChannelsView: View {
                     HStack(alignment: .bottom) {
                         ScreenTitle(text: "Channels")
                         Spacer()
-                        Button {
-                            creatingGroup = true
+                        Menu {
+                            Button {
+                                creatingGroup = true
+                            } label: {
+                                Label("New talk group", systemImage: "person.3")
+                            }
+                            Button {
+                                joining = true
+                            } label: {
+                                Label("Join with a QR code", systemImage: "qrcode.viewfinder")
+                            }
                         } label: {
                             GelBead(size: 44) { Image(systemName: "plus").font(.system(size: 18, weight: .bold)) }
                                 .contentShape(Circle())
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("New talk group")
+                        .accessibilityLabel("New or join talk group")
                     }
 
                     SectionCaption(text: "Talk groups · scan")
-                    if model.groups.isEmpty {
-                        Text("No talk groups yet. Tap + to make one, then invite people with its QR code or an optical handshake.")
+                    ForEach(model.snapshot.pendingJoins) { join in
+                        PendingJoinCard(join: join)
+                    }
+                    if model.groups.isEmpty && model.snapshot.pendingJoins.isEmpty {
+                        Text("No talk groups yet. Tap + to make one or to scan someone's group code.")
                             .font(NX.body(14))
                             .foregroundStyle(NX.textMuted)
                     }
@@ -53,6 +65,52 @@ struct ChannelsView: View {
             }
         }
         .sheet(isPresented: $creatingGroup) { NewGroupView() }
+        .sheet(isPresented: $joining) { AddContactView() }
+    }
+}
+
+/// A talk group we asked to join, waiting for the inviter's phone to send its key.
+struct PendingJoinCard: View {
+    @EnvironmentObject private var model: AppModel
+    let join: PendingJoin
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ProgressView()
+                .tint(NX.cyan)
+                .frame(width: 42, height: 42)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(join.group)
+                    .font(NX.label(16, .bold))
+                    .foregroundStyle(NX.text)
+                Text("Joining: waiting for \(join.inviter) to let you in")
+                    .font(NX.body(13))
+                    .foregroundStyle(NX.textDim)
+            }
+            Spacer(minLength: 0)
+            Menu {
+                Button {
+                    model.engine.retryJoin(join.id)
+                } label: {
+                    Label("Ask again", systemImage: "arrow.clockwise")
+                }
+                Button(role: .destructive) {
+                    model.engine.cancelJoin(join.id)
+                } label: {
+                    Label("Cancel", systemImage: "xmark")
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(NX.frost)
+                    .frame(width: 40, height: 40)
+                    .background(GlassBackground(shape: Circle(), glow: 0.2))
+            }
+            .accessibilityLabel("Options for joining \(join.group)")
+        }
+        .padding(.horizontal, 14)
+        .frame(minHeight: 72)
+        .glass(cornerRadius: 20, glow: 0.1)
     }
 }
 

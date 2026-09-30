@@ -314,7 +314,7 @@ enum QRCode {
     static func image(for string: String) -> UIImage? {
         let filter = CIFilter.qrCodeGenerator()
         filter.message = Data(string.utf8)
-        filter.correctionLevel = "M"
+        filter.correctionLevel = "L"
         guard let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 8, y: 8)),
               let cgImage = CIContext().createCGImage(output, from: output.extent) else { return nil }
         return UIImage(cgImage: cgImage)
@@ -342,7 +342,8 @@ struct QRScannerView: UIViewControllerRepresentable {
         override func viewDidLoad() {
             super.viewDidLoad()
             view.backgroundColor = .black
-            guard let device = AVCaptureDevice.default(for: .video),
+            guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
+                    ?? AVCaptureDevice.default(for: .video),
                   let input = try? AVCaptureDeviceInput(device: device),
                   session.canAddInput(input) else { return }
             session.addInput(input)
@@ -351,10 +352,29 @@ struct QRScannerView: UIViewControllerRepresentable {
             session.addOutput(output)
             output.setMetadataObjectsDelegate(self, queue: .main)
             output.metadataObjectTypes = [.qr]
+            focusClose(device)
             let layer = AVCaptureVideoPreviewLayer(session: session)
             layer.videoGravity = .resizeAspectFill
             view.layer.addSublayer(layer)
             preview = layer
+        }
+
+        /// Group codes are dense and held close. Newer iPhones can't focus the main camera that
+        /// close, so zoom in until a code filling the frame is at focusable distance (Apple's
+        /// AVCamBarcode approach), and prefer near focus.
+        private func focusClose(_ device: AVCaptureDevice) {
+            guard (try? device.lockForConfiguration()) != nil else { return }
+            defer { device.unlockForConfiguration() }
+            if device.isAutoFocusRangeRestrictionSupported { device.autoFocusRangeRestriction = .near }
+            if device.isFocusModeSupported(.continuousAutoFocus) { device.focusMode = .continuousAutoFocus }
+            let minimumFocus = Float(device.minimumFocusDistance)   // millimetres, -1 if unknown
+            guard minimumFocus > 0 else { return }
+            let codeWidth: Float = 50   // a code on a phone screen, in millimetres
+            let halfField = device.activeFormat.videoFieldOfView / 2 * .pi / 180
+            let distance = codeWidth / 0.6 / tan(halfField)   // code fills ~60% of the frame
+            guard distance < minimumFocus else { return }
+            let zoom = CGFloat(minimumFocus / distance)
+            device.videoZoomFactor = min(zoom, device.activeFormat.videoMaxZoomFactor, 4)
         }
 
         override func viewDidLayoutSubviews() {

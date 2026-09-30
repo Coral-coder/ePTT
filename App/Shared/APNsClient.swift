@@ -81,6 +81,17 @@ final class APNsClient {
              contact: contact, completion: completion)
     }
 
+    /// Someone scanned their talk-group code: the GROUP_JOIN as a notification, so it reaches
+    /// their phone even when NXTPTT isn't running (the extension keeps it for the app).
+    func sendJoinRequest(_ packet: Data, to contact: Contact, completion: ((String?) -> Void)? = nil) {
+        guard let token = contact.reachability.apnsDeviceToken else {
+            completion?("no notification token for them")
+            return
+        }
+        send(.alert(title: "Talk group request", body: "Someone wants to join your talk group"), packet: packet,
+             token: token, contact: contact, completion: completion)
+    }
+
     /// Tells a recipient's Apple Watch app that a relayed message is waiting (silent push; the
     /// watch checks the relay and, if the iPhone isn't around, shows a notification).
     func sendRelayNoticeToWatch(to contact: Contact) {

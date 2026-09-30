@@ -407,6 +407,30 @@ enum RelayInbox {
 
     /// The name on a relayed CARD message (contact details after face-to-face pairing), if that's
     /// what the payload is.
+    private static var pushedURL: URL? { container?.appendingPathComponent("pushed-packets.json") }
+
+    /// Keeps a packet that arrived in a push (a request to join one of our talk groups) for the
+    /// app, which handles it the next time it runs.
+    static func keepPushed(_ packet: Data) {
+        guard let url = pushedURL else { return }
+        var packets = pushedPackets()
+        guard !packets.contains(packet) else { return }
+        packets = Array((packets + [packet]).suffix(20))
+        if let data = try? JSONEncoder().encode(packets) { try? data.write(to: url, options: .atomic) }
+    }
+
+    /// The kept packets, removed from the store.
+    static func takePushed() -> [Data] {
+        let packets = pushedPackets()
+        if !packets.isEmpty, let url = pushedURL { try? FileManager.default.removeItem(at: url) }
+        return packets
+    }
+
+    private static func pushedPackets() -> [Data] {
+        guard let url = pushedURL, let data = try? Data(contentsOf: url) else { return [] }
+        return (try? JSONDecoder().decode([Data].self, from: data)) ?? []
+    }
+
     /// A request to join one of our talk groups (someone scanned our group QR code). The app
     /// adds them when it next fetches the relay; the extension can only say so.
     static func containsJoinRequest(_ payload: Data) -> Bool {

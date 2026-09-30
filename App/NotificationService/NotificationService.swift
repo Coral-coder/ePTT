@@ -20,6 +20,14 @@ final class NotificationService: UNNotificationServiceExtension {
 
         // A call alert pushed straight from the other phone: decrypt it and use the four beeps.
         if let packet = APNsRequest.packet(fromPayload: request.content.userInfo) {
+            // Someone scanned our talk group code: the app lets them in when it next runs.
+            if (try? PacketHeader(packet: packet))?.type == .groupJoin {
+                RelayInbox.keepPushed(packet)
+                content.title = "Talk group request"
+                content.body = "Someone scanned your talk group code. Open NXTPTT to let them in."
+                deliver()
+                return
+            }
             var quiet = false
             if let sync = RelayInbox.loadSnapshot(), let alert = RelayInbox.callAlert(packets: [packet], with: sync) {
                 quiet = RelayInbox.loadQuiet().holds(alert.sender)

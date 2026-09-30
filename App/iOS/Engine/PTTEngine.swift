@@ -48,6 +48,14 @@ struct EngineSnapshot {
     var playingHeld = false
     /// Contacts on Do Not Disturb, and whether we break through for them.
     var peerQuiet: [IdentityID: Bool] = [:]
+    /// Talk groups we asked to join, still waiting for the inviter to let us in.
+    var pendingJoins: [PendingJoin] = []
+}
+
+struct PendingJoin: Identifiable, Equatable {
+    var id: ChannelID
+    var group: String
+    var inviter: String
 }
 
 struct ReplayableInfo: Equatable {
@@ -296,6 +304,9 @@ final class PTTEngine {
             announceReachability()
             refreshRelaySubscription()   // mailbox tags rotate daily
             fetchRelay()
+            // Requests that came in a push while the app wasn't running (someone joining a group).
+            for packet in RelayInbox.takePushed() { handleDatagram(packet, from: nil, relayed: true) }
+            retryJoins(loud: false)
         }
     }
 
@@ -314,6 +325,7 @@ final class PTTEngine {
         // Links go stale silently (nothing arrives), so re-check who is online on every tick;
         // otherwise the UI keeps showing a peer "on the grid" after the path has died.
         publishIfOnlineChanged()
+        if !state.pendingJoins.isEmpty, now.timeIntervalSince(lastJoinRetry) > 15 { retryJoins(loud: false) }
 
         if var t = tx {
             if now.timeIntervalSince(t.lastStartResend) >= 0.5 {
@@ -771,7 +783,8 @@ final class PTTEngine {
     private func handleDatagram(_ data: Data, from endpoint: PeerPath?, relayed: Bool = false) {
         // Someone who scanned one of our group codes: not a contact yet, so not for the processor.
         if (try? PacketHeader(packet: data))?.type == .groupJoin {
-            handleGroupJoin(data, relayed: relayed)
+            // A push can sit a while before it's seen: allow it the relay's age.
+            handleGroupJoin(data, relayed: relayed || endpoint == nil)
             return
         }
         let inbound: InboundPacket
@@ -1438,8 +1451,12 @@ final class PTTEngine {
             var codes = liveJoinCodes
             if fresh { codes.removeAll { $0.groupID == groupID } }
             let soon = Date().addingTimeInterval(3600)
-            if let existing = codes.last(where: { $0.groupID == groupID && !$0.isExpired(at: soon) }) {
-                result = existing
+            if let i = codes.lastIndex(where: { $0.groupID == groupID && !$0.isExpired(at: soon) }) {
+                // Same code, but with our current addresses and push tokens in it.
+                let existing = codes[i]
+                codes[i] = GroupJoinCode(groupID: groupID, groupName: channel.name, inviter: mine,
+                                         secret: existing.secret, expires: existing.expires)
+                result = codes[i]
             } else {
                 let expires = currentTimestamp(Date().addingTimeInterval(GroupJoinCode.lifetime))
                 let code = GroupJoinCode(groupID: groupID, groupName: channel.name, inviter: mine, expires: expires)
@@ -1489,12 +1506,74 @@ final class PTTEngine {
                 emit(.message("You're already in \(code.groupName)"))
                 return
             }
+            // The inviter becomes a contact (their phone sends us the group key), but the group,
+            // not their private channel, is what we're after: keep the selection as it was.
+            let selected = state.settings.selectedChannel
             addContact(code.inviter)
-            guard let inviter = contact(id: code.inviter.id), let mine = try? myCard(),
-                  let packet = try? GroupJoin.seal(card: mine, for: code, timestamp: currentTimestamp(),
-                                                   builder: builder) else { return }
-            deliverAnyway(packet, to: inviter)
-            emit(.message("Asked \(inviter.name) to add you to \(code.groupName). You'll join as soon as their phone gets it."))
+            state.settings.selectedChannel = selected
+            var pending = pendingJoinCodes.filter { $0.groupID != code.groupID }
+            pending.append(code)
+            state.pendingJoins = pending.map(\.encoded)
+            save()
+            sendJoin(code, loud: true)
+            publish()
+            let name = code.inviter.name.isEmpty ? "the inviter" : code.inviter.name
+            emit(.message("Asked \(name) to let you into \(code.groupName). It shows under Channels until you're in."))
+        }
+    }
+
+    private var pendingJoinCodes: [GroupJoinCode] {
+        state.pendingJoins.compactMap { try? GroupJoinCode(encoded: $0) }
+    }
+
+    private var lastJoinRetry = Date.distantPast
+
+    /// Sends (again) the request to join `code`'s group, freshly sealed. Loud also pushes it to
+    /// the inviter's phone as a notification and leaves it in the relay; otherwise only their
+    /// last known addresses (cheap, for retries).
+    private func sendJoin(_ code: GroupJoinCode, loud: Bool) {
+        guard let inviter = contact(id: code.inviter.id), let mine = try? myCard(),
+              let packet = try? GroupJoin.seal(card: mine, for: code, timestamp: currentTimestamp(),
+                                               builder: builder) else { return }
+        guard loud else {
+            sendAnyway(packet, to: inviter)
+            return
+        }
+        deliverAnyway(packet, to: inviter)
+        apns?.sendJoinRequest(packet, to: inviter) { [weak self] failure in
+            guard let failure else { return }
+            self?.log.notice("Join request push failed: \(failure, privacy: .public)")
+        }
+    }
+
+    /// Drops joins that finished or expired, and re-sends the rest.
+    private func retryJoins(loud: Bool) {
+        lastJoinRetry = Date()
+        let pending = pendingJoinCodes.filter { !$0.isExpired && channel($0.groupID) == nil }
+        if pending.count != state.pendingJoins.count {
+            state.pendingJoins = pending.map(\.encoded)
+            save()
+            publish()
+        }
+        guard !pending.isEmpty else { return }
+        for code in pending { sendJoin(code, loud: loud) }
+        fetchRelay()   // the group key may be waiting there
+    }
+
+    /// "Ask again": pushes the request to the inviter's phone once more.
+    func retryJoin(_ groupID: ChannelID) {
+        queue.async { [self] in
+            guard let code = pendingJoinCodes.first(where: { $0.groupID == groupID }) else { return }
+            sendJoin(code, loud: true)
+            emit(.message("Asked \(code.inviter.name.isEmpty ? "the inviter" : code.inviter.name) again"))
+        }
+    }
+
+    func cancelJoin(_ groupID: ChannelID) {
+        queue.async { [self] in
+            state.pendingJoins = pendingJoinCodes.filter { $0.groupID != groupID }.map(\.encoded)
+            save()
+            publish()
         }
     }
 
@@ -1535,7 +1614,13 @@ final class PTTEngine {
             save()
         } else {
             state.channels.append(Channel(kind: .group, name: invite.name, keys: invite.keys, members: others))
+            if state.pendingJoins.contains(where: { (try? GroupJoinCode(encoded: $0))?.groupID == invite.keys.channelID }) {
+                // The group we asked to join: select it.
+                state.pendingJoins.removeAll { (try? GroupJoinCode(encoded: $0))?.groupID == invite.keys.channelID }
+                state.settings.selectedChannel = invite.keys.channelID
+            }
             save()
+            publish()
             emit(.joinedGroup(invite.name))
         }
     }
@@ -2243,6 +2328,9 @@ final class PTTEngine {
         snapshot.lastWakeReceived = lastWakeReceived
         snapshot.held = RelayInbox.heldMessages()
         snapshot.playingHeld = rx?.heldID != nil || !heldQueue.isEmpty
+        snapshot.pendingJoins = pendingJoinCodes.map {
+            PendingJoin(id: $0.groupID, group: $0.groupName, inviter: $0.inviter.name.isEmpty ? "the inviter" : $0.inviter.name)
+        }
         snapshot.peerQuiet = Dictionary(state.peerQuiet.map { ($0.id, $0.breaksThrough) }, uniquingKeysWith: { a, _ in a })
         if let last = RelayInbox.replayableLast()?.info {
             snapshot.replayable = ReplayableInfo(talker: last.talker, seconds: last.seconds, date: last.date)
