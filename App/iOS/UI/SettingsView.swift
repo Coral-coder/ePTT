@@ -66,15 +66,6 @@ struct SettingsView: View {
                 .nxRows()
 
                 Section {
-                    Toggle("Show in Dynamic Island", isOn: binding(\.systemPushToTalk))
-                } header: {
-                    Text("Push to Talk")
-                } footer: {
-                    Text("On: iOS shows a push-to-talk indicator all the time, and a locked phone plays messages live. Off: no indicator; when NXTPTT isn't open, messages arrive as notifications that play them.")
-                }
-                .nxRows()
-
-                Section {
                     Toggle("Play received audio on watch", isOn: binding(\.playOnWatch))
                     Toggle("Standalone watch", isOn: binding(\.standaloneWatch))
                 } header: {

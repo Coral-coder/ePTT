@@ -282,8 +282,7 @@ final class PTTEngine {
             purgeExpiredRelayUploads()
             publish()
         }
-        let joining = state.settings.systemPushToTalk
-        Task { await ptt.setUp(joining: joining); queue.async { self.publish() } }
+        Task { await ptt.setUp(); queue.async { self.publish() } }
     }
 
     /// Called when the app returns to the foreground: sockets may have been torn down.
@@ -366,7 +365,7 @@ final class PTTEngine {
         }
         ptt.onPushToken = { [weak self] token in
             self?.queue.async {
-                guard let self, self.state.settings.systemPushToTalk, self.state.pttToken != token else { return }
+                guard let self, self.state.pttToken != token else { return }
                 self.state.pttToken = token
                 self.save()
                 self.announceReachability()
@@ -1548,18 +1547,6 @@ final class PTTEngine {
             change(&state.settings)
             save()
             applyTransportSettings()
-            if before.systemPushToTalk != state.settings.systemPushToTalk {
-                if state.settings.systemPushToTalk {
-                    ptt.join()   // a fresh push token follows (onPushToken) and is announced
-                } else {
-                    // Leave the channel (the indicator goes) and stop advertising the token, so
-                    // contacts fall back to notifications that play the message.
-                    ptt.leave()
-                    state.pttToken = nil
-                    save()
-                    announceReachability()
-                }
-            }
             if before.displayName != state.settings.displayName || before.nameConfirmed != state.settings.nameConfirmed {
                 if state.settings.nameConfirmed, !state.settings.displayName.isEmpty {
                     NameKeychain.save(state.settings.displayName)
