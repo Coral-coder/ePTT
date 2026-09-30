@@ -94,6 +94,25 @@ final class CloudRelay {
         }
     }
 
+    /// The whole story of a CloudKit error, for Settings › Status: its code, iCloud's own
+    /// explanation and, for a batch, each item's error. `localizedDescription` alone cuts the
+    /// reason off.
+    static func describe(_ error: Error) -> String {
+        guard let ck = error as? CKError else { return error.localizedDescription }
+        var parts = ["CKError \(ck.errorCode)"]
+        let info = (ck as NSError).userInfo
+        if let server = info["ServerErrorDescription"] as? String { parts.append(server) }
+        parts.append(ck.localizedDescription)
+        if let items = ck.partialErrorsByItemID {
+            for (id, itemError) in items.prefix(2) { parts.append("\(id): \(describe(itemError))") }
+        }
+        if let underlying = info[NSUnderlyingErrorKey] as? NSError {
+            parts.append("underlying \(underlying.domain) \(underlying.code): \(underlying.localizedDescription)")
+        }
+        var seen = Set<String>()
+        return parts.filter { seen.insert($0).inserted }.joined(separator: " · ")
+    }
+
     static func isRelayNotification(_ userInfo: [AnyHashable: Any]) -> Bool {
         CKNotification(fromRemoteNotificationDictionary: userInfo)?.subscriptionID?.hasPrefix(subscriptionID) == true
     }

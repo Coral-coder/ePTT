@@ -1744,7 +1744,7 @@ final class PTTEngine {
                 } catch {
                     log.error("Relay upload failed: \(String(describing: error), privacy: .public)")
                     relayedLegs.append(.init(peer: contact.name, route: .failed,
-                                             reason: "iCloud relay upload failed: \(error.localizedDescription)"))
+                                             reason: "iCloud relay upload failed: \(CloudRelay.describe(error))"))
                 }
             }
             self?.queue.async {
@@ -1881,7 +1881,7 @@ final class PTTEngine {
                 self?.queue.async {
                     guard let self else { return }
                     self.subscribedTags = []   // retry on the next housekeeping pass
-                    self.relayAlerts = "Failed: \(error.localizedDescription)"
+                    self.relayAlerts = "Failed: \(CloudRelay.describe(error))"
                     self.publish()
                 }
             }
