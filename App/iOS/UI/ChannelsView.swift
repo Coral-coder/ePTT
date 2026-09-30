@@ -16,23 +16,18 @@ struct ChannelsView: View {
                         ScreenTitle(text: "Channels")
                         Spacer()
                         Button {
-                            if model.snapshot.contacts.isEmpty {
-                                withAnimation { model.banner = "Pair with someone first, then make a talk group with them." }
-                            } else {
-                                creatingGroup = true
-                            }
+                            creatingGroup = true
                         } label: {
                             GelBead(size: 44) { Image(systemName: "plus").font(.system(size: 18, weight: .bold)) }
                                 .contentShape(Circle())
                         }
                         .buttonStyle(.plain)
-                        .opacity(model.snapshot.contacts.isEmpty ? 0.5 : 1)
                         .accessibilityLabel("New talk group")
                     }
 
                     SectionCaption(text: "Talk groups · scan")
                     if model.groups.isEmpty {
-                        Text("No talk groups yet. Tap + to make one; members get the key over their private channels.")
+                        Text("No talk groups yet. Tap + to make one, then invite people with its QR code or an optical handshake.")
                             .font(NX.body(14))
                             .foregroundStyle(NX.textMuted)
                     }
@@ -188,7 +183,7 @@ struct NewGroupView: View {
     @FocusState private var nameFocused: Bool
 
     private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
-    private var canCreate: Bool { !trimmedName.isEmpty && !selected.isEmpty }
+    private var canCreate: Bool { !trimmedName.isEmpty }
 
     var body: some View {
         ZStack {
@@ -213,6 +208,12 @@ struct NewGroupView: View {
                         .glass(cornerRadius: 16, glow: 0.1)
 
                     SectionCaption(text: "Members").padding(.top, 6)
+                    if model.snapshot.contacts.isEmpty {
+                        Text("No contacts yet, and that's fine: create the group, then tap its QR button to invite people, or add them with an optical handshake from there.")
+                            .font(NX.body(14))
+                            .foregroundStyle(NX.textMuted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     VStack(spacing: 8) {
                         ForEach(model.snapshot.contacts) { contact in
                             let on = selected.contains(contact.id)
@@ -236,7 +237,7 @@ struct NewGroupView: View {
                             .accessibilityAddTraits(on ? .isSelected : [])
                         }
                     }
-                    Text("Every member gets the group key sealed to their device. Groups are a full mesh, so keep them to about ten people.")
+                    Text("Optional: you can add people later with the group's QR code. Every member gets the group key sealed to their device. Groups are a full mesh, so keep them to about ten people.")
                         .font(NX.body(13))
                         .foregroundStyle(NX.textMuted)
 
@@ -251,7 +252,7 @@ struct NewGroupView: View {
                     .opacity(canCreate ? 1 : 0.5)
                     .padding(.top, 6)
                     if !canCreate {
-                        Text(trimmedName.isEmpty ? "Give the group a name." : "Pick at least one member.")
+                        Text("Give the group a name.")
                             .font(NX.body(13))
                             .foregroundStyle(NX.textDim)
                             .frame(maxWidth: .infinity)

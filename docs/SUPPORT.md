@@ -12,7 +12,7 @@ NXTPTT is a push-to-talk walkie-talkie: hold to talk, let go to listen.
 
 ## Talk groups
 
-**Channels → +** creates a group. Tap the QR button on a group to invite people: they scan it with **Contacts → + → Join a group**
+**Channels → +** (or **Contacts → + → New talk group**) creates a group; members are optional. Tap the QR button on a group to invite people: they scan it with **Contacts → + → Join a group**
 and are added once your phone receives their request.
 
 ## Common questions

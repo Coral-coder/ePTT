@@ -11,6 +11,7 @@ struct PairView: View {
     @State private var uri: String?
     @State private var scanning = false
     @State private var facePairing = false
+    @State private var creatingGroup = false
 
     var body: some View {
         NavigationStack {
@@ -56,6 +57,7 @@ struct PairView: View {
         }
         .sheet(isPresented: $scanning) { AddContactView() }
         .fullScreenCover(isPresented: $facePairing) { FacePairView() }
+        .sheet(isPresented: $creatingGroup) { NewGroupView() }
         .onAppear { model.engine.myCardURI { uri = $0 } }
     }
 
@@ -68,6 +70,11 @@ struct PairView: View {
             }
             if let uri {
                 ShareLink(item: uri) { Label("Share my link", systemImage: "square.and.arrow.up") }
+            }
+            Button {
+                creatingGroup = true
+            } label: {
+                Label("New talk group", systemImage: "person.3")
             }
             Button {
                 scanning = true
@@ -84,7 +91,7 @@ struct PairView: View {
                 .shadow(color: NX.cyan.opacity(0.5), radius: 8)
         }
         .accessibilityLabel("Add")
-        .accessibilityHint("Optical handshake, share your link, or join a group")
+        .accessibilityHint("Optical handshake, share your link, new talk group, or join a group")
     }
 }
 
