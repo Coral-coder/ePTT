@@ -121,9 +121,9 @@ final class AppModel: ObservableObject {
 
     // MARK: - Actions
 
-    /// Handles any `eptt://` link: a contact card or a shared push key.
+    /// Handles any `nxtptt://` link (or an old `eptt://` one): a contact card or a shared push key.
     func open(link: String) {
-        let link = link.trimmingCharacters(in: .whitespacesAndNewlines)
+        let link = LinkScheme.normalize(link)
         if link.hasPrefix(PushKey.uriPrefix) {
             do {
                 try engine.installPushKey(uri: link)

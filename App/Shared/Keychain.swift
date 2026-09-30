@@ -46,7 +46,7 @@ enum IdentityKeychain {
 /// An APNs signing key shared among a group of friends, so builds published on a public page do
 /// not have to carry it (docs/SETUP.md, "Sharing the push key").
 struct PushKey: Codable, Equatable {
-    static let uriPrefix = "eptt://pushkey/"
+    static let uriPrefix = LinkScheme.current + "pushkey/"
 
     var teamID: String
     var keyID: String
@@ -59,6 +59,7 @@ struct PushKey: Codable, Equatable {
     }
 
     init(uri: String) throws {
+        let uri = LinkScheme.normalize(uri)   // old eptt:// links still work
         guard uri.hasPrefix(PushKey.uriPrefix),
               let data = Data(base64URLEncoded: String(uri.dropFirst(PushKey.uriPrefix.count))) else {
             throw EPTTCore.DecodingError.invalid("push key link")

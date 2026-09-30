@@ -111,6 +111,11 @@ final class VectorTests: XCTestCase {
         XCTAssertEqual(card.platform, .iOS)
         XCTAssertEqual(card.identity, alice.publicIdentity)
         XCTAssertEqual(try ContactCard(uri: try XCTUnwrap(d["uri"] as? String)), card)
+        // Links shared before the rename (eptt://) still open.
+        let uri = try XCTUnwrap(d["uri"] as? String)
+        XCTAssertTrue(uri.hasPrefix("nxtptt://contact/"))
+        XCTAssertEqual(try ContactCard(uri: "eptt://" + uri.dropFirst("nxtptt://".count)), card)
+        XCTAssertTrue(card.uri.hasPrefix("nxtptt://contact/"))
 
         // Our own signature must verify too.
         let ours = try ContactCard(signing: alice, name: "Alice", timestamp: timestamp, reachability: reach)

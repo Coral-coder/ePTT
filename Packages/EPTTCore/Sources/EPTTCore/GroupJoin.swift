@@ -5,7 +5,7 @@ import Foundation
 /// inviter to be added. The inviter's phone then sends the group key the usual way, sealed to the
 /// new member (GROUP_INVITE, §6.3).
 public struct GroupJoinCode: Equatable {
-    public static let uriPrefix = "eptt://join/"
+    public static let uriPrefix = LinkScheme.current + "join/"
     /// How long a code works for.
     public static let lifetime: TimeInterval = 24 * 3600
 
@@ -66,6 +66,7 @@ public struct GroupJoinCode: Equatable {
     public var uri: String { GroupJoinCode.uriPrefix + encoded.base64URLEncoded }
 
     public init(uri: String) throws {
+        let uri = LinkScheme.normalize(uri)   // old eptt:// links still work
         guard uri.hasPrefix(GroupJoinCode.uriPrefix),
               let data = Data(base64URLEncoded: String(uri.dropFirst(GroupJoinCode.uriPrefix.count))) else {
             throw DecodingError.invalid("join uri")

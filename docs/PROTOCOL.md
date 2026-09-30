@@ -130,7 +130,8 @@ A verifier checks the signature against the card's own `sign_pk`, then pins
 that key. A later card for the same `identity_id` replaces the old one only if
 its `timestamp` is newer.
 
-Sharing URI: `eptt://contact/` + `b64url(card)`, usually shown as a QR code.
+Sharing URI: `nxtptt://contact/` + `b64url(card)`. Links made before the rename use `eptt://`;
+readers accept either scheme for every link type (contact, join, pushkey).
 
 ## 5. Channels and keys
 
@@ -294,7 +295,7 @@ sealed_invite = prekey_id_u32 || AEAD-Encrypt(key, 0x00 × 12, inner, R.sender_i
 Any member can show a code for a talk group:
 
 ```
-eptt://join/<base64url TLV: group_id, group_name, invite_secret (32 bytes, tag 0x26),
+nxtptt://join/<base64url TLV: group_id, group_name, invite_secret (32 bytes, tag 0x26),
                             timestamp (expiry, ms), member_card (the inviter's signed card)>
 ```
 

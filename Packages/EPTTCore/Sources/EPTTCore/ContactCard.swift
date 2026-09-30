@@ -83,7 +83,7 @@ public struct Reachability: Equatable, Codable {
 
 /// A signed, shareable description of a user (PROTOCOL.md §4).
 public struct ContactCard: Equatable {
-    public static let uriPrefix = "eptt://contact/"
+    public static let uriPrefix = LinkScheme.current + "contact/"
 
     public let name: String
     public let timestamp: UInt64
@@ -146,6 +146,7 @@ public struct ContactCard: Equatable {
     }
 
     public init(uri: String) throws {
+        let uri = LinkScheme.normalize(uri)   // old eptt:// links still work
         guard uri.hasPrefix(ContactCard.uriPrefix),
               let data = Data(base64URLEncoded: String(uri.dropFirst(ContactCard.uriPrefix.count))) else {
             throw DecodingError.invalid("contact uri")

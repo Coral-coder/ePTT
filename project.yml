@@ -87,7 +87,7 @@ targets:
         NSBonjourServices: [_eptt._udp, _chirp-ptt._tcp, _chirp-ptt._udp]
         CFBundleURLTypes:
           - CFBundleURLName: app.eptt.links
-            CFBundleURLSchemes: [eptt]
+            CFBundleURLSchemes: [nxtptt, eptt]
         EPTTAPNsTeamID: $(EPTT_APNS_TEAM_ID)
         EPTTAPNsKeyID: $(EPTT_APNS_KEY_ID)
         EPTTAPNsEnvironment: $(EPTT_APNS_ENVIRONMENT)

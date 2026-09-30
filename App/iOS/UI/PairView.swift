@@ -269,7 +269,7 @@ struct AddContactView: View {
                 GridBackground(horizon: 0.9, energy: 0.7, moving: false)
                 VStack(spacing: 16) {
                     QRScannerView { code in
-                        if code.hasPrefix(ContactCard.uriPrefix) {
+                        if LinkScheme.normalize(code).hasPrefix(ContactCard.uriPrefix) {
                             // Contacts pair by optical handshake now (or by link); contact QR codes are off.
                             model.banner = "Add contacts with an optical handshake, or open the link they send you"
                         } else {
@@ -282,10 +282,10 @@ struct AddContactView: View {
                     .neonGlow(NX.cyan, radius: 10)
                     .frame(maxHeight: 360)
 
-                    Text("Scan a talk group's code, or paste an eptt:// link")
+                    Text("Scan a talk group's code, or paste an nxtptt:// link")
                         .font(NX.body(14))
                         .foregroundStyle(NX.textDim)
-                    TextField("eptt://contact/…", text: $pasted, axis: .vertical)
+                    TextField("nxtptt://contact/…", text: $pasted, axis: .vertical)
                         .font(NX.body(15))
                         .padding(12)
                         .glass(cornerRadius: 14, glow: 0.1)
@@ -321,7 +321,7 @@ enum QRCode {
     }
 }
 
-/// Camera QR scanner that reports the first `eptt://` code it sees (contact card or push key).
+/// Camera QR scanner that reports the first `nxtptt://` (or old `eptt://`) code it sees (contact card or push key).
 struct QRScannerView: UIViewControllerRepresentable {
     let onCode: (String) -> Void
 
@@ -377,7 +377,7 @@ struct QRScannerView: UIViewControllerRepresentable {
                             from connection: AVCaptureConnection) {
             guard !reported,
                   let code = metadataObjects.compactMap({ ($0 as? AVMetadataMachineReadableCodeObject)?.stringValue })
-                    .first(where: { $0.hasPrefix("eptt://") }) else { return }
+                    .first(where: LinkScheme.isLink) else { return }
             reported = true
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             onCode?(code)

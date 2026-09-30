@@ -400,7 +400,7 @@ def build_vectors() -> dict:
         "name": "Alice", "timestamp": ts, "apns_ptt_token": h(ptt_token), "apns_device_token": h(dev_token),
         "apns_env": 0, "apns_topic": "com.example.eptt", "platform": 1,
         "candidates": [h(candidate_ipv4("192.0.2.10", 40000)), h(candidate_ipv6("2001:db8::1", 40001))],
-        "unsigned": h(unsigned), "card": h(card), "uri": "eptt://contact/" + b64url(card),
+        "unsigned": h(unsigned), "card": h(card), "uri": "nxtptt://contact/" + b64url(card),
         "prekey_seed": h(alice_prekey_sk.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw,
                                                         serialization.NoEncryption())),
         "prekey_id": 7, "prekey": h(alice_prekey),

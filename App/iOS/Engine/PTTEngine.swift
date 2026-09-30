@@ -1582,7 +1582,7 @@ final class PTTEngine {
         }
     }
 
-    /// Installs a push key shared by a friend (an `eptt://pushkey/` link). Throws if invalid.
+    /// Installs a push key shared by a friend (an `nxtptt://pushkey/` link). Throws if invalid.
     func installPushKey(uri: String) throws {
         let key = try PushKey(uri: uri)
         queue.async { [self] in
