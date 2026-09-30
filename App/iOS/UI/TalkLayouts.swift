@@ -6,6 +6,63 @@ import EPTTCore
 
 // MARK: - Shared pieces
 
+/// Hold-to-talk that can't get stuck: the press is tracked with @GestureState, which SwiftUI
+/// resets when the touch ends *or is cancelled* (a context menu, an incoming call, the view
+/// going away), and a vanished view releases too.
+struct HoldToTalk: ViewModifier {
+    /// Wait this long before keying up (so a quick tap can mean something else); nil: at once.
+    var delay: Duration?
+    var enabled = true
+    let onPress: () -> Void
+    /// `held` is false when the touch ended before the delay: a tap.
+    let onRelease: (_ held: Bool) -> Void
+
+    @GestureState private var down = false
+    @State private var active = false
+    @State private var pending: Task<Void, Never>?
+
+    func body(content: Content) -> some View {
+        content
+            .gesture(DragGesture(minimumDistance: 0).updating($down) { _, state, _ in state = true },
+                     including: enabled ? .all : .subviews)
+            .onChange(of: down) { isDown in
+                if isDown { begin() } else { end() }
+            }
+            .onDisappear {
+                pending?.cancel()
+                pending = nil
+                if active {
+                    active = false
+                    onRelease(true)
+                }
+            }
+    }
+
+    private func begin() {
+        guard !active, pending == nil else { return }
+        guard let delay else {
+            active = true
+            onPress()
+            return
+        }
+        pending = Task { @MainActor in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            pending = nil
+            active = true
+            onPress()
+        }
+    }
+
+    private func end() {
+        pending?.cancel()
+        pending = nil
+        let held = active
+        active = false
+        onRelease(held)
+    }
+}
+
 /// A small amber dot: messages held for this channel by Do Not Disturb.
 struct MissedDot: View {
     var body: some View {
@@ -181,7 +238,7 @@ struct RadioLog: View {
         switch talk {
         case .receiving(let c, let talker):
             id = c
-            who = talker.components(separatedBy: " · ").first ?? talker
+            who = AppModel.talkerName(talker)
         case .transmitting(let c):
             id = c
             who = "You"
@@ -321,8 +378,10 @@ struct TalkBoard: View {
                 }
                 .buttonStyle(.plain)
             }
-            if model.snapshot.talk == .idle, let reply = model.replyTarget,
-               !shown.contains(where: { $0.channel.id == reply.channel }) {
+            // Stays up while it's being held to reply (talking makes the channel live, which
+            // would otherwise move it onto the board and pull the card out from under the finger).
+            if let reply = model.replyTarget,
+               model.replying || (model.snapshot.talk == .idle && !shown.contains(where: { $0.channel.id == reply.channel })) {
                 ReplyCard(target: reply, compact: true)
             }
         }
@@ -335,7 +394,6 @@ struct BoardTile: View {
     let item: RecentChannel
     let now: Date
     @State private var talking = false
-    @State private var holdTask: Task<Void, Never>?
 
     private var selected: Bool { model.snapshot.settings.selectedChannel == item.channel.id }
     private var lit: Bool { item.live != nil || talking }
@@ -374,32 +432,21 @@ struct BoardTile: View {
         .scaleEffect(talking ? 0.97 : 1)
         .animation(.easeOut(duration: 0.12), value: talking)
         .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in
-                    guard holdTask == nil, !talking else { return }
-                    // A short hold keys up; a quick tap only selects.
-                    holdTask = Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(220))
-                        guard !Task.isCancelled else { return }
-                        talking = true
-                        UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
-                        model.engine.pressTalk(on: item.channel.id)
-                    }
-                }
-                .onEnded { _ in
-                    holdTask?.cancel()
-                    holdTask = nil
-                    if talking {
-                        talking = false
-                        model.engine.releaseTalk()
-                    } else {
-                        UISelectionFeedbackGenerator().selectionChanged()
-                        model.engine.select(item.channel.id)
-                    }
-                }
-        )
-        .contextMenu { PinMenuItem(channel: item.channel.id) }
+        // A short hold keys up; a quick tap only selects. (No context menu here: its long
+        // press would fight the hold. Pin from the Channels list or another layout.)
+        .modifier(HoldToTalk(delay: .milliseconds(220), onPress: {
+            talking = true
+            UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+            model.engine.pressTalk(on: item.channel.id)
+        }, onRelease: { held in
+            if held {
+                talking = false
+                model.engine.releaseTalk()
+            } else {
+                UISelectionFeedbackGenerator().selectionChanged()
+                model.engine.select(item.channel.id)
+            }
+        }))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(item.name), \(item.detail(now: now))")
         .accessibilityAddTraits(.isButton)
@@ -540,20 +587,16 @@ struct ReplyCard: View {
             .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(NX.ice.opacity(0.85), lineWidth: 1))
         }
         .contentShape(Rectangle())
-        .gesture(DragGesture(minimumDistance: 0)
-            .onChanged { _ in
-                guard !talking else { return }
-                talking = true
-                UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
-                model.holdReplyWindow()
-                model.engine.pressTalk(on: target.channel)
-            }
-            .onEnded { _ in
-                guard talking else { return }
-                talking = false
-                model.engine.releaseTalk()
-                model.releaseReplyWindow()
-            }, including: compact ? .all : .subviews)
+        .modifier(HoldToTalk(enabled: compact, onPress: {
+            talking = true
+            UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+            model.holdReplyWindow()
+            model.engine.pressTalk(on: target.channel)
+        }, onRelease: { _ in
+            talking = false
+            model.engine.releaseTalk()
+            model.releaseReplyWindow()
+        }))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(target.talker) just talked to you")
         .accessibilityAction(named: "Reply") { model.engine.pressTalk(on: target.channel) }

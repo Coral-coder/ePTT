@@ -106,6 +106,8 @@ struct JoinRequestView: View {
 struct TalkView: View {
     @EnvironmentObject private var model: AppModel
     @State private var pressed = false
+    /// This press is a reply (Pinned layout's reply window).
+    @State private var replying = false
     @State private var txStart: Date?
     @State private var rxStart: Date?
 
@@ -359,22 +361,21 @@ struct TalkView: View {
     private func orb(diameter: CGFloat) -> some View {
         TalkOrb(mode: orbMode, diameter: diameter, pressed: pressed)
             .contentShape(Circle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { _ in
-                        guard !pressed, model.selectedChannel != nil || orbTarget != nil else { return }
-                        pressed = true
-                        UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
-                        if orbTarget != nil { model.holdReplyWindow() }
-                        model.engine.pressTalk(on: orbTarget)
-                    }
-                    .onEnded { _ in
-                        guard pressed else { return }
-                        pressed = false
-                        model.engine.releaseTalk()
-                        model.releaseReplyWindow()
-                    }
-            )
+            .modifier(HoldToTalk(onPress: {
+                guard model.selectedChannel != nil || orbTarget != nil else { return }
+                pressed = true
+                UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+                replying = orbTarget != nil
+                if replying { model.holdReplyWindow() }
+                model.engine.pressTalk(on: orbTarget)
+            }, onRelease: { _ in
+                guard pressed else { return }
+                pressed = false
+                model.engine.releaseTalk()
+                // Only a reply keeps the reply window open a little longer.
+                if replying { model.releaseReplyWindow() }
+                replying = false
+            }))
             .accessibilityElement()
             .accessibilityLabel("Push to talk")
             .accessibilityValue(orbMode == .transmitting ? "Transmitting" : orbMode == .receiving ? "Receiving" : "Ready")

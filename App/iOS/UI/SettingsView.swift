@@ -35,7 +35,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Talk screen")
                 } footer: {
-                    Text(settings.talkLayout.summary + (settings.talkLayout == .classic ? "" : " Hold a channel anywhere on the Talk screen to pin or unpin it."))
+                    Text(settings.talkLayout.summary + (settings.talkLayout == .classic ? "" : " Long-press a channel in Channels to pin or unpin it."))
                 }
                 .nxRows()
 

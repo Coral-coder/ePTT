@@ -185,6 +185,9 @@ final class PTTEngine {
         /// Members that have the backlog and now get live packets.
         var delivered: Set<SenderID> = []
         var woken: Set<SenderID> = []
+        /// The burst's WAKE, sealed once: every copy (each member, each retry) must be these
+        /// same bytes, because the nonce is fixed by the burst ID and seq 0.
+        var wakePacket: Data?
         var lastStartResend = Date()
         let startedAt = Date()
     }
@@ -397,9 +400,15 @@ final class PTTEngine {
                 self.announceReachability()
             }
         }
-        ptt.onBeginTransmitting = { [weak self] _ in
+        ptt.onBeginTransmitting = { [weak self] fromSystemUI in
             self?.queue.async {
                 guard let self else { return }
+                // Our own request, but the button was already let go (a quick tap): don't open
+                // the microphone with nobody holding it.
+                if !fromSystemUI && self.pendingPress == nil {
+                    self.ptt.stopTransmitting()
+                    return
+                }
                 let channel = self.pendingPress ?? self.state.settings.selectedChannel
                 self.pendingPress = nil
                 guard let channel, self.beginBurst(on: channel) else {
@@ -480,8 +489,13 @@ final class PTTEngine {
 
     func releaseTalk() {
         queue.async { [self] in
+            let requested = pendingPress != nil
             pendingPress = nil
-            guard tx != nil else { return }
+            guard tx != nil else {
+                // Released before iOS granted the transmission: withdraw the request.
+                if requested, usesPushToTalk { ptt.stopTransmitting() }
+                return
+            }
             if usesPushToTalk { ptt.stopTransmitting() } else { endBurst() }
         }
     }
@@ -703,9 +717,17 @@ final class PTTEngine {
             noteWake(contact, "not sent: no push token from them yet (have them open NXTPTT once while you're connected)")
             return
         }
-        let wake = Wake(name: state.settings.displayName, timestamp: currentTimestamp(),
-                        candidates: transport.localCandidates)
-        guard let packet = try? builder.seal(.wake, plaintext: wake.encoded, keys: t.channel.keys, messageID: t.burst) else { return }
+        let packet: Data
+        if let sealed = tx?.wakePacket, tx?.burst == t.burst {
+            packet = sealed
+        } else {
+            let wake = Wake(name: state.settings.displayName, timestamp: currentTimestamp(),
+                            candidates: transport.localCandidates)
+            guard let sealed = try? builder.seal(.wake, plaintext: wake.encoded, keys: t.channel.keys, messageID: t.burst)
+            else { return }
+            packet = sealed
+            if tx?.burst == t.burst { tx?.wakePacket = sealed }
+        }
         noteWake(contact, "sending…")
         apns.sendWake(packet, to: contact) { [weak self] failure in
             self?.queue.async {
@@ -851,17 +873,23 @@ final class PTTEngine {
                 for (packet, from) in earlyPackets.take(inbound.header.messageID) { handleDatagram(packet, from: from) }
             }
             guard inbound.channel.isMonitored || inbound.channel.kind == .direct else { return }
-            // Receipt: tells the talker we're really here, so it doesn't fall back to push/relay.
+            let burst = inbound.header.messageID
+            let wasReceiving = rx?.burst == burst
+            pendingBurstInfo[burst] = start
+            pendingRoutes[burst] = relayed ? .relay : PTTEngine.route(for: endpoint)
+            apply(floor.remoteBurstStarted(channel: inbound.channel.id, burst: burst,
+                                           sender: sender, timestamp: start.timestamp))
+            floor.remoteActivity(channel: inbound.channel.id, burst: burst)
+            // Receipt: tells the talker we're really playing (or holding) it, so it doesn't fall
+            // back to push/relay. Only once reception started: a burst we drop (we're busy on
+            // another channel) must get no receipt, so the talker leaves it in the relay.
             // (Once: BURST_START repeats every 500 ms.)
-            if let endpoint, let contact = self.contact(sender), rx?.burst != inbound.header.messageID,
-               pendingBurstInfo[inbound.header.messageID] == nil {
+            if !wasReceiving, rx?.burst == burst, let endpoint, let contact = self.contact(sender) {
                 sendHello(to: contact, endpoints: [endpoint], receipt: true)
             }
-            pendingBurstInfo[inbound.header.messageID] = start
-            pendingRoutes[inbound.header.messageID] = relayed ? .relay : PTTEngine.route(for: endpoint)
-            apply(floor.remoteBurstStarted(channel: inbound.channel.id, burst: inbound.header.messageID,
-                                           sender: sender, timestamp: start.timestamp))
-            floor.remoteActivity(channel: inbound.channel.id, burst: inbound.header.messageID)
+            // startReception has taken what it needs; nothing to keep for a dropped or repeated start.
+            pendingBurstInfo[burst] = nil
+            pendingRoutes[burst] = nil
         case .voice(let index, let frames):
             let burst = inbound.header.messageID
             if var r = rx, r.burst == burst, r.channel.id == inbound.channel.id {
@@ -873,8 +901,11 @@ final class PTTEngine {
             }
         case .burstEnd(let end):
             let burst = inbound.header.messageID
-            // Receipt for the whole message (the talker relays it if this never arrives).
-            if let endpoint, let contact = self.contact(sender) { sendHello(to: contact, endpoints: [endpoint], receipt: true) }
+            // Receipt for the whole message (the talker relays it if this never arrives): only
+            // for a message we're playing or just played, never one we dropped.
+            if rx?.burst == burst || recentlyPlayed.contains(burst), let endpoint, let contact = self.contact(sender) {
+                sendHello(to: contact, endpoints: [endpoint], receipt: true)
+            }
             guard var r = rx, r.burst == burst else { return }
             r.jitter.markEnded(frameCount: end.frameCount)
             r.draining = true
@@ -892,7 +923,7 @@ final class PTTEngine {
         case .groupInvite(let invite):
             acceptInvite(invite, from: sender)
         case .groupLeave(let leave):
-            if let i = channelIndex[leave.groupID], let contact = self.contact(sender) {
+            if let i = channelIndex[leave.groupID], state.channels[i].kind == .group, let contact = self.contact(sender) {
                 state.channels[i].members.removeAll { $0 == contact.id }
                 save()
             }
@@ -956,7 +987,11 @@ final class PTTEngine {
         publishIfOnlineChanged()
     }
 
+    /// Bursts we recently started playing, so a late BURST_END still gets its receipt.
+    private var recentlyPlayed: [MessageID] = []
+
     private func startReception(channelID: ChannelID, burst: MessageID, sender: SenderID) {
+        recentlyPlayed = Array((recentlyPlayed + [burst]).suffix(16))
         stopReception(playEndTone: false)
         guard let channel = self.channel(channelID), let contact = self.contact(sender) else { return }
         let start = pendingBurstInfo.removeValue(forKey: burst)
@@ -1383,7 +1418,9 @@ final class PTTEngine {
             state.contacts[i].apply(card: card)
         } else {
             state.contacts.append(Contact(card: card))
-            if let direct = try? Channel.direct(local: identity, peer: card) { state.channels.append(direct) }
+            if let direct = try? Channel.direct(local: identity, peer: card), channelIndex[direct.id] == nil {
+                state.channels.append(direct)
+            }
             if state.settings.selectedChannel == nil { state.settings.selectedChannel = self.directChannel(for: card.id)?.id }
         }
         save()
@@ -1652,11 +1689,27 @@ final class PTTEngine {
         guard memberIDs.contains(identity.id), let inviter = self.contact(sender), memberIDs.contains(inviter.id) else {
             return
         }
+        let id = invite.keys.channelID
+        if let i = channelIndex[id] {
+            // Only a member of an existing group may change it, and never a private channel:
+            // otherwise a contact could swap in their own key for our channel with someone else.
+            let existing = state.channels[i]
+            guard existing.kind == .group, existing.members.contains(inviter.id) else {
+                log.notice("Refused a group invite for a channel the sender can't change")
+                return
+            }
+            guard invite.keys.epoch > existing.keys.epoch
+                    || (invite.keys.epoch == existing.keys.epoch && invite.keys == existing.keys) else { return }
+        } else {
+            // A new group's ID must not be one a private channel with any of its members would use.
+            for card in invite.memberCards where card.id != identity.id {
+                if let direct = try? Channel.direct(local: identity, peer: card), direct.id == id { return }
+            }
+        }
         for card in invite.memberCards where card.id != identity.id { addContact(card, announce: false) }
         let others = memberIDs.filter { $0 != identity.id }
-        if let i = channelIndex[invite.keys.channelID] {
+        if let i = channelIndex[id] {
             let existing = state.channels[i]
-            guard invite.keys.epoch >= existing.keys.epoch else { return }
             if invite.keys.epoch > existing.keys.epoch { state.channels[i].previousKeys = existing.keys }
             state.channels[i].keys = invite.keys
             state.channels[i].members = Array(Set(existing.members).union(others))

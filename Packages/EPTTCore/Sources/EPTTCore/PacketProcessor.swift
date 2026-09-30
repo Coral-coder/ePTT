@@ -186,6 +186,10 @@ public struct PacketProcessor {
         burstOrder.removeAll { $0 == ref }
     }
 
+    /// The highest frame index a VOICE packet may carry: far beyond any burst (a minute at
+    /// 20 ms is 3 000 frames), and far enough from UInt32.max that index + offset can't overflow.
+    public static let maxVoiceSeq: UInt32 = 1 << 24
+
     private mutating func remember(_ ref: BurstRef, _ key: Data) {
         burstKeys[ref] = key
         burstOrder.append(ref)
@@ -198,7 +202,14 @@ public struct PacketProcessor {
         switch header.type {
         case .hello: return .hello(try Hello(decoding: plaintext))
         case .burstStart: return .burstStart(try BurstStart(decoding: plaintext))
-        case .voice: return .voice(firstFrameIndex: header.seq, frames: try VoiceBody.decode(plaintext))
+        case .voice:
+            let frames = try VoiceBody.decode(plaintext)
+            // Frame indices are seq, seq + 1, …: they must not wrap (receivers index by them).
+            guard header.seq <= PacketProcessor.maxVoiceSeq,
+                  UInt64(header.seq) + UInt64(frames.count) <= UInt64(PacketProcessor.maxVoiceSeq) else {
+                throw DecodingError.invalid("voice seq")
+            }
+            return .voice(firstFrameIndex: header.seq, frames: frames)
         case .burstEnd: return .burstEnd(try BurstEnd(decoding: plaintext))
         case .callAlert: return .callAlert(try CallAlert(decoding: plaintext))
         case .wake: return .wake(try Wake(decoding: plaintext))

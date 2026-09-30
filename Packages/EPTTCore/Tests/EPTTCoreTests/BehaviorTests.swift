@@ -254,6 +254,13 @@ final class ForwardSecrecyTests: XCTestCase {
         XCTAssertThrowsError(try process(voicePacket, &processor)) { XCTAssertEqual($0 as? InboundError, .unknownBurst) }
         _ = try process(startPacket, &processor)
         XCTAssertEqual(try process(voicePacket, &processor).message, .voice(firstFrameIndex: 0, frames: [Data([1, 2])]))
+        // A frame index near UInt32.max would overflow index + offset in receivers: refused.
+        for seq in [UInt32.max, UInt32.max - 1, PacketProcessor.maxVoiceSeq] {
+            let hostile = try builder.sealBurst(.voice, plaintext: VoiceBody.encode([Data([1]), Data([2])]),
+                                                keys: aliceView.keys, burstID: outgoing.burstID,
+                                                burstKey: outgoing.burstKey, seq: seq)
+            XCTAssertThrowsError(try process(hostile, &processor))
+        }
 
         // Nine days and two rotations later, the prekey is gone and a recording of the burst is useless.
         let later = t0.addingTimeInterval(9 * 24 * 3600)

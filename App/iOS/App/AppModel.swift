@@ -14,6 +14,8 @@ final class AppModel: ObservableObject {
     /// layout) or the reply bar (Talk board) answers them.
     @Published private(set) var replyTarget: ReplyTarget?
     private var replyTimer: Task<Void, Never>?
+    /// A reply is being held right now.
+    @Published private(set) var replying = false
     static let replySeconds: Double = 8
 
     let engine = PTTEngine()
@@ -91,7 +93,8 @@ final class AppModel: ObservableObject {
 
     private func noteTalkChange(from before: EngineSnapshot.Talk, to now: EngineSnapshot.Talk) {
         guard case .receiving(let channel, let talker) = before, now != before,
-              channel != snapshot.settings.selectedChannel else { return }
+              channel != snapshot.settings.selectedChannel,
+              !talker.hasPrefix("Replay · "), !talker.hasPrefix("Held · ") else { return }
         if case .receiving(let next, _) = now, next == channel { return }
         replyTarget = ReplyTarget(channel: channel, talker: talker.components(separatedBy: " · ").first ?? talker,
                                   until: Date().addingTimeInterval(Self.replySeconds))
@@ -107,10 +110,12 @@ final class AppModel: ObservableObject {
     func holdReplyWindow() {
         guard let target = replyTarget else { return }
         replyTimer?.cancel()
+        replying = true
         replyTarget = ReplyTarget(channel: target.channel, talker: target.talker, until: .distantFuture)
     }
 
     func releaseReplyWindow() {
+        replying = false
         guard let target = replyTarget else { return }
         replyTarget = ReplyTarget(channel: target.channel, talker: target.talker,
                                   until: Date().addingTimeInterval(Self.replySeconds))
@@ -129,6 +134,13 @@ final class AppModel: ObservableObject {
 
     // MARK: - Recent activity
 
+    /// Just the person from a talker label: "Sam · Crew" → "Sam", "Replay · Sam" → "Sam".
+    static func talkerName(_ label: String) -> String {
+        var rest = label
+        for prefix in ["Replay · ", "Held · "] where rest.hasPrefix(prefix) { rest.removeFirst(prefix.count) }
+        return rest.components(separatedBy: " · ").first ?? rest
+    }
+
     /// Every channel with its latest activity, live first, then most recent; quiet ones last.
     var recent: [RecentChannel] {
         let transfers = snapshot.transfers
@@ -139,7 +151,7 @@ final class AppModel: ObservableObject {
             var live: String?
             switch snapshot.talk {
             case .receiving(let id, let talker) where id == channel.id:
-                live = talker.components(separatedBy: " · ").first ?? talker
+                live = AppModel.talkerName(talker)
             case .transmitting(let id) where id == channel.id:
                 live = "You"
             default: break
