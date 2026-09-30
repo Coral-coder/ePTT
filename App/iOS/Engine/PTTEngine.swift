@@ -80,6 +80,8 @@ final class PTTEngine {
     static let liveCheckDelay: TimeInterval = 1.2
     /// After a message ends, how long we wait for receipts before relaying it to anyone silent.
     static let receiptWait: TimeInterval = 1.5
+    /// A receipt later than this after the message ended doesn't beep.
+    static let deliveredBeepWindow: TimeInterval = 5
     static let framesPerPacket = 3
 
     var onSnapshot: ((EngineSnapshot) -> Void)?
@@ -137,6 +139,9 @@ final class PTTEngine {
         var lastHeard: Date
     }
     private var links: [SenderID: PeerLink] = [:]
+    /// Our last message: who we sent it to directly, and when it ended. The first receipt from
+    /// one of them within `deliveredBeepWindow` gets a single beep.
+    private var receiptWatch: (burst: MessageID, endedAt: Date, members: Set<SenderID>)?
 
     private struct Transmission {
         let channel: Channel
@@ -529,6 +534,7 @@ final class PTTEngine {
         // Wait for their end-of-message receipts before deciding who got it directly; anyone
         // silent gets it through the relay.
         let endedAt = Date()
+        receiptWatch = t.delivered.isEmpty ? nil : (t.burst, endedAt, t.delivered)
         queue.asyncAfter(deadline: .now() + PTTEngine.receiptWait) { [weak self] in
             self?.finishOutgoing(t, endPacket: endPacket, endedAt: endedAt)
         }
@@ -540,6 +546,26 @@ final class PTTEngine {
             }
         }
         publish()
+    }
+
+    /// One beep: the other phone confirmed our message. With PushToTalk, iOS has usually
+    /// deactivated our audio by now, so on screen we open a short session of our own; in the
+    /// background iOS doesn't let us make a sound outside a PushToTalk transmission.
+    private func playDeliveredBeep() {
+        guard tx == nil, rx == nil else { return }
+        if audioActive {
+            audio.play(.delivered)
+            return
+        }
+        guard isForeground else { return }
+        startManualAudio()
+        guard audioActive else { return }
+        audio.play(.delivered)
+        queue.asyncAfter(deadline: .now() + ToneSynth.duration(of: .delivered) + 0.25) { [weak self] in
+            guard let self, self.tx == nil, self.rx == nil else { return }
+            self.audio.stop()
+            self.audioActive = false
+        }
     }
 
     /// Members we started streaming to but who haven't answered since the burst began (receipt
@@ -800,6 +826,10 @@ final class PTTEngine {
             tx?.delivered.remove(sender)
             publishIfOnlineChanged()
             return
+        }
+        if endpoint != nil, let watch = receiptWatch, watch.members.contains(sender) {
+            receiptWatch = nil
+            if Date().timeIntervalSince(watch.endedAt) <= PTTEngine.deliveredBeepWindow { playDeliveredBeep() }
         }
         if hello.wantsReply {
             // Over UDP we reply on the same path. A HELLO relayed by push has no path, so punch
