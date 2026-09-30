@@ -172,14 +172,14 @@ struct TalkView: View {
                     .font(NX.display(30, relativeTo: .largeTitle))
                     .foregroundStyle(.white)
                     .neonGlow(NX.cyan, radius: 14)
-                ActivityBars(count: 18, maxHeight: 26)
+                ActivityBars(count: 18, maxHeight: 26, live: model.snapshot.settings.liveWaveform)
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel("Transmitting")
         case .receiving(_, let talker):
             VStack(spacing: 12) {
                 TalkerCard(talker: talker, route: model.snapshot.receivingRoute, since: rxStart)
-                ActivityBars(count: 30, maxHeight: 32)
+                ActivityBars(count: 30, maxHeight: 32, live: model.snapshot.settings.liveWaveform)
             }
         }
     }

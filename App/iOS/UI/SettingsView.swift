@@ -66,6 +66,13 @@ struct SettingsView: View {
                 .nxRows()
 
                 Section {
+                    Toggle("Live waveform", isOn: binding(\.liveWaveform))
+                } footer: {
+                    Text("Off: the animated wave. On: the wave follows the actual audio: your voice while you talk, theirs while you listen.")
+                }
+                .nxRows()
+
+                Section {
                     Toggle("Play received audio on watch", isOn: binding(\.playOnWatch))
                     Toggle("Standalone watch", isOn: binding(\.standaloneWatch))
                 } header: {

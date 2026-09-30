@@ -18,6 +18,8 @@ struct Settings: Codable, Equatable {
     var standaloneWatch = true
     /// Use the 911 Hz chirp instead of the classic 1800 Hz one.
     var deepChirp = false
+    /// The talk screen's little wave follows the real audio (sent or heard). Off: the animation.
+    var liveWaveform = false
     /// Beep when the other side releases. Nextel didn't, so it's off by default.
     var rogerBeep = false
     /// Mark what we send as replayable: recipients may play it again for an hour.
@@ -185,6 +187,7 @@ extension Settings {
         standaloneWatch = try c.decodeIfPresent(Bool.self, forKey: .standaloneWatch) ?? d.standaloneWatch
         deepChirp = try c.decodeIfPresent(Bool.self, forKey: .deepChirp) ?? d.deepChirp
         rogerBeep = try c.decodeIfPresent(Bool.self, forKey: .rogerBeep) ?? d.rogerBeep
+        liveWaveform = (try? c.decodeIfPresent(Bool.self, forKey: .liveWaveform)) ?? d.liveWaveform
         allowReplay = (try? c.decodeIfPresent(Bool.self, forKey: .allowReplay)) ?? d.allowReplay
         quietUntil = try? c.decodeIfPresent(Date.self, forKey: .quietUntil)
         priorityContacts = (try? c.decodeIfPresent([IdentityID].self, forKey: .priorityContacts)) ?? []

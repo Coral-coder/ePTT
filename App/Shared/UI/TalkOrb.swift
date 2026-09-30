@@ -144,16 +144,20 @@ struct ActivityBars: View {
     var count = 24
     var maxHeight: CGFloat = 30
     var active = true
+    /// Follow the real audio (AudioLevelMeter) instead of the animated wave.
+    var live = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1 / 20, paused: !active || reduceMotion)) { timeline in
             let t = timeline.date.timeIntervalSinceReferenceDate
+            let levels = live ? AudioLevelMeter.shared.recent(count) : []
             HStack(alignment: .center, spacing: 3) {
                 ForEach(0..<count, id: \.self) { i in
                     let wave = sin(t * 7 + Double(i) * 0.9) * 0.5 + sin(t * 3.1 + Double(i) * 0.37) * 0.5
-                    let h = active ? maxHeight * CGFloat(0.25 + 0.75 * abs(wave)) : 4
+                    let amount = live ? Double(i < levels.count ? levels[i] : 0) : 0.25 + 0.75 * abs(wave)
+                    let h = active ? max(4, maxHeight * CGFloat(amount)) : 4
                     Capsule()
                         .fill(LinearGradient(colors: [.white, NX.cyan], startPoint: .top, endPoint: .bottom))
                         .frame(width: 4, height: h)

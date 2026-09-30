@@ -255,6 +255,7 @@ final class AudioEngine {
     /// Appends codec-format samples and emits as many whole frames as are available.
     private func appendToFIFO(_ buffer: AVAudioPCMBuffer) {
         guard let channels = buffer.floatChannelData, buffer.frameLength > 0 else { return }
+        AudioLevelMeter.shared.add(buffer)   // the voice being sent (mic or watch)
         fifo.append(contentsOf: UnsafeBufferPointer(start: channels[0], count: Int(buffer.frameLength)))
 
         let frameLength = Int(encoder.frameLength)
@@ -308,6 +309,7 @@ final class AudioEngine {
         queue.async {
             guard let decoder = self.decoder else { return }
             let buffer = frame.flatMap { decoder.decode($0) } ?? decoder.silence()
+            AudioLevelMeter.shared.add(buffer)   // what is being heard
 
             if self.engine.isRunning, let format = self.voicePlayerFormat,
                buffer.format.sampleRate == format.sampleRate,
@@ -341,6 +343,14 @@ final class AudioEngine {
             }
             for buffer in buffers { self.voicePlayer.scheduleBuffer(buffer, at: nil, options: [], completionHandler: nil) }
             self.startVoicePlayerIfPossible()
+            // Feed the live waveform as each buffer comes up, not all at once.
+            var offset = 0.0
+            for buffer in buffers {
+                DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + offset) {
+                    AudioLevelMeter.shared.add(buffer)
+                }
+                offset += Double(buffer.frameLength) / format.sampleRate
+            }
         }
         return seconds
     }
