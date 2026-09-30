@@ -316,7 +316,8 @@ join_key        = HKDF(ikm=invite_secret, salt="ePTT/1 join", info=join_channel_
    to the inviter's addresses every 15 s while running; a push-delivered request may be up
    to the relay lifetime old.
 2. The inviter finds the code by channel ID, opens and checks it (not expired, fresh
-   timestamp, sender matches the card), adds the scanner as a contact and group member,
+   timestamp, sender matches the card), asks its user whether to let the scanner in (a
+   refusal is remembered, so retries are ignored), then adds the scanner as a contact and group member,
    and sends GROUP_INVITE (§6.3) to every member, the new one included. The group key
    therefore only ever travels sealed to each member's own keys.
 3. Existing members learn the new member's card from that GROUP_INVITE.

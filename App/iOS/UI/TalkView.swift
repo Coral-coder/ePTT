@@ -18,8 +18,8 @@ struct RootView: View {
             NeonTabBar(selection: $model.tab)
         }
         .overlay(alignment: .top) { BannerView() }
-        .sheet(item: Binding(get: { model.snapshot.groupOffers.first }, set: { _ in })) { offer in
-            GroupOfferView(offer: offer)
+        .sheet(item: Binding(get: { model.snapshot.joinRequests.first }, set: { _ in })) { request in
+            JoinRequestView(request: request)
         }
         .fullScreenCover(isPresented: Binding(get: { model.needsOnboarding }, set: { _ in })) {
             OnboardingView()
@@ -59,43 +59,40 @@ struct BannerView: View {
     }
 }
 
-/// "Sam added you to Crew": join or decline before the group appears.
-struct GroupOfferView: View {
+/// Someone scanned one of our group codes: let them in or not.
+struct JoinRequestView: View {
     @EnvironmentObject private var model: AppModel
-    let offer: GroupOffer
+    let request: JoinRequest
 
     var body: some View {
         ZStack {
             GridBackground(horizon: 0.9, energy: 0.7, moving: false)
             VStack(spacing: 18) {
                 Spacer(minLength: 0)
-                InitialsRing(name: offer.group, size: 84, lit: true)
-                Text("Talk group invite")
+                InitialsRing(name: request.name, size: 84, lit: true)
+                Text("Wants to join \(request.group)")
                     .font(NX.label(14, .semibold))
                     .foregroundStyle(NX.textDim)
-                Text(offer.group)
+                    .multilineTextAlignment(.center)
+                Text(request.name)
                     .font(NX.display(26))
                     .foregroundStyle(NX.text)
                     .multilineTextAlignment(.center)
-                Text("\(offer.inviter) wants to add you to this talk group.")
+                Text("\(request.name) scanned your code for \(request.group). Letting them in adds them to the group and to your contacts, and everyone in the group gets their details.")
                     .font(NX.body(15))
                     .foregroundStyle(NX.textDim)
                     .multilineTextAlignment(.center)
-                if !offer.members.isEmpty {
-                    Text("Members: " + offer.members.map { $0.isEmpty ? "Unnamed" : $0 }.joined(separator: ", "))
+                if !request.members.isEmpty {
+                    Text("Already in: " + request.members.map { $0.isEmpty ? "Unnamed" : $0 }.joined(separator: ", "))
                         .font(NX.body(13))
                         .foregroundStyle(NX.textMuted)
                         .multilineTextAlignment(.center)
                         .lineLimit(4)
                 }
-                Text("Everyone in the group can talk to you on it.")
-                    .font(NX.body(13))
-                    .foregroundStyle(NX.textMuted)
-                    .multilineTextAlignment(.center)
                 Spacer(minLength: 0)
-                Button("JOIN GROUP") { model.engine.answerGroupOffer(offer.id, join: true) }
+                Button("LET THEM IN") { model.engine.answerJoinRequest(request.id, allow: true) }
                     .buttonStyle(NXButtonStyle(kind: .gel))
-                Button("DECLINE") { model.engine.answerGroupOffer(offer.id, join: false) }
+                Button("DON'T LET IN") { model.engine.answerJoinRequest(request.id, allow: false) }
                     .buttonStyle(NXButtonStyle(kind: .glass))
             }
             .padding(.horizontal, 26)

@@ -50,14 +50,16 @@ struct EngineSnapshot {
     var peerQuiet: [IdentityID: Bool] = [:]
     /// Talk groups we asked to join, still waiting for the inviter to let us in.
     var pendingJoins: [PendingJoin] = []
-    /// Talk groups someone added us to, waiting for us to say yes or no.
-    var groupOffers: [GroupOffer] = []
+    /// People who scanned our group codes, waiting for us to let them in or not.
+    var joinRequests: [JoinRequest] = []
 }
 
-struct GroupOffer: Identifiable, Equatable {
-    var id: ChannelID
+struct JoinRequest: Identifiable, Equatable {
+    /// Group ID + requester identity ID.
+    var id: Data
     var group: String
-    var inviter: String
+    var name: String
+    /// Contacts of ours already in the group.
     var members: [String]
 }
 
@@ -1520,7 +1522,6 @@ final class PTTEngine {
             let selected = state.settings.selectedChannel
             addContact(code.inviter)
             state.settings.selectedChannel = selected
-            state.declinedGroups.removeAll { $0 == code.groupID.bytes }
             var pending = pendingJoinCodes.filter { $0.groupID != code.groupID }
             pending.append(code)
             state.pendingJoins = pending.map(\.encoded)
@@ -1591,11 +1592,45 @@ final class PTTEngine {
     /// updated member list to everyone (GROUP_INVITE, sealed to each member).
     private func handleGroupJoin(_ packet: Data, relayed: Bool) {
         guard let opened = GroupJoin.open(packet, codes: liveJoinCodes, maxAge: relayed ? Relay.lifetime : 600),
-              channel(opened.code.groupID)?.kind == .group else { return }
+              let group = channel(opened.code.groupID), group.kind == .group else { return }
         let card = opened.join.card
         guard card.id != identity.id else { return }
+        if group.members.contains(card.id) {
+            // Already let in; the key hasn't reached them yet: send it to them again.
+            addContact(card, announce: false)
+            if let contact = self.contact(id: card.id) { sendInvite(group, to: contact) }
+            return
+        }
+        let key = group.id.bytes + card.id.bytes
+        guard !state.deniedJoins.contains(key) else { return }
+        // Ask first. Their phone repeats the request until let in, so a newer card replaces this one.
+        heldJoins.removeAll { $0.key == key }
+        heldJoins.append((key, group.id, card))
+        publish()
+    }
+
+    /// Join requests waiting for a yes or no.
+    private var heldJoins: [(key: Data, groupID: ChannelID, card: ContactCard)] = []
+
+    /// Let them in, or not. No is remembered, so their retries don't ask again.
+    func answerJoinRequest(_ id: Data, allow: Bool) {
+        queue.async { [self] in
+            guard let held = heldJoins.first(where: { $0.key == id }) else { return }
+            heldJoins.removeAll { $0.key == id }
+            if allow {
+                admit(held.card, to: held.groupID)
+            } else {
+                state.deniedJoins = Array((state.deniedJoins + [id]).suffix(100))
+                save()
+            }
+            publish()
+        }
+    }
+
+    /// Adds them as a contact and group member, and sends the group key to everyone, them included.
+    private func admit(_ card: ContactCard, to groupID: ChannelID) {
         addContact(card)
-        guard let i = channelIndex[opened.code.groupID] else { return }
+        guard let i = channelIndex[groupID] else { return }
         let isNew = !state.channels[i].members.contains(card.id)
         if isNew {
             state.channels[i].members.append(card.id)
@@ -1608,43 +1643,11 @@ final class PTTEngine {
         if isNew { emit(.message("\(card.name.isEmpty ? "Someone" : card.name) joined \(group.name)")) }
     }
 
-    /// Invites to groups we aren't in and didn't ask to join, waiting for a yes or no.
-    private var offeredInvites: [ChannelID: (invite: GroupInvite, inviter: String)] = [:]
-
     private func acceptInvite(_ invite: GroupInvite, from sender: SenderID) {
         let memberIDs = invite.memberCards.map(\.id)
         guard memberIDs.contains(identity.id), let inviter = self.contact(sender), memberIDs.contains(inviter.id) else {
             return
         }
-        let id = invite.keys.channelID
-        let asked = state.pendingJoins.contains { (try? GroupJoinCode(encoded: $0))?.groupID == id }
-        if channelIndex[id] == nil, !asked {
-            // Someone added us: ask first (the member list and key wait here until we answer).
-            guard !state.declinedGroups.contains(id.bytes) else { return }
-            if let offered = offeredInvites[id], offered.invite.keys.epoch > invite.keys.epoch { return }
-            offeredInvites[id] = (invite, inviter.name)
-            publish()
-            return
-        }
-        applyInvite(invite)
-    }
-
-    /// The answer to "X added you to Y": join it, or turn it down for good.
-    func answerGroupOffer(_ id: ChannelID, join: Bool) {
-        queue.async { [self] in
-            guard let offer = offeredInvites.removeValue(forKey: id) else { return }
-            if join {
-                applyInvite(offer.invite, select: true)
-            } else {
-                state.declinedGroups = Array((state.declinedGroups.filter { $0 != id.bytes } + [id.bytes]).suffix(50))
-                save()
-            }
-            publish()
-        }
-    }
-
-    private func applyInvite(_ invite: GroupInvite, select: Bool = false) {
-        let memberIDs = invite.memberCards.map(\.id)
         for card in invite.memberCards where card.id != identity.id { addContact(card, announce: false) }
         let others = memberIDs.filter { $0 != identity.id }
         if let i = channelIndex[invite.keys.channelID] {
@@ -1661,8 +1664,6 @@ final class PTTEngine {
                 state.pendingJoins.removeAll { (try? GroupJoinCode(encoded: $0))?.groupID == invite.keys.channelID }
                 state.settings.selectedChannel = invite.keys.channelID
             }
-            if select { state.settings.selectedChannel = invite.keys.channelID }
-            state.declinedGroups.removeAll { $0 == invite.keys.channelID.bytes }
             save()
             publish()
             emit(.joinedGroup(invite.name))
@@ -2375,10 +2376,12 @@ final class PTTEngine {
         snapshot.pendingJoins = pendingJoinCodes.map {
             PendingJoin(id: $0.groupID, group: $0.groupName, inviter: $0.inviter.name.isEmpty ? "the inviter" : $0.inviter.name)
         }
-        snapshot.groupOffers = offeredInvites.map { id, offer in
-            GroupOffer(id: id, group: offer.invite.name, inviter: offer.inviter,
-                       members: offer.invite.memberCards.filter { $0.id != identity.id }.map(\.name))
-        }.sorted { $0.group < $1.group }
+        snapshot.joinRequests = heldJoins.map { held in
+            let group = self.channel(held.groupID)
+            return JoinRequest(id: held.key, group: group?.name ?? "Talk group",
+                               name: held.card.name.isEmpty ? "Someone" : held.card.name,
+                               members: (group?.members ?? []).compactMap { self.contact(id: $0)?.name })
+        }
         snapshot.peerQuiet = Dictionary(state.peerQuiet.map { ($0.id, $0.breaksThrough) }, uniquingKeysWith: { a, _ in a })
         if let last = RelayInbox.replayableLast()?.info {
             snapshot.replayable = ReplayableInfo(talker: last.talker, seconds: last.seconds, date: last.date)

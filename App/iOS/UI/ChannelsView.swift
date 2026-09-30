@@ -361,7 +361,7 @@ struct GroupInviteView: View {
                             .font(NX.body(13))
                             .foregroundStyle(NX.textDim)
                     }
-                    Text("They'll be added when your phone gets their request: straight away nearby or online, otherwise the next time you open NXTPTT. Everyone in the group then gets their key, sealed to their device.")
+                    Text("When someone scans it, your phone asks whether to let them in: straight away nearby or online, otherwise the next time you open NXTPTT. Once you say yes, everyone in the group gets their key, sealed to their device.")
                         .font(NX.body(13))
                         .foregroundStyle(NX.textMuted)
                     Button {
