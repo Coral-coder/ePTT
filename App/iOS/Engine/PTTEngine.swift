@@ -1784,6 +1784,7 @@ final class PTTEngine {
         let directLegs = legs
         var notes: [IdentityID: String] = [:]
         for (contact, _) in relayable { notes[contact.id] = heldNote(contact) }
+        let pusher = apns   // read on our queue, used from the task
         Task { [weak self] in
             var relayedLegs: [TransferRecord.Leg] = []
             var uploads: [String: Date] = [:]
@@ -1792,6 +1793,9 @@ final class PTTEngine {
                     let name = try await relay.upload(payload: payload, tag: Relay.tag(mailbox: mailbox))
                     uploads[name] = Date().addingTimeInterval(Relay.lifetime)
                     relayedLegs.append(.init(peer: contact.name, route: .relay, reason: notes[contact.id]))
+                    // Announce it ourselves: iCloud's own alert (a subscription) isn't always allowed.
+                    // Not for someone on Do Not Disturb: their phone collects it quietly instead.
+                    if notes[contact.id] == nil { pusher?.sendRelayNotice(record: name, to: contact) }
                 } catch {
                     log.error("Relay upload failed: \(String(describing: error), privacy: .public)")
                     relayedLegs.append(.init(peer: contact.name, route: .failed,
@@ -1933,7 +1937,10 @@ final class PTTEngine {
                 self?.queue.async {
                     guard let self else { return }
                     self.subscribedTags = []   // retry on the next housekeeping pass
-                    self.relayAlerts = "Failed: \(CloudRelay.describe(error))"
+                    self.relayAlerts = (self.apns != nil
+                        ? "Using push instead (iCloud refused its own alerts: "
+                        : "Failed (")
+                        + CloudRelay.describe(error) + ")"
                     self.publish()
                 }
             }

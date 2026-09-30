@@ -434,6 +434,14 @@ recipients can unwrap (§6.2).
   arrived live, but accepts timestamps up to 24 h old. It plays relayed
   bursts one after another, oldest first, and then deletes the record. The
   talker deletes its own records once they expire.
+- **Announcing.** Recipients subscribe to their tags where the relay allows it
+  (a CloudKit query subscription). CloudKit production can refuse these, so after
+  each upload the talker also sends the recipient a *relay notice*. This is a
+  visible APNs push, with mutable content, whose payload has the record name under
+  `eptt-relay` and generic text; it is sent only when the talker has a push key.
+  The recipient's notification service extension fetches the record and plays
+  it. If both a relay notice and a subscription alert arrive, only the first
+  one plays. No relay notice is sent to a recipient on Do Not Disturb.
 
 
 ## 12. Optical handshake (face-to-face pairing)

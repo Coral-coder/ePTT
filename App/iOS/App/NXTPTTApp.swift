@@ -61,10 +61,11 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
         let userInfo = notification.request.content.userInfo
-        if CloudRelay.isRelayNotification(userInfo) {
+        let pushedRecord = APNsRequest.relayRecord(fromPayload: userInfo)   // a relay notice from the talker
+        if CloudRelay.isRelayNotification(userInfo) || pushedRecord != nil {
             AppModel.shared.engine.noteRelayAlert()
             // The extension may already have turned it into a sound; on screen, play it live instead.
-            if let record = CloudRelay.recordName(inNotification: userInfo) {
+            if let record = CloudRelay.recordName(inNotification: userInfo) ?? pushedRecord {
                 AppModel.shared.engine.claimRelayed(record: record)
             } else {
                 AppModel.shared.engine.fetchRelay(force: true)
@@ -82,7 +83,8 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
         // Tapping a voice message plays it in full (a notification sound stops at 30 s).
-        if let record = CloudRelay.recordName(inNotification: response.notification.request.content.userInfo) {
+        let userInfo = response.notification.request.content.userInfo
+        if let record = CloudRelay.recordName(inNotification: userInfo) ?? APNsRequest.relayRecord(fromPayload: userInfo) {
             AppModel.shared.engine.replayRelayed(record: record)
         } else {
             AppModel.shared.engine.fetchRelay(force: true)

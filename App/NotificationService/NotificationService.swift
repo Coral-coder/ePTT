@@ -35,8 +35,16 @@ final class NotificationService: UNNotificationServiceExtension {
             deliver()
             return
         }
-        guard let record = CloudRelay.recordName(inNotification: request.content.userInfo),
+        // From iCloud (a subscription) or pushed by the talker's phone (a relay notice).
+        guard let record = CloudRelay.recordName(inNotification: request.content.userInfo)
+                ?? APNsRequest.relayRecord(fromPayload: request.content.userInfo),
               let sync = RelayInbox.loadSnapshot(), let relay = CloudRelay() else {
+            deliver()
+            return
+        }
+        // Both announced the same message: only the first one plays it.
+        if RelayInbox.heard().contains(where: { $0.record == record }) {
+            content.sound = nil
             deliver()
             return
         }

@@ -81,6 +81,16 @@ final class APNsClient {
              contact: contact, completion: completion)
     }
 
+    /// Tells a recipient a voice message is waiting in their relay mailbox (visible notification;
+    /// their notification service extension fetches and plays it).
+    func sendRelayNotice(record: String, to contact: Contact, completion: ((String?) -> Void)? = nil) {
+        guard let token = contact.reachability.apnsDeviceToken else {
+            completion?("no notification token for them")
+            return
+        }
+        send(.relayNotice(record: record), packet: Data(), token: token, contact: contact, completion: completion)
+    }
+
     /// Delivers a HELLO to a (foreground) talker as a silent background push.
     func sendBackground(_ packet: Data, to contact: Contact) {
         guard let token = contact.reachability.apnsDeviceToken else { return }

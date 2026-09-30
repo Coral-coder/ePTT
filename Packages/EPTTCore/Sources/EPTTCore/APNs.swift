@@ -41,6 +41,15 @@ public struct APNsRequest: Equatable {
         /// generic text; the notification service extension decrypts the packet and fills in
         /// who it's from and the alert sound.
         case alert(title: String, body: String)
+        /// "A voice message is waiting in your relay mailbox": the record name only, no packet.
+        /// The notification service extension fetches the record and plays it. Used instead of
+        /// relying on iCloud subscriptions, which CloudKit production can refuse.
+        case relayNotice(record: String)
+    }
+
+    /// The relay record a relay-notice push is about.
+    public static func relayRecord(fromPayload payload: [AnyHashable: Any]) -> String? {
+        payload["eptt-relay"] as? String
     }
 
     public let url: URL
@@ -74,6 +83,15 @@ public struct APNsRequest: Equatable {
             headers["apns-expiration"] = String(Int(Date().timeIntervalSince1970) + 3600)
             let aps: [String: Any] = ["alert": ["title": title, "body": text], "sound": "default", "mutable-content": 1]
             body = try! JSONSerialization.data(withJSONObject: ["aps": aps, "eptt": packetString] as [String: Any],
+                                               options: [.sortedKeys])
+        case .relayNotice(let record):
+            headers["apns-push-type"] = "alert"
+            headers["apns-topic"] = bundleID
+            headers["apns-priority"] = "10"
+            headers["apns-collapse-id"] = String(record.prefix(64))
+            let aps: [String: Any] = ["alert": ["title": "NXTPTT", "body": "New voice message"], "sound": "default",
+                                      "mutable-content": 1]
+            body = try! JSONSerialization.data(withJSONObject: ["aps": aps, "eptt-relay": record] as [String: Any],
                                                options: [.sortedKeys])
         }
         self.headers = headers
