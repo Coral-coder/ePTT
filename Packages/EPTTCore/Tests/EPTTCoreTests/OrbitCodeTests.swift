@@ -243,6 +243,20 @@ final class OrbitCodeTests: XCTestCase {
         XCTAssertTrue(a.isComplete)
     }
 
+    func testPairsEvenWithTheSameSessionByteAndIgnoresOwnReflections() throws {
+        let alice = try card("Alice"), bob = try card("Bob")
+        var a = OrbitHandshake(card: alice, session: 7), b = OrbitHandshake(card: bob, session: 7)
+        for _ in 0..<3 where !(a.isComplete && b.isComplete) {
+            for f in a.frames { _ = a.receive(f) }       // its own reflection: ignored
+            for f in b.frames { _ = a.receive(f) }
+            for f in a.frames { _ = b.receive(f) }
+        }
+        XCTAssertTrue(a.isComplete)
+        XCTAssertTrue(b.isComplete)
+        XCTAssertEqual(a.safetyCode, b.safetyCode)
+        XCTAssertEqual(a.peer, bob)
+    }
+
     func testRejectsATamperedCard() throws {
         var a = OrbitHandshake(card: try card("A"), session: 1)
         var frames = OrbitHandshake(card: try card("B"), session: 2).frames

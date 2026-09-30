@@ -34,6 +34,8 @@ public struct OrbitHandshake {
     public private(set) var peerHasOurs = false
     private var ackedPeerTag: Data?
     public private(set) var isComplete = false
+    /// Set on completion: the six digits both screens show.
+    public private(set) var safetyCode: String?
     /// Offer frames collected, by peer session.
     private var partial: [UInt8: [Int: [UInt8]]] = [:]
     private var totals: [UInt8: Int] = [:]
@@ -66,7 +68,9 @@ public struct OrbitHandshake {
 
     /// Feeds one decoded code.
     public mutating func receive(_ frame: OrbitCode.Frame) -> Event? {
-        guard frame.session != session, !isComplete else { return nil }
+        // Our own reflection: the other phone's screen can mirror ours back. Recognised by content,
+        // so two phones that happen to pick the same session byte still pair.
+        guard !isComplete, frame.session != session || !frames.contains(frame) else { return nil }
         if frame.kind == 1 { return receiveAck(frame) }
         guard peer == nil else { return nil }
         if totals[frame.session] != frame.total { totals[frame.session] = frame.total; partial[frame.session] = [:] }
@@ -108,6 +112,7 @@ public struct OrbitHandshake {
     private mutating func complete() -> Event? {
         guard let peer else { return nil }
         isComplete = true
+        safetyCode = LightCode.safetyCode(offer, peer.encoded)
         return .completed(peer, safetyCode: LightCode.safetyCode(offer, peer.encoded))
     }
 

@@ -49,8 +49,10 @@ struct FacePairView: View {
             savedBrightness = UIScreen.main.brightness
             UIScreen.main.brightness = 0.8
             let groupID = group?.id
+            // Add them as soon as their signed card is read, so pairing isn't lost if the other
+            // phone closes before this one sees its confirmation. Group invites wait for that.
+            pairing.onGotCard = { card in model.engine.addFacePaired(card) }
             pairing.onPaired = { card in
-                model.engine.addFacePaired(card)
                 if let groupID { model.engine.addMember(card.id, toGroup: groupID) }
             }
             model.engine.faceCard { card in
@@ -213,7 +215,9 @@ final class OrbitPairingSession: ObservableObject {
     @Published private(set) var safetyCode: String?
     @Published private(set) var peerName = ""
     @Published private(set) var slow = false
+    var onGotCard: ((ContactCard) -> Void)?
     var onPaired: ((ContactCard) -> Void)?
+    private var addedPeer = false
 
     private let lock = NSLock()
     private var handshake: OrbitHandshake?
@@ -313,28 +317,38 @@ final class OrbitPairingSession: ObservableObject {
             self.handshake = handshake
             let ours = frame.session == handshake.session
             let collected = handshake.collected, complete = handshake.isComplete, peer = handshake.peer
+            let code = handshake.safetyCode
             self.lock.unlock()
             guard !ours else { return }
-            Task { @MainActor in self.update(event: event, collected: collected, complete: complete, peer: peer) }
+            Task { @MainActor in
+                self.update(event: event, collected: collected, complete: complete, peer: peer, code: code)
+            }
         }
     }
 
+    /// Works from the handshake's state, not just the event, so updates arriving out of order
+    /// can't lose the moment of completion.
     @MainActor
-    private func update(event: OrbitHandshake.Event?, collected: (have: Int, of: Int), complete: Bool, peer: ContactCard?) {
+    private func update(event: OrbitHandshake.Event?, collected: (have: Int, of: Int), complete: Bool,
+                        peer: ContactCard?, code: String?) {
         guard stage != .paired else { return }
         self.collected = collected
-        if let peer, !peer.name.isEmpty { peerName = peer.name }
-        switch event {
-        case .gotOffer?:
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        case .completed(let card, let code)?:
-            safetyCode = code
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
-            onPaired?(card)
-        default:
-            break
+        if let peer {
+            if !peer.name.isEmpty { peerName = peer.name }
+            if !addedPeer {
+                addedPeer = true
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                onGotCard?(peer)
+            }
         }
-        stage = complete ? .paired : peer != nil ? .confirming : .receiving
+        if complete, let peer, let code {
+            safetyCode = code
+            stage = .paired
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            onPaired?(peer)
+        } else {
+            stage = peer != nil ? .confirming : .receiving
+        }
         refreshImages()
     }
 }

@@ -1,4 +1,5 @@
 import AVFoundation
+import AudioToolbox
 import Foundation
 import MultipeerConnectivity
 import Network
@@ -142,6 +143,13 @@ final class PTTEngine {
     /// Our last message: who we sent it to directly, and when it ended. The first receipt from
     /// one of them within `deliveredBeepWindow` gets a single beep.
     private var receiptWatch: (burst: MessageID, endedAt: Date, members: Set<SenderID>)?
+    /// Peers whose HELLOs say they send receipts (older builds don't, so we don't wait for them).
+    private var receiptSenders: Set<SenderID> = []
+    /// When each peer last sent a receipt, or an away HELLO (it only sends that when idle, so
+    /// after a message it counts as having heard it).
+    private var lastReceipt: [SenderID: Date] = [:]
+    /// The last path each peer was heard on; kept after a link is dropped, for the Activity log.
+    private var lastPath: [SenderID: PeerPath] = [:]
 
     private struct Transmission {
         let channel: Channel
@@ -325,8 +333,12 @@ final class PTTEngine {
 
         if now.timeIntervalSince(lastKeepalive) >= 15 {
             lastKeepalive = now
-            for (sender, link) in links where now.timeIntervalSince(link.lastHeard) < 120 {
-                if let contact = self.contact(sender) { sendHello(to: contact, endpoints: [link.endpoint]) }
+            // Not from the background: we told peers we're away, and a keep-alive would re-link us
+            // just before iOS freezes our sockets.
+            if isForeground || tx != nil || rx != nil {
+                for (sender, link) in links where now.timeIntervalSince(link.lastHeard) < 120 {
+                    if let contact = self.contact(sender) { sendHello(to: contact, endpoints: [link.endpoint]) }
+                }
             }
             earlyVoice.expire(now: now)
             earlyPackets.expire(now: now)
@@ -535,8 +547,17 @@ final class PTTEngine {
         // silent gets it through the relay.
         let endedAt = Date()
         receiptWatch = t.delivered.isEmpty ? nil : (t.burst, endedAt, t.delivered)
+        // Talking from the lock screen, iOS suspends us soon after the transmission ends: ask
+        // for time to wait for receipts and upload to the relay.
+        let background = UIApplication.shared.beginBackgroundTask(withName: "Deliver message")
         queue.asyncAfter(deadline: .now() + PTTEngine.receiptWait) { [weak self] in
-            self?.finishOutgoing(t, endPacket: endPacket, endedAt: endedAt)
+            guard let self else {
+                UIApplication.shared.endBackgroundTask(background)
+                return
+            }
+            self.finishOutgoing(t, endPacket: endPacket, endedAt: endedAt) {
+                UIApplication.shared.endBackgroundTask(background)
+            }
         }
         if !usesPushToTalk && rx == nil {
             queue.asyncAfter(deadline: .now() + 0.5) { [weak self] in
@@ -557,15 +578,24 @@ final class PTTEngine {
             audio.play(.delivered)
             return
         }
-        guard isForeground else { return }
-        startManualAudio()
-        guard audioActive else { return }
-        audio.play(.delivered)
-        queue.asyncAfter(deadline: .now() + ToneSynth.duration(of: .delivered) + 0.25) { [weak self] in
-            guard let self, self.tx == nil, self.rx == nil else { return }
-            self.audio.stop()
-            self.audioActive = false
+        // Our audio session is off (PushToTalk shuts it after a transmission). Play the beep as a
+        // system sound instead: no session, no microphone, and other audio keeps playing.
+        guard isForeground, let url = PTTEngine.deliveredSoundURL() else { return }
+        var sound: SystemSoundID = 0
+        guard AudioServicesCreateSystemSoundID(url as CFURL, &sound) == noErr else { return }
+        AudioServicesPlaySystemSoundWithCompletion(sound) { AudioServicesDisposeSystemSoundID(sound) }
+    }
+
+    /// The delivered beep as a file: the user's own sound if they chose one, else the built-in
+    /// tone written once to Caches.
+    private static func deliveredSoundURL() -> URL? {
+        if let custom = SoundLibrary.customURL(for: .delivered) { return custom }
+        guard let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return nil }
+        let url = caches.appendingPathComponent("delivered-\(Int(ToneSynth.chirpFrequency)).wav")
+        if !FileManager.default.fileExists(atPath: url.path) {
+            try? ToneSynth.wav(for: .delivered).write(to: url)
         }
+        return url
     }
 
     /// Members we started streaming to but who haven't answered since the burst began (receipt
@@ -743,7 +773,14 @@ final class PTTEngine {
         }
 
         let sender = inbound.header.senderID
-        if let endpoint { noteHeard(sender, at: endpoint) }
+        if let endpoint {
+            // An away HELLO must not re-link the peer it's about to drop.
+            if case .hello(let hello) = inbound.message, hello.isAway {
+                lastPath[sender] = endpoint
+            } else {
+                noteHeard(sender, at: endpoint)
+            }
+        }
 
         switch inbound.message {
         case .hello(let hello):
@@ -757,7 +794,7 @@ final class PTTEngine {
             // (Once: BURST_START repeats every 500 ms.)
             if let endpoint, let contact = self.contact(sender), rx?.burst != inbound.header.messageID,
                pendingBurstInfo[inbound.header.messageID] == nil {
-                sendHello(to: contact, endpoints: [endpoint])
+                sendHello(to: contact, endpoints: [endpoint], receipt: true)
             }
             pendingBurstInfo[inbound.header.messageID] = start
             pendingRoutes[inbound.header.messageID] = relayed ? .relay : PTTEngine.route(for: endpoint)
@@ -776,7 +813,7 @@ final class PTTEngine {
         case .burstEnd(let end):
             let burst = inbound.header.messageID
             // Receipt for the whole message (the talker relays it if this never arrives).
-            if let endpoint, let contact = self.contact(sender) { sendHello(to: contact, endpoints: [endpoint]) }
+            if let endpoint, let contact = self.contact(sender) { sendHello(to: contact, endpoints: [endpoint], receipt: true) }
             guard var r = rx, r.burst == burst else { return }
             r.jitter.markEnded(frameCount: end.frameCount)
             r.draining = true
@@ -819,15 +856,20 @@ final class PTTEngine {
             if let quiet { state.peerQuiet.append(quiet) }
             save()
         }
+        if hello.sendsReceipts { receiptSenders.insert(sender) } else { receiptSenders.remove(sender) }
+        if hello.isReceipt || hello.isAway { lastReceipt[sender] = Date() }
         if hello.isAway {
             // Their app went to the background: its sockets are about to go quiet. Reach it by
             // push or relay from now on, until it says hello again.
             links[sender] = nil
-            tx?.delivered.remove(sender)
+            if let t = tx, t.delivered.contains(sender) {
+                tx?.delivered.remove(sender)
+                if let current = tx { wake(contact, for: current) }
+            }
             publishIfOnlineChanged()
             return
         }
-        if endpoint != nil, let watch = receiptWatch, watch.members.contains(sender) {
+        if endpoint != nil, hello.isReceipt, let watch = receiptWatch, watch.members.contains(sender) {
             receiptWatch = nil
             if Date().timeIntervalSince(watch.endedAt) <= PTTEngine.deliveredBeepWindow { playDeliveredBeep() }
         }
@@ -843,6 +885,7 @@ final class PTTEngine {
     private func noteHeard(_ sender: SenderID, at endpoint: PeerPath) {
         let wasLinked = isLinked(sender)
         links[sender] = PeerLink(endpoint: endpoint, lastHeard: Date())
+        lastPath[sender] = endpoint
         guard !wasLinked, let contact = self.contact(sender) else { return }
         deliverBacklog(to: sender)
         // Re-offer group invites: cheap, idempotent, and covers members who were offline.
@@ -1621,9 +1664,11 @@ final class PTTEngine {
                         reachability: myReachability)
     }
 
-    private func helloPacket(replyRequested: Bool, keys: ChannelKeys, to contact: Contact, away: Bool = false) -> Data? {
-        var flags: UInt8 = replyRequested ? Hello.replyRequested : 0
+    private func helloPacket(replyRequested: Bool, keys: ChannelKeys, to contact: Contact, away: Bool = false,
+                             receipt: Bool = false) -> Data? {
+        var flags: UInt8 = (replyRequested ? Hello.replyRequested : 0) | Hello.sendsReceipts
         if away { flags |= Hello.away }
+        if receipt { flags |= Hello.receipt }
         if isQuiet {
             flags |= Hello.doNotDisturb
             if state.settings.priorityContacts.contains(contact.id) { flags |= Hello.breaksThrough }
@@ -1634,9 +1679,10 @@ final class PTTEngine {
     }
 
     private func sendHello(to contact: Contact, replyRequested: Bool = false, endpoints: [PeerPath],
-                           candidates: [Candidate] = [], away: Bool = false) {
+                           candidates: [Candidate] = [], away: Bool = false, receipt: Bool = false) {
         guard let channel = self.directChannel(for: contact.id),
-              let packet = helloPacket(replyRequested: replyRequested, keys: channel.keys, to: contact, away: away)
+              let packet = helloPacket(replyRequested: replyRequested, keys: channel.keys, to: contact, away: away,
+                                       receipt: receipt)
         else { return }
         for endpoint in endpoints { send(packet, via: endpoint) }
         sendToCandidates(packet, candidates)
@@ -1682,15 +1728,19 @@ final class PTTEngine {
     // MARK: - Relay and transfer history
 
     /// Records how a finished transmission went and leaves it in the relay for anyone it missed.
-    private func finishOutgoing(_ t: Transmission, endPacket: Data?, endedAt: Date) {
+    private func finishOutgoing(_ t: Transmission, endPacket: Data?, endedAt: Date, done: @escaping () -> Void = {}) {
         var legs: [TransferRecord.Leg] = []
         var missed: [Contact] = []
         for member in t.channel.members {
             guard let contact = self.contact(id: member) else { continue }
-            // Direct only if we sent it on a live link and heard back after it ended.
-            if t.delivered.contains(contact.senderID), let link = links[contact.senderID],
-               link.lastHeard >= endedAt.addingTimeInterval(-0.05) {
-                legs.append(.init(peer: contact.name, route: PTTEngine.route(for: link.endpoint), reason: heldNote(contact)))
+            // Direct if we sent it on a live link and they confirmed it (a receipt, or going
+            // away, after it ended). Peers on older builds send no receipts: a live link will do.
+            let s = contact.senderID
+            let confirmed = receiptSenders.contains(s)
+                ? (lastReceipt[s] ?? .distantPast) >= endedAt.addingTimeInterval(-0.05)
+                : links[s] != nil
+            if t.delivered.contains(s), confirmed, let path = links[s]?.endpoint ?? lastPath[s] {
+                legs.append(.init(peer: contact.name, route: PTTEngine.route(for: path), reason: heldNote(contact)))
             } else {
                 missed.append(contact)
             }
@@ -1728,6 +1778,7 @@ final class PTTEngine {
             if !legs.isEmpty {
                 logTransfer(TransferRecord(date: Date(), outgoing: true, channel: channelName, seconds: seconds, legs: legs))
             }
+            done()
             return
         }
         let directLegs = legs
@@ -1752,6 +1803,7 @@ final class PTTEngine {
                 self.state.relayUploads.merge(uploads) { a, _ in a }
                 self.logTransfer(TransferRecord(date: Date(), outgoing: true, channel: channelName, seconds: seconds,
                                                 legs: directLegs + relayedLegs))
+                done()
             }
         }
     }

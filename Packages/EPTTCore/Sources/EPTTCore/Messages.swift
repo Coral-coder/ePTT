@@ -20,6 +20,10 @@ public struct Hello: Equatable {
     /// The sender's app is going to the background: stop treating it as live and reach it by
     /// push or relay until it says hello again.
     public static let away: UInt8 = 0x08
+    /// The sender sends delivery receipts (0x20), so a talker can wait for them.
+    public static let sendsReceipts: UInt8 = 0x10
+    /// This HELLO is a receipt for a burst just heard (its start or its end).
+    public static let receipt: UInt8 = 0x20
 
     public var name: String
     public var timestamp: UInt64
@@ -37,6 +41,8 @@ public struct Hello: Equatable {
     public var isDoNotDisturb: Bool { flags & Hello.doNotDisturb != 0 }
     public var recipientBreaksThrough: Bool { flags & Hello.breaksThrough != 0 }
     public var isAway: Bool { flags & Hello.away != 0 }
+    public var sendsReceipts: Bool { flags & Hello.sendsReceipts != 0 }
+    public var isReceipt: Bool { flags & Hello.receipt != 0 }
 
     public var encoded: Data {
         var b = TLVBuilder()
