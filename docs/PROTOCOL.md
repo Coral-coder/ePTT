@@ -211,7 +211,7 @@ A receiver drops a packet without responding when any of these hold:
 
 | Type | Name | seq | Plaintext |
 | --- | --- | --- | --- |
-| 0x01 | HELLO | 0 | TLV: name, timestamp, apns_ptt_token?, apns_device_token?, apns_env?, candidate*, apns_topic?, flags, relay_mailbox?, prekey?. Flags: bit 0 = "reply with a HELLO"; bit 1 = the sender is on Do Not Disturb; bit 2 (with bit 1) = you, the recipient, break through it. Direct channels only. |
+| 0x01 | HELLO | 0 | TLV: name, timestamp, apns_ptt_token?, apns_device_token?, apns_env?, candidate*, apns_topic?, flags, relay_mailbox?, prekey?. Flags: bit 0 = "reply with a HELLO"; bit 1 = the sender is on Do Not Disturb; bit 2 (with bit 1) = you, the recipient, break through it; bit 3 = the sender's app is going to the background (see §7, Delivery). Direct channels only. |
 | 0x02 | BURST_START | 0 | TLV: timestamp, codec, sample_rate, frame_ms, signature, ephemeral_pk, envelope* (one per recipient, §6.2), flags? |
 | 0x03 | VOICE | index of the first frame | `count: u8`, then `count` × (`len: u16`, frame bytes) |
 | 0x04 | BURST_END | total frame count | TLV: timestamp, frame_count |
@@ -341,6 +341,18 @@ Whoever holds the code can join until it expires: it is meant to be shown in per
   refused locally with the busy tone.
 - **Hang time:** a received burst ends at BURST_END, or 1.5 s after its last
   packet.
+- **Delivery.** A link is only as good as its last answer:
+  - A receiver sends a HELLO back on the path a burst came in on, once when the
+    first BURST_START arrives and again for BURST_END. These are its receipts.
+  - When talk is pressed, the talker also sends each live member a HELLO with the
+    reply flag. A member not heard from within 1.2 s of the burst starting is
+    treated as gone: its link is dropped and it gets a WAKE (§8).
+  - 1.5 s after BURST_END, a member only counts as reached directly if the
+    talker heard from it after the burst ended. Anyone else gets the whole
+    message through the relay (§11).
+  - An app going to the background, and not sending or receiving, sends its live
+    peers a HELLO with bit 3 (away). They drop the link at once and reach it by
+    WAKE or relay until it says HELLO again.
 
 ## 8. Wake through APNs (iOS peers)
 

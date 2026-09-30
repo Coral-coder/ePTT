@@ -75,6 +75,11 @@ enum EngineEvent {
 final class PTTEngine {
     static let maxBurstDuration: TimeInterval = 60   // like Nextel, a stuck key times out
     static let linkFreshness: TimeInterval = 30
+    /// After pressing talk, how long a live member has to answer before we treat them as gone
+    /// and wake them by push instead.
+    static let liveCheckDelay: TimeInterval = 1.2
+    /// After a message ends, how long we wait for receipts before relaying it to anyone silent.
+    static let receiptWait: TimeInterval = 1.5
     static let framesPerPacket = 3
 
     var onSnapshot: ((EngineSnapshot) -> Void)?
@@ -462,11 +467,17 @@ final class PTTEngine {
             tx = t
             for member in channel.members {
                 guard let contact = self.contact(id: member) else { continue }
-                if isLinked(contact.senderID) {
+                if isLinked(contact.senderID), let link = links[contact.senderID] {
                     deliverBacklog(to: contact.senderID)
+                    // Make sure they're really there: their app may have gone to the background
+                    // since we last heard from them.
+                    sendHello(to: contact, replyRequested: true, endpoints: [link.endpoint])
                 } else {
                     wake(contact, for: t)
                 }
+            }
+            queue.asyncAfter(deadline: .now() + PTTEngine.liveCheckDelay) { [weak self] in
+                self?.dropSilentMembers(of: burst)
             }
             publish()
         } catch {
@@ -515,7 +526,12 @@ final class PTTEngine {
                 }
             }
         }
-        finishOutgoing(t, endPacket: endPacket)
+        // Wait for their end-of-message receipts before deciding who got it directly; anyone
+        // silent gets it through the relay.
+        let endedAt = Date()
+        queue.asyncAfter(deadline: .now() + PTTEngine.receiptWait) { [weak self] in
+            self?.finishOutgoing(t, endPacket: endPacket, endedAt: endedAt)
+        }
         if !usesPushToTalk && rx == nil {
             queue.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 guard let self, self.tx == nil, self.rx == nil else { return }
@@ -524,6 +540,32 @@ final class PTTEngine {
             }
         }
         publish()
+    }
+
+    /// Members we started streaming to but who haven't answered since the burst began (receipt
+    /// or probe reply): their app is probably in the background. Stop counting them as live, wake
+    /// them by push, and send them the backlog when they come back.
+    private func dropSilentMembers(of burst: MessageID) {
+        guard let t = tx, t.burst == burst else { return }
+        for sender in t.delivered {
+            guard let link = links[sender], link.lastHeard < t.startedAt else { continue }
+            links[sender] = nil
+            tx?.delivered.remove(sender)
+            if let contact = self.contact(sender), let current = tx { wake(contact, for: current) }
+        }
+        publishIfOnlineChanged()
+    }
+
+    /// The app is going to the background: tell live peers, so they reach us by push or relay
+    /// instead of streaming into sockets iOS is about to freeze. Not while a message is playing
+    /// or being sent (PushToTalk keeps us running then).
+    func goingToBackground() {
+        queue.async { [self] in
+            guard tx == nil, rx == nil else { return }
+            for (sender, link) in links where isLinked(sender) {
+                if let contact = self.contact(sender) { sendHello(to: contact, endpoints: [link.endpoint], away: true) }
+            }
+        }
     }
 
     /// Sends the burst so far to a member who just became reachable, then keeps them live.
@@ -685,6 +727,12 @@ final class PTTEngine {
                 for (packet, from) in earlyPackets.take(inbound.header.messageID) { handleDatagram(packet, from: from) }
             }
             guard inbound.channel.isMonitored || inbound.channel.kind == .direct else { return }
+            // Receipt: tells the talker we're really here, so it doesn't fall back to push/relay.
+            // (Once: BURST_START repeats every 500 ms.)
+            if let endpoint, let contact = self.contact(sender), rx?.burst != inbound.header.messageID,
+               pendingBurstInfo[inbound.header.messageID] == nil {
+                sendHello(to: contact, endpoints: [endpoint])
+            }
             pendingBurstInfo[inbound.header.messageID] = start
             pendingRoutes[inbound.header.messageID] = relayed ? .relay : PTTEngine.route(for: endpoint)
             apply(floor.remoteBurstStarted(channel: inbound.channel.id, burst: inbound.header.messageID,
@@ -701,6 +749,8 @@ final class PTTEngine {
             }
         case .burstEnd(let end):
             let burst = inbound.header.messageID
+            // Receipt for the whole message (the talker relays it if this never arrives).
+            if let endpoint, let contact = self.contact(sender) { sendHello(to: contact, endpoints: [endpoint]) }
             guard var r = rx, r.burst == burst else { return }
             r.jitter.markEnded(frameCount: end.frameCount)
             r.draining = true
@@ -742,6 +792,14 @@ final class PTTEngine {
             state.peerQuiet.removeAll { $0.id == contact.id }
             if let quiet { state.peerQuiet.append(quiet) }
             save()
+        }
+        if hello.isAway {
+            // Their app went to the background: its sockets are about to go quiet. Reach it by
+            // push or relay from now on, until it says hello again.
+            links[sender] = nil
+            tx?.delivered.remove(sender)
+            publishIfOnlineChanged()
+            return
         }
         if hello.wantsReply {
             // Over UDP we reply on the same path. A HELLO relayed by push has no path, so punch
@@ -1533,8 +1591,9 @@ final class PTTEngine {
                         reachability: myReachability)
     }
 
-    private func helloPacket(replyRequested: Bool, keys: ChannelKeys, to contact: Contact) -> Data? {
+    private func helloPacket(replyRequested: Bool, keys: ChannelKeys, to contact: Contact, away: Bool = false) -> Data? {
         var flags: UInt8 = replyRequested ? Hello.replyRequested : 0
+        if away { flags |= Hello.away }
         if isQuiet {
             flags |= Hello.doNotDisturb
             if state.settings.priorityContacts.contains(contact.id) { flags |= Hello.breaksThrough }
@@ -1545,9 +1604,10 @@ final class PTTEngine {
     }
 
     private func sendHello(to contact: Contact, replyRequested: Bool = false, endpoints: [PeerPath],
-                           candidates: [Candidate] = []) {
+                           candidates: [Candidate] = [], away: Bool = false) {
         guard let channel = self.directChannel(for: contact.id),
-              let packet = helloPacket(replyRequested: replyRequested, keys: channel.keys, to: contact) else { return }
+              let packet = helloPacket(replyRequested: replyRequested, keys: channel.keys, to: contact, away: away)
+        else { return }
         for endpoint in endpoints { send(packet, via: endpoint) }
         sendToCandidates(packet, candidates)
     }
@@ -1592,12 +1652,14 @@ final class PTTEngine {
     // MARK: - Relay and transfer history
 
     /// Records how a finished transmission went and leaves it in the relay for anyone it missed.
-    private func finishOutgoing(_ t: Transmission, endPacket: Data?) {
+    private func finishOutgoing(_ t: Transmission, endPacket: Data?, endedAt: Date) {
         var legs: [TransferRecord.Leg] = []
         var missed: [Contact] = []
         for member in t.channel.members {
             guard let contact = self.contact(id: member) else { continue }
-            if t.delivered.contains(contact.senderID), let link = links[contact.senderID] {
+            // Direct only if we sent it on a live link and heard back after it ended.
+            if t.delivered.contains(contact.senderID), let link = links[contact.senderID],
+               link.lastHeard >= endedAt.addingTimeInterval(-0.05) {
                 legs.append(.init(peer: contact.name, route: PTTEngine.route(for: link.endpoint), reason: heldNote(contact)))
             } else {
                 missed.append(contact)

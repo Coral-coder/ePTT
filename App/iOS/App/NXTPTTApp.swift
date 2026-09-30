@@ -17,6 +17,7 @@ struct NXTPTTApp: App {
         .onChange(of: scenePhase) { phase in
             AppModel.shared.engine.setForeground(phase == .active)
             if phase == .active { AppModel.shared.engine.resume() }
+            if phase == .background { AppModel.shared.engine.goingToBackground() }
         }
     }
 }

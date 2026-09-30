@@ -367,4 +367,12 @@ final class HelloFlagTests: XCTestCase {
         XCTAssertTrue(decoded.wantsReply && decoded.isDoNotDisturb && decoded.recipientBreaksThrough)
         XCTAssertFalse(try Hello(decoding: Hello(name: "", timestamp: 1, reachability: .init()).encoded).isDoNotDisturb)
     }
+
+    func testAwayFlagRoundTripsAndIsIndependent() throws {
+        let away = try Hello(decoding: Hello(name: "Sam", timestamp: 1, reachability: .init(), flags: Hello.away).encoded)
+        XCTAssertTrue(away.isAway)
+        XCTAssertFalse(away.wantsReply || away.isDoNotDisturb)
+        XCTAssertFalse(try Hello(decoding: Hello(name: "", timestamp: 1, reachability: .init(),
+                                                 flags: Hello.replyRequested).encoded).isAway)
+    }
 }
