@@ -24,6 +24,7 @@
 		2E95082B95769334A273504D /* Exo2-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 5D3D231AD3D8DD38D27C6E84 /* Exo2-OFL.txt */; };
 		311920887632C35D7CCDCC30 /* TalkOrb.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E2AE46EE092CDD2652AB8F4 /* TalkOrb.swift */; };
 		36C76FD8D8A9685D965A1CA6 /* Exo2-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = E7C7BE4D46DBAFAC1026CC07 /* Exo2-Bold.ttf */; };
+		3888E77370B23A19E85CA583 /* TalkLayouts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DAD98032A4268C672E17E75 /* TalkLayouts.swift */; };
 		38D5CFB2945070E2AA58406B /* VoiceCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB79D2E432560F598AE275FF /* VoiceCodec.swift */; };
 		398F262FF219DA3530AA8093 /* NXTPTTWatch.app in Embed Dependencies */ = {isa = PBXBuildFile; fileRef = 80A85358D711C3876170FC52 /* NXTPTTWatch.app */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		447CA7943CB16CAA18791B63 /* Exo2-SemiBold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 8AD1870F39C6EC6AC9973449 /* Exo2-SemiBold.ttf */; };
@@ -166,6 +167,7 @@
 		4D2CA08401587C4C4AFD4217 /* Hind-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Hind-Regular.ttf"; sourceTree = "<group>"; };
 		5CD09CF470401102969B643B /* Michroma-OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Michroma-OFL.txt"; sourceTree = "<group>"; };
 		5D3D231AD3D8DD38D27C6E84 /* Exo2-OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Exo2-OFL.txt"; sourceTree = "<group>"; };
+		5DAD98032A4268C672E17E75 /* TalkLayouts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TalkLayouts.swift; sourceTree = "<group>"; };
 		5DF053F9471D6B0FC2198E4E /* RelayInbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayInbox.swift; sourceTree = "<group>"; };
 		5F26C0993586F06E0277C2EE /* ChannelsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelsView.swift; sourceTree = "<group>"; };
 		6491F3384F5ADA236ECD6732 /* GridBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridBackground.swift; sourceTree = "<group>"; };
@@ -422,6 +424,7 @@
 				36E3EB4EF56C3AF302C8490C /* PairView.swift */,
 				F0220AFF770A796A696493B8 /* SettingsView.swift */,
 				90A31E58691124529D39C377 /* SoundsView.swift */,
+				5DAD98032A4268C672E17E75 /* TalkLayouts.swift */,
 				17CC1D25F2383E91FA90B7FB /* TalkView.swift */,
 			);
 			path = UI;
@@ -632,6 +635,7 @@
 				CC8FD19B5343AB6096B3D7A4 /* SoundsView.swift in Sources */,
 				8F6A494B7199A7DB7C423022 /* Store.swift in Sources */,
 				F706519E51350819E0E1C93D /* TalkIntents.swift in Sources */,
+				3888E77370B23A19E85CA583 /* TalkLayouts.swift in Sources */,
 				8207A5A01E11117F4AF282EC /* TalkOrb.swift in Sources */,
 				E1728BBD1DA81A82ECBCE19F /* TalkView.swift in Sources */,
 				4AC2847B0A9BFCAEBB5773DB /* Theme.swift in Sources */,
