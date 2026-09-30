@@ -174,6 +174,7 @@ struct GroupCard: View {
         )
         .sheet(isPresented: $inviting) { GroupInviteView(channel: channel) }
         .contextMenu {
+            PinMenuItem(channel: channel.id)
             Button {
                 inviting = true
             } label: {
@@ -230,6 +231,7 @@ struct PrivateRow: View {
             }
         }
         .buttonStyle(.plain)
+        .contextMenu { PinMenuItem(channel: channel.id) }
     }
 }
 

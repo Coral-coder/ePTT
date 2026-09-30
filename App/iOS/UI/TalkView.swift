@@ -111,11 +111,19 @@ struct TalkView: View {
 
     private var talk: EngineSnapshot.Talk { model.snapshot.talk }
 
+    private var layout: TalkLayout { model.snapshot.settings.talkLayout }
+
+    /// Where the orb sends: in the Pinned layout, whoever just talked to us (for a few seconds);
+    /// otherwise the selected channel.
+    private var orbTarget: ChannelID? {
+        layout == .pinned ? model.replyTarget?.channel : nil
+    }
+
     private var orbMode: TalkOrb.Mode {
         switch talk {
         case .transmitting: return .transmitting
         case .receiving: return .receiving
-        case .idle: return model.selectedChannel == nil ? .disabled : .idle
+        case .idle: return model.selectedChannel == nil && orbTarget == nil ? .disabled : .idle
         }
     }
 
@@ -133,18 +141,11 @@ struct TalkView: View {
                 GridBackground(horizon: 0.64, energy: energy)
                 VStack(spacing: 16) {
                     header
-                    ChannelCapsule()
-                    WatchHandoffBar()
-                    QuietBar()
-                    status
-                    Spacer(minLength: 0)
-                    orb(diameter: max(150, min(300, geo.size.width - 60, geo.size.height * (model.selectedChannel?.kind == .group ? 0.34 : 0.44))))
-                    Spacer(minLength: 0)
-                    footer
-                    HStack(alignment: .center) {
-                        AllowReplayToggle()
-                        Spacer()
-                        ReplayButton(enabled: talk == .idle)
+                    switch layout {
+                    case .strip: stripLayout(geo)
+                    case .log: logLayout(geo)
+                    case .board: boardLayout(geo)
+                    case .pinned: pinnedLayout(geo)
                     }
                 }
                 .padding(.horizontal, 22)
@@ -165,6 +166,87 @@ struct TalkView: View {
                 rxStart = nil
             }
         }
+    }
+
+    // MARK: Layouts
+
+    @ViewBuilder
+    private func stripLayout(_ geo: GeometryProxy) -> some View {
+        ChannelCapsule()
+        RecentStrip()
+        WatchHandoffBar()
+        QuietBar()
+        status
+        Spacer(minLength: 0)
+        orb(diameter: max(140, min(280, geo.size.width - 60, geo.size.height * (model.selectedChannel?.kind == .group ? 0.3 : 0.38))))
+        Spacer(minLength: 0)
+        footer
+        replayRow
+    }
+
+    @ViewBuilder
+    private func logLayout(_ geo: GeometryProxy) -> some View {
+        WatchHandoffBar()
+        QuietBar()
+        RadioLog()
+            .frame(maxHeight: geo.size.height * 0.46)
+        Spacer(minLength: 0)
+        orb(diameter: max(130, min(220, geo.size.height * 0.28)))
+        targetCaption
+        Spacer(minLength: 0)
+        replayRow
+    }
+
+    @ViewBuilder
+    private func boardLayout(_ geo: GeometryProxy) -> some View {
+        WatchHandoffBar()
+        QuietBar()
+        TalkBoard(rows: max(2, Int((geo.size.height - 240) / 122)))
+        Spacer(minLength: 0)
+        replayRow
+    }
+
+    @ViewBuilder
+    private func pinnedLayout(_ geo: GeometryProxy) -> some View {
+        PinnedRow()
+        WatchHandoffBar()
+        QuietBar()
+        if case .receiving = talk {
+            status
+        } else if talk == .idle, let reply = model.replyTarget {
+            ReplyCard(target: reply)
+        }
+        Spacer(minLength: 0)
+        orb(diameter: max(130, min(260, geo.size.width - 80, geo.size.height * 0.32)))
+        targetCaption
+        Spacer(minLength: 0)
+        EveryoneElseLine()
+        replayRow
+    }
+
+    private var replayRow: some View {
+        HStack(alignment: .center) {
+            AllowReplayToggle()
+            Spacer()
+            ReplayButton(enabled: talk == .idle)
+        }
+    }
+
+    /// "→ Sam": who the orb talks to, in layouts without the channel capsule.
+    private var targetCaption: some View {
+        let id = orbTarget ?? model.snapshot.settings.selectedChannel
+        let channel = id.flatMap { id in model.snapshot.channels.first { $0.id == id } }
+        let text: String
+        switch talk {
+        case .transmitting: text = "Talking to " + (channel.map(model.displayName(of:)) ?? "the channel")
+        case .receiving(_, let talker): text = "Hearing " + talker
+        case .idle: text = channel.map { (orbTarget != nil ? "Hold to reply to " : "Hold to talk to ") + model.displayName(of: $0) }
+            ?? "Pick a channel above"
+        }
+        return Text(text)
+            .font(NX.label(14, .semibold))
+            .foregroundStyle(NX.textDim)
+            .lineLimit(1)
     }
 
     // MARK: Header
@@ -266,15 +348,17 @@ struct TalkView: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { _ in
-                        guard !pressed, model.selectedChannel != nil else { return }
+                        guard !pressed, model.selectedChannel != nil || orbTarget != nil else { return }
                         pressed = true
                         UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
-                        model.engine.pressTalk()
+                        if orbTarget != nil { model.holdReplyWindow() }
+                        model.engine.pressTalk(on: orbTarget)
                     }
                     .onEnded { _ in
                         guard pressed else { return }
                         pressed = false
                         model.engine.releaseTalk()
+                        model.releaseReplyWindow()
                     }
             )
             .accessibilityElement()
@@ -282,7 +366,7 @@ struct TalkView: View {
             .accessibilityValue(orbMode == .transmitting ? "Transmitting" : orbMode == .receiving ? "Receiving" : "Ready")
             .accessibilityHint("Touch and hold to talk")
             .accessibilityAddTraits(.isButton)
-            .accessibilityAction(named: "Start talking") { model.engine.pressTalk() }
+            .accessibilityAction(named: "Start talking") { model.engine.pressTalk(on: orbTarget) }
             .accessibilityAction(named: "Stop talking") { model.engine.releaseTalk() }
     }
 

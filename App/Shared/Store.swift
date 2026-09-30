@@ -30,6 +30,10 @@ struct Settings: Codable, Equatable {
     /// Contacts whose messages and call alerts break through Do Not Disturb.
     var priorityContacts: [IdentityID] = []
     var selectedChannel: ChannelID?
+    /// How the Talk screen is laid out (Settings › Talk screen).
+    var talkLayout: TalkLayout = .strip
+    /// Up to three channels kept at the top of the Pinned layout.
+    var pinnedChannels: [ChannelID] = []
 
     var parsedStaticCandidates: [Candidate] {
         staticCandidates.compactMap(Settings.parseCandidate)
@@ -112,6 +116,8 @@ struct TransferRecord: Codable, Identifiable {
     var channel: String
     var seconds: Double
     var legs: [Leg]
+    /// Which channel it was on (records before this was added have none; match by name).
+    var channelID: ChannelID? = nil
 }
 
 /// Everything the app persists besides private keys, as one JSON file in Application Support.
@@ -196,6 +202,40 @@ extension Settings {
         quietUntil = try? c.decodeIfPresent(Date.self, forKey: .quietUntil)
         priorityContacts = (try? c.decodeIfPresent([IdentityID].self, forKey: .priorityContacts)) ?? []
         selectedChannel = try c.decodeIfPresent(ChannelID.self, forKey: .selectedChannel)
+        talkLayout = (try? c.decodeIfPresent(TalkLayout.self, forKey: .talkLayout)) ?? d.talkLayout
+        pinnedChannels = (try? c.decodeIfPresent([ChannelID].self, forKey: .pinnedChannels)) ?? []
+    }
+}
+
+/// The Talk screen's four layouts for keeping track of many conversations.
+enum TalkLayout: String, Codable, CaseIterable, Identifiable {
+    /// The selected channel, with a row of recent channels to switch to.
+    case strip
+    /// A live log of every key-up; tap one to talk back.
+    case log
+    /// Every channel is its own hold-to-talk tile.
+    case board
+    /// Three pinned channels, and a reply window for anyone else who talks to you.
+    case pinned
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .strip: return "Recent strip"
+        case .log: return "Radio log"
+        case .board: return "Talk board"
+        case .pinned: return "Pinned + reply"
+        }
+    }
+
+    var summary: String {
+        switch self {
+        case .strip: return "Your channel, plus a row of recent ones to tap."
+        case .log: return "A live log of every key-up. Tap one to talk back."
+        case .board: return "Every channel is its own hold-to-talk tile."
+        case .pinned: return "Three pinned channels. Anyone else who talks to you gets a few seconds to reply."
+        }
     }
 }
 

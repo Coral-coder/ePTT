@@ -458,10 +458,12 @@ final class PTTEngine {
 
     // MARK: - Talking
 
-    func pressTalk() {
+    /// Keys up on `target`, or on the selected channel. A target (a board tile, a reply) doesn't
+    /// change the selection.
+    func pressTalk(on target: ChannelID? = nil) {
         queue.async { [self] in
             if state.watchPrimary { takeOverNow() }
-            guard let channel = state.settings.selectedChannel, channelIndex[channel] != nil else {
+            guard let channel = target ?? state.settings.selectedChannel, channelIndex[channel] != nil else {
                 emit(.message("Pick a channel first"))
                 return
             }
@@ -1024,7 +1026,8 @@ final class PTTEngine {
                 logTransfer(TransferRecord(date: Date(), outgoing: false, channel: displayName(of: finished.channel),
                                            seconds: seconds,
                                            legs: [.init(peer: self.contact(finished.sender)?.name ?? "?", route: finished.route,
-                                                        reason: "held · Do Not Disturb")]))
+                                                        reason: "held · Do Not Disturb")],
+                                           channelID: finished.channel.id))
             }
             if !relayQueue.isEmpty {
                 queue.asyncAfter(deadline: .now() + 0.2) { [weak self] in self?.playNextRelayed() }
@@ -1043,7 +1046,8 @@ final class PTTEngine {
                                         audio: finished.allowsReplay ? RelayInbox.encodeFrames(finished.recorded) : nil)
             logTransfer(TransferRecord(date: Date(), outgoing: false, channel: displayName(of: finished.channel),
                                        seconds: Double(finished.framesPlayed * finished.frameMilliseconds) / 1000,
-                                       legs: [.init(peer: self.contact(finished.sender)?.name ?? "?", route: finished.route)]))
+                                       legs: [.init(peer: self.contact(finished.sender)?.name ?? "?", route: finished.route)],
+                                       channelID: finished.channel.id))
         }
         finishStop(playEndTone: playEndTone)
     }
@@ -1921,6 +1925,7 @@ final class PTTEngine {
         if let endPacket { packets.append(endPacket) }
         let seconds = Double(t.nextFrameIndex) * Double(audio.captureCodec.frameMilliseconds) / 1000
         let channelName = displayName(of: t.channel)
+        let channelID = t.channel.id
 
         // Anyone we couldn't reach directly goes to the relay, or gets a reason why not.
         var relayable: [(Contact, Data)] = []
@@ -1948,7 +1953,8 @@ final class PTTEngine {
 
         guard let relay, let payload, !relayable.isEmpty else {
             if !legs.isEmpty {
-                logTransfer(TransferRecord(date: Date(), outgoing: true, channel: channelName, seconds: seconds, legs: legs))
+                logTransfer(TransferRecord(date: Date(), outgoing: true, channel: channelName, seconds: seconds, legs: legs,
+                                           channelID: t.channel.id))
             }
             done()
             return
@@ -1979,7 +1985,7 @@ final class PTTEngine {
                 guard let self else { return }
                 self.state.relayUploads.merge(uploads) { a, _ in a }
                 self.logTransfer(TransferRecord(date: Date(), outgoing: true, channel: channelName, seconds: seconds,
-                                                legs: directLegs + relayedLegs))
+                                                legs: directLegs + relayedLegs, channelID: channelID))
                 done()
             }
         }

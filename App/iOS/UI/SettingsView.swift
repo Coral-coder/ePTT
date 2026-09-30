@@ -24,6 +24,22 @@ struct SettingsView: View {
                 .nxRows()
 
                 Section {
+                    Picker("Layout", selection: Binding(
+                        get: { settings.talkLayout },
+                        set: { value in model.engine.updateSettings { $0.talkLayout = value } }
+                    )) {
+                        ForEach(TalkLayout.allCases) { layout in
+                            Text(layout.title).tag(layout)
+                        }
+                    }
+                } header: {
+                    Text("Talk screen")
+                } footer: {
+                    Text(settings.talkLayout.summary + " Hold a channel anywhere on the Talk screen to pin or unpin it.")
+                }
+                .nxRows()
+
+                Section {
                     Toggle("Discover public address (STUN)", isOn: binding(\.stunEnabled))
                     TextField("Extra addresses, e.g. me.tailnet.ts.net:47474", text: $staticCandidates, axis: .vertical)
                         .autocorrectionDisabled()

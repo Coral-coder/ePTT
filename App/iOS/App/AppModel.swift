@@ -10,6 +10,11 @@ final class AppModel: ObservableObject {
     @Published private(set) var snapshot = EngineSnapshot()
     @Published var banner: String?
     @Published var tab: NXTab = .talk
+    /// Someone on another channel just talked to us: for a few seconds the talk button (Pinned
+    /// layout) or the reply bar (Talk board) answers them.
+    @Published private(set) var replyTarget: ReplyTarget?
+    private var replyTimer: Task<Void, Never>?
+    static let replySeconds: Double = 8
 
     let engine = PTTEngine()
     private let watch = WatchBridge()
@@ -23,8 +28,11 @@ final class AppModel: ObservableObject {
     private init() {
         engine.onSnapshot = { [weak self] snapshot in
             Task { @MainActor in
-                self?.snapshot = snapshot
-                self?.watch.update(snapshot)
+                guard let self else { return }
+                let before = self.snapshot.talk
+                self.snapshot = snapshot
+                self.watch.update(snapshot)
+                self.noteTalkChange(from: before, to: snapshot.talk)
             }
         }
         engine.onEvent = { [weak self] event in
@@ -76,6 +84,107 @@ final class AppModel: ObservableObject {
             try? await Task.sleep(for: Self.latchLimit)
             guard !Task.isCancelled else { return }
             self?.setLatchedTalk(false)
+        }
+    }
+
+    // MARK: - Reply window
+
+    private func noteTalkChange(from before: EngineSnapshot.Talk, to now: EngineSnapshot.Talk) {
+        guard case .receiving(let channel, let talker) = before, now != before,
+              channel != snapshot.settings.selectedChannel else { return }
+        if case .receiving(let next, _) = now, next == channel { return }
+        replyTarget = ReplyTarget(channel: channel, talker: talker.components(separatedBy: " · ").first ?? talker,
+                                  until: Date().addingTimeInterval(Self.replySeconds))
+        replyTimer?.cancel()
+        replyTimer = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.replySeconds))
+            guard !Task.isCancelled else { return }
+            self?.replyTarget = nil
+        }
+    }
+
+    /// Keeps the reply window open while replying, and for a moment after.
+    func holdReplyWindow() {
+        guard let target = replyTarget else { return }
+        replyTimer?.cancel()
+        replyTarget = ReplyTarget(channel: target.channel, talker: target.talker, until: .distantFuture)
+    }
+
+    func releaseReplyWindow() {
+        guard let target = replyTarget else { return }
+        replyTarget = ReplyTarget(channel: target.channel, talker: target.talker,
+                                  until: Date().addingTimeInterval(Self.replySeconds))
+        replyTimer?.cancel()
+        replyTimer = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.replySeconds))
+            guard !Task.isCancelled else { return }
+            self?.replyTarget = nil
+        }
+    }
+
+    func dismissReply() {
+        replyTimer?.cancel()
+        replyTarget = nil
+    }
+
+    // MARK: - Recent activity
+
+    /// Every channel with its latest activity, live first, then most recent; quiet ones last.
+    var recent: [RecentChannel] {
+        let transfers = snapshot.transfers
+        let held = snapshot.held
+        return snapshot.channels.map { channel -> RecentChannel in
+            let name = displayName(of: channel)
+            let last = transfers.first { $0.channelID == channel.id || ($0.channelID == nil && $0.channel == name) }
+            var live: String?
+            switch snapshot.talk {
+            case .receiving(let id, let talker) where id == channel.id:
+                live = talker.components(separatedBy: " · ").first ?? talker
+            case .transmitting(let id) where id == channel.id:
+                live = "You"
+            default: break
+            }
+            let missed = held.filter { $0.channel == name }.count
+            return RecentChannel(channel: channel, name: name, last: last, live: live, missed: missed)
+        }
+        .sorted { a, b in
+            if (a.live != nil) != (b.live != nil) { return a.live != nil }
+            switch (a.last?.date, b.last?.date) {
+            case let (x?, y?): return x > y
+            case (_?, nil): return true
+            case (nil, _?): return false
+            default: return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+            }
+        }
+    }
+
+    /// Recent key-ups across every channel, newest first (the Radio log).
+    var keyUps: [TransferRecord] { snapshot.transfers }
+
+    func channel(for record: TransferRecord) -> Channel? {
+        if let id = record.channelID { return snapshot.channels.first { $0.id == id } }
+        return snapshot.channels.first { displayName(of: $0) == record.channel }
+    }
+
+    /// Pinned channels that still exist; until three are pinned, the most recent fill in.
+    var pinned: [RecentChannel] {
+        let all = recent
+        var out = snapshot.settings.pinnedChannels.compactMap { id in all.first { $0.channel.id == id } }
+        for item in all where out.count < 3 && !out.contains(where: { $0.channel.id == item.channel.id }) {
+            out.append(item)
+        }
+        return Array(out.prefix(3))
+    }
+
+    func isPinned(_ id: ChannelID) -> Bool { snapshot.settings.pinnedChannels.contains(id) }
+
+    func togglePin(_ id: ChannelID) {
+        engine.updateSettings { settings in
+            if let i = settings.pinnedChannels.firstIndex(of: id) {
+                settings.pinnedChannels.remove(at: i)
+            } else {
+                settings.pinnedChannels = Array((settings.pinnedChannels + [id]).suffix(3))
+            }
         }
     }
 
@@ -196,5 +305,42 @@ final class AppModel: ObservableObject {
         }
         if snapshot.relayAvailable && snapshot.settings.relayEnabled { return "Not connected · will use iCloud relay" }
         return "Not connected"
+    }
+}
+
+struct ReplyTarget: Equatable {
+    var channel: ChannelID
+    var talker: String
+    var until: Date
+}
+
+/// A channel with its most recent activity, for the Talk screen layouts.
+struct RecentChannel: Identifiable {
+    var channel: Channel
+    var name: String
+    var last: TransferRecord?
+    /// Who is talking on it right now ("You" when we are).
+    var live: String?
+    /// Messages held for it by Do Not Disturb.
+    var missed: Int
+
+    var id: ChannelID { channel.id }
+
+    /// "Jordan talking", "Sam · 20s", "You · 9m", or the channel type when quiet.
+    func detail(now: Date) -> String {
+        if let live { return live == "You" ? "You're talking" : "\(live) talking" }
+        guard let last else { return channel.kind == .group ? "Talk group" : "Private" }
+        let who = last.outgoing ? "You" : (last.legs.first?.peer ?? "")
+        return (who.isEmpty ? "" : who + " · ") + RecentChannel.age(last.date, now: now)
+    }
+
+    /// "now", "20s", "5m", "3h", "2d".
+    static func age(_ date: Date, now: Date) -> String {
+        let s = max(0, Int(now.timeIntervalSince(date)))
+        if s < 5 { return "now" }
+        if s < 60 { return "\(s)s" }
+        if s < 3600 { return "\(s / 60)m" }
+        if s < 86_400 { return "\(s / 3600)h" }
+        return "\(s / 86_400)d"
     }
 }
