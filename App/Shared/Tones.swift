@@ -13,7 +13,8 @@ enum Tone: String, CaseIterable, Identifiable {
     case busy
     /// Call alert: four longer beeps, like a Nextel page.
     case callAlert
-    /// One beep back to the talker when the other phone confirms it got the message.
+    /// One beep back to the talker when the other phone confirms it got the message: a single
+    /// beep of the incoming double beep.
     case delivered
 
     var id: String { rawValue }
@@ -100,8 +101,8 @@ enum ToneSynth {
             synth.tone(frequency: 400, milliseconds: 260, fadeInMs: 2, fadeOutMs: 30,
                        decayPerSecond: 7, secondHarmonic: 0.3)
         case .delivered:
-            // One clean beep, lower than the chirp so it isn't mistaken for a roger beep.
-            synth.tone(frequency: chirpFrequency * 0.75, milliseconds: 90, fadeInMs: 3, fadeOutMs: 6)
+            // One beep of the incoming double beep: same pitch, length and shape.
+            synth.tone(frequency: chirpFrequency, milliseconds: 55, fadeInMs: 2, fadeOutMs: 3)
         case .callAlert:
             // A Nextel page: four longer beeps.
             for i in 0..<4 {
