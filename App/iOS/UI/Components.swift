@@ -222,3 +222,11 @@ enum NXAppearance {
         UINavigationBar.appearance().compactAppearance = appearance
     }
 }
+
+extension View {
+    /// Keeps the last row scrollable clear of the floating tab bar. Forms and pushed views inside
+    /// a NavigationStack don't pick up the tab bar's inset from RootView.
+    func clearsTabBar() -> some View {
+        safeAreaInset(edge: .bottom, spacing: 0) { Color.clear.frame(height: 84) }
+    }
+}

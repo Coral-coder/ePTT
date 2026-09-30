@@ -124,6 +124,7 @@ struct SettingsView: View {
                 .nxRows()
             }
             .nxForm()
+            .clearsTabBar()
             .toggleStyle(NeonToggleStyle())
             .navigationTitle("Settings")
             .task {
@@ -217,6 +218,7 @@ struct PushKeyView: View {
             .textInputAutocapitalization(.never)
         }
         .nxForm()
+        .clearsTabBar()
         .navigationTitle("Push key")
         .onAppear { shareURI = model.engine.pushKeyURI() }
     }
@@ -258,6 +260,7 @@ struct ShareAppView: View {
             .padding(.horizontal, 26)
             .padding(.top, 20)
         }
+        .clearsTabBar()
         .navigationTitle("Get NXTPTT")
         .navigationBarTitleDisplayMode(.inline)
         .preferredColorScheme(.dark)

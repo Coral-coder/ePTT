@@ -60,6 +60,7 @@ struct SoundsView: View {
             .nxRows()
         }
         .nxForm()
+        .clearsTabBar()
         .toggleStyle(NeonToggleStyle())
         .navigationTitle("Nextel sounds")
         .onAppear(perform: refresh)

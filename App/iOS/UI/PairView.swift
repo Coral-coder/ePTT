@@ -251,8 +251,7 @@ struct ContactDetailView: View {
             .nxRows()
         }
         .nxForm()
-        // Pushed views don't pick up the tab bar's inset: keep the last row clear of it.
-        .safeAreaInset(edge: .bottom, spacing: 0) { Color.clear.frame(height: 84) }
+        .clearsTabBar()
         .navigationTitle(contact.name)
         .navigationBarTitleDisplayMode(.inline)
     }
