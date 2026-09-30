@@ -99,6 +99,8 @@ extension WatchBridge: WCSessionDelegate {
         case .claim:
             let at = message[WatchProtocol.claimedAt] as? Double ?? Date().timeIntervalSince1970
             engine.watchClaimed(at: Date(timeIntervalSince1970: at))
+        case .handBack:
+            engine.watchHandedBack()
         case .sync:
             DispatchQueue.main.async {
                 self.lastContext = [:]
@@ -114,6 +116,7 @@ extension WatchBridge: WCSessionDelegate {
         if let at = userInfo[WatchProtocol.claimedAt] as? Double {
             engine?.watchClaimed(at: Date(timeIntervalSince1970: at))
         }
+        if userInfo[WatchProtocol.handBack] != nil { engine?.watchHandedBack() }
     }
 
     func session(_ session: WCSession, didReceiveMessageData messageData: Data) {

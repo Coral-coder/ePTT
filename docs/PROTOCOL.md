@@ -459,8 +459,9 @@ recipients can unwrap (§6.2).
   last. Opening the watch app makes the watch take over, even with the iPhone in
   reach. The phone then sends away HELLOs and ignores live traffic, wakes and the
   relay; its notification extension leaves relayed messages for the watch. The
-  watch stays in charge until the iPhone app is opened or talk is pressed there.
-  Claims are timestamped and pass over WatchConnectivity (a message if the other
+  watch is in charge only while its app is open. When the app goes to the
+  background, it hands back and the iPhone takes over at once. Opening the iPhone
+  app, or pressing talk there, also takes over. Claims are timestamped and pass over WatchConnectivity (a message if the other
   device is reachable, else queued user info), and the later claim wins.
 
 

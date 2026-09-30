@@ -187,8 +187,24 @@ final class WatchModel: NSObject, ObservableObject {
     /// The app is on screen (or not).
     func setActive(_ active: Bool) {
         appActive = active
-        if active { claim() }
+        if active { claim() } else { handBack() }
         updateLive()
+    }
+
+    /// The watch app was closed: the iPhone takes back over straight away.
+    private func handBack() {
+        guard primary else { return }
+        UserDefaults.standard.set(false, forKey: Self.primaryKey)
+        primary = false
+        guard let session, session.activationState == .activated else { return }
+        let message: [String: Any] = [WatchProtocol.command: WatchProtocol.Command.handBack.rawValue]
+        if session.isReachable {
+            session.sendMessage(message, replyHandler: nil) { _ in
+                session.transferUserInfo([WatchProtocol.handBack: Date().timeIntervalSince1970])
+            }
+        } else {
+            session.transferUserInfo([WatchProtocol.handBack: Date().timeIntervalSince1970])
+        }
     }
 
     private var appActive = true

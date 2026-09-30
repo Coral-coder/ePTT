@@ -2155,7 +2155,15 @@ final class PTTEngine {
             state.watchPrimary = true
             RelayInbox.setHandedOff(true)
             save()
-            emit(.message("Using your Apple Watch. Open NXTPTT here or press talk to switch back."))
+            emit(.message("Using your Apple Watch while its NXTPTT app is open."))
+        }
+    }
+
+    /// The watch app closed: the phone takes back over at once.
+    func watchHandedBack() {
+        queue.async { [self] in
+            guard state.watchPrimary else { return }
+            takeOverNow()
         }
     }
 

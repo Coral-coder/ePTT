@@ -14,8 +14,14 @@ struct NXTPTTWatchApp: App {
             WatchTalkView().environmentObject(model)
         }
         .onChange(of: scenePhase) { phase in
-            if phase == .active { model.fetchRelay() }
-            model.setActive(phase == .active)
+            // Open: the watch takes over. Left (background): the iPhone takes back over. A lowered
+            // wrist (inactive) changes nothing.
+            if phase == .active {
+                model.fetchRelay()
+                model.setActive(true)
+            } else if phase == .background {
+                model.setActive(false)
+            }
         }
     }
 }

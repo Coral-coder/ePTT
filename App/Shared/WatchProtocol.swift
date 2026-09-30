@@ -11,12 +11,16 @@ enum WatchProtocol {
         case listenOnWatch = "listen"
         /// The watch app was opened: the watch takes over (with `claimedAt`).
         case claim
+        /// The watch app was closed: the phone takes back over.
+        case handBack
     }
     static let enabled = "on"
     /// Seconds since 1970 of a claim (watch → phone: `claim`; phone → watch: `phoneClaim`).
     static let claimedAt = "at"
     /// Phone → watch (application context and messages): when the phone last took over.
     static let phoneClaim = "phoneClaim"
+    /// Watch → phone (queued user info): the watch app closed at this time; the phone takes over.
+    static let handBack = "handBack"
 
     // Phone → watch application context / messages.
     static let channels = "channels"      // [[String: String]] with keys "id" (hex) and "name"
