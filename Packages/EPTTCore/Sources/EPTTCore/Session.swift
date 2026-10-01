@@ -190,6 +190,9 @@ public struct PairSession: Codable, Equatable {
         epochs.reversed().compactMap { try? ChannelKeys(channelID: channelID, epoch: $0.epoch, key: $0.channelKey) }
     }
 
+    /// We already answered this offer (a re-send of it gets the same answer).
+    public func hasAnswered(_ offerID: MessageID) -> Bool { lastAccept?.offerID == offerID }
+
     public var hasPendingOffer: Bool { pending != nil }
 
     /// Call when a packet sealed under `e` arrives from the peer: they hold that epoch.

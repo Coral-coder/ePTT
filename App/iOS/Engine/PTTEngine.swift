@@ -55,6 +55,8 @@ struct EngineSnapshot {
     var joinRequests: [JoinRequest] = []
     /// Contacts on an older build: protocol 1, not post-quantum (PROTOCOL.md §10.1).
     var legacyContacts: Set<IdentityID> = []
+    /// Recent link events per contact (key exchange, drops), newest last, for the contact page.
+    var linkLog: [IdentityID: [String]] = [:]
 }
 
 struct JoinRequest: Identifiable, Equatable {
@@ -656,6 +658,7 @@ final class PTTEngine {
             var unsecured: [String] = []
             // Members still on an older build get a protocol-1 copy (PROTOCOL.md §10.1).
             var legacyMembers: [Contact] = []
+            var reasons: [String] = []
             for member in channel.members {
                 guard let i = contactsBySender[member.senderID] else { continue }
                 if peerProtocol(member.senderID) == .legacy {
@@ -665,11 +668,14 @@ final class PTTEngine {
                     secured.append(member)
                 } else {
                     unsecured.append(state.contacts[i].name)
+                    let reason = securingReason(state.contacts[i])
+                    reasons.append(reason)
+                    noteLink(state.contacts[i].id, "press: can't send yet, \(reason)")
                     rekeyIfDue(state.contacts[i])
                 }
             }
             guard !targets.isEmpty || !legacyMembers.isEmpty else {
-                emit(.message("Securing the link with \(unsecured.joined(separator: ", ")). Try again in a moment."))
+                emit(.message("Can't send yet: " + reasons.joined(separator: "; ")))
                 _ = floor.releaseTalk()
                 // Hold the steady "no link" tone until the button is released (with PushToTalk the
                 // audio session comes up shortly, see audioDidActivate).
@@ -678,7 +684,7 @@ final class PTTEngine {
                 return
             }
             if !unsecured.isEmpty {
-                emit(.message("Not sent to \(unsecured.joined(separator: ", ")) yet: securing the link"))
+                emit(.message("Not sent to \(unsecured.joined(separator: ", ")) yet: " + reasons.joined(separator: "; ")))
             }
             save()   // one-time keys were used up
             let peer = legacyPeer(channel)
@@ -1124,6 +1130,22 @@ final class PTTEngine {
             return
         } catch {
             log.debug("Dropped packet: \(String(describing: error), privacy: .public)")
+            if let header = try? PacketHeader(packet: data), let contact = contact(header.senderID) {
+                noteLink(contact.id, "dropped \(header.type) e\(header.epoch)\(relayed ? " (relay)" : ""): \(error)")
+                // They keep sealing under an epoch we don't hold on our private channel: the two
+                // sessions have diverged. After a few in a minute, start over with them.
+                if (error as? InboundError) == .unknownEpoch, header.epoch > 0, !relayed,
+                   channel(header.channelID)?.kind == .direct {
+                    let now = Date()
+                    var recent = (unknownEpochDrops[contact.id] ?? []).filter { now.timeIntervalSince($0) < 60 }
+                    recent.append(now)
+                    unknownEpochDrops[contact.id] = recent
+                    if recent.count >= 3 {
+                        unknownEpochDrops[contact.id] = nil
+                        restartSession(with: contact, reason: "they're sending under epoch \(header.epoch), which we don't have")
+                    }
+                }
+            }
             return
         }
 
@@ -1142,6 +1164,7 @@ final class PTTEngine {
             state.channels[i].apply(session: session)
             save()
             if !wasSecure, session.sendEpoch >= 1, let contact = self.contact(sender) { sessionSecured(with: contact) }
+            noteLink(state.channels[i].members.first, "confirmed: sending under epoch \(session.sendEpoch)")
         }
         // They're still sending under an older epoch than ours: our confirmation (or our accept)
         // hasn't reached them, and until it does they can't send to us. Confirm again, by every path.
@@ -1354,6 +1377,8 @@ final class PTTEngine {
         state.channels[i].apply(session: session)
         lastOfferSent[state.channels[i].id] = now
         save()
+        noteLink(contact.id, "offer \(offer.offerID.bytes.prefix(2).hex) sent, base epoch \(offer.baseEpoch)"
+                 + (isLinked(contact.senderID) ? " (live)" : " (addresses, push, relay)"))
         deliverRekey(packets, relayKey: "offer-\(offer.offerID)", to: contact)
     }
 
@@ -1362,9 +1387,24 @@ final class PTTEngine {
               let i = channelIndex[directChannel(for: contact.id)?.id ?? .random()],
               var session = state.channels[i].session else { return }
         let channelID = state.channels[i].id
-        guard let result = try? session.receive(offer: offer, channelID: channelID, localID: identity.id,
-                                                peerID: contact.id),
-              case .reply(let accept) = result,
+        if offer.baseEpoch > session.epoch {
+            // They're past an epoch we never reached: our state was lost or diverged. Start over.
+            restartSession(with: contact, reason: "their offer is from epoch \(offer.baseEpoch), we're at \(session.epoch)")
+            return
+        }
+        if offer.baseEpoch == 0, session.epoch > 0, !session.hasAnswered(offer.offerID),
+           Double(offer.timestamp) / 1000 > session.epochStarted.timeIntervalSince1970 + 30 {
+            // A fresh offer from the classical epoch, made after our current epoch began: they
+            // lost or reset their side. Start over with them and answer it.
+            restartSession(with: contact, reason: "they restarted from epoch 0", offerNow: false)
+            guard let fresh = state.channels[i].session else { return }
+            session = fresh
+        }
+        let result = try? session.receive(offer: offer, channelID: channelID, localID: identity.id, peerID: contact.id)
+        noteLink(contact.id, "offer \(offer.offerID.bytes.prefix(2).hex) received (base \(offer.baseEpoch), we're at "
+                 + "\(state.channels[i].session?.epoch ?? 0)): " + (result.map { r -> String in
+                     if case .reply = r { return "answering" } else { return "ignored" } } ?? "failed"))
+        guard let result, case .reply(let accept) = result,
               let keys = session.channelKeys(channelID: channelID, epoch: offer.baseEpoch),
               let packets = try? builder.sealFragmented(.pqAccept, plaintext: accept, keys: keys) else { return }
         state.channels[i].apply(session: session)
@@ -1376,9 +1416,12 @@ final class PTTEngine {
     private func handleRekeyAccept(_ accept: PQAccept, from sender: SenderID) {
         guard !state.watchPrimary, let contact = self.contact(sender),
               let i = channelIndex[directChannel(for: contact.id)?.id ?? .random()],
-              var session = state.channels[i].session,
-              (try? session.receive(accept: accept, channelID: state.channels[i].id, localID: identity.id,
-                                    peerID: contact.id)) == true else { return }
+              var session = state.channels[i].session else { return }
+        let done = (try? session.receive(accept: accept, channelID: state.channels[i].id, localID: identity.id,
+                                         peerID: contact.id)) == true
+        noteLink(contact.id, "accept for offer \(accept.offerID.bytes.prefix(2).hex) received: "
+                 + (done ? "now at epoch \(session.epoch)" : "doesn't match our pending offer (\(session.hasPendingOffer ? "have one" : "none"))"))
+        guard done else { return }
         state.channels[i].apply(session: session)
         lastOfferSent[state.channels[i].id] = nil
         save()
@@ -1389,6 +1432,63 @@ final class PTTEngine {
         topUpOneTimeKeys(for: contact, theyHold: nil)
         sessionSecured(with: contact)
         publish()
+    }
+
+    // MARK: - Starting a session over
+
+    private var unknownEpochDrops: [IdentityID: [Date]] = [:]
+    private var lastRestart: [IdentityID: Date] = [:]
+
+    /// Throws away our session with a contact and starts again from epoch 0 (the static keys),
+    /// then (unless we're answering their restart) offers a new post-quantum exchange. Used when
+    /// the two sides have diverged, or from the contact page. At most once a minute.
+    private func restartSession(with contact: Contact, reason: String, offerNow: Bool = true, force: Bool = false) {
+        guard !state.watchPrimary, let i = channelIndex[directChannel(for: contact.id)?.id ?? .random()] else { return }
+        // Already started over and waiting for their answer: give our offer time to reach them
+        // (a new one would make the answer to the old one useless).
+        if !force, offerNow, let current = state.channels[i].session, current.epoch == 0, current.hasPendingOffer { return }
+        guard force || !offerNow || Date().timeIntervalSince(lastRestart[contact.id] ?? .distantPast) > 60,
+              let fresh = try? Channel.direct(local: identity, peer: contact.identity, name: state.channels[i].name).session
+        else { return }
+        lastRestart[contact.id] = Date()
+        state.channels[i].apply(session: fresh)
+        lastOfferSent[state.channels[i].id] = nil
+        save()
+        noteLink(contact.id, "starting over: \(reason)")
+        if offerNow { rekeyIfDue(contact) }
+    }
+
+    /// Contact page › Reset secure link.
+    func resetLink(with id: IdentityID) {
+        queue.async { [self] in
+            guard let contact = contact(id: id) else { return }
+            restartSession(with: contact, reason: "reset by you", force: true)
+        }
+    }
+
+    // MARK: - Link log (contact page › Link details)
+
+    private var linkLog: [IdentityID: [String]] = [:]
+
+    private func noteLink(_ id: IdentityID?, _ text: String) {
+        guard let id else { return }
+        let time = Date().formatted(date: .omitted, time: .standard)
+        linkLog[id, default: []].append("\(time)  \(text)")
+        if linkLog[id]!.count > 40 { linkLog[id]!.removeFirst(linkLog[id]!.count - 40) }
+        log.info("link \(text, privacy: .public)")
+        publish()
+    }
+
+    /// Why we can't send to a contact right now, in words.
+    private func securingReason(_ contact: Contact) -> String {
+        guard let session = directChannel(for: contact.id)?.session else { return "no session" }
+        if session.epoch > session.sendEpoch { return "waiting for \(contact.name) to confirm the new keys" }
+        if !session.isQuantumSafe {
+            return session.hasPendingOffer ? "waiting for \(contact.name) to answer the key exchange"
+                                           : "starting the key exchange with \(contact.name)"
+        }
+        if contact.reachability.prekey == nil && contact.availableOneTimeKeys == 0 { return "no key from \(contact.name) yet" }
+        return "securing the link with \(contact.name)"
     }
 
     // MARK: - Epoch confirmation (PROTOCOL.md §5.3)
@@ -1420,6 +1520,7 @@ final class PTTEngine {
               let direct = directChannel(for: contact.id),
               let packet = helloPacket(replyRequested: false, keys: direct.keys, to: contact) else { return }
         lastEpochConfirm[contact.id] = Date()
+        noteLink(contact.id, "confirming epoch \(direct.keys.epoch) to them")
         deliverConfirmation(packet, to: contact, force: force)
     }
 
@@ -1429,6 +1530,7 @@ final class PTTEngine {
     private func askToConfirmEpoch(_ contact: Contact) {
         guard Date().timeIntervalSince(lastConfirmAsk[contact.id] ?? .distantPast) > 30 else { return }
         lastConfirmAsk[contact.id] = Date()
+        noteLink(contact.id, "asked them to confirm epoch \(directChannel(for: contact.id)?.session?.epoch ?? 0)")
         guard let direct = directChannel(for: contact.id),
               let packet = helloPacket(replyRequested: true, keys: direct.keys, to: contact) else { return }
         deliverConfirmation(packet, to: contact, force: false)
@@ -3336,6 +3438,7 @@ final class PTTEngine {
         var snapshot = EngineSnapshot()
         snapshot.contacts = state.contacts
         snapshot.legacyContacts = Set(state.contactProtocols.filter { $0.value == 1 }.keys)
+        snapshot.linkLog = linkLog
         snapshot.channels = state.channels
         snapshot.settings = state.settings
         if let t = tx {

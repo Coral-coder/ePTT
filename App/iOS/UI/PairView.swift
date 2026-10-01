@@ -282,6 +282,31 @@ struct ContactDetailView: View {
             }
             .nxRows()
             Section {
+                let session = model.directChannel(for: contact)?.session
+                LabeledContent("Session epoch", value: session.map { "\($0.epoch) · sending \($0.sendEpoch)" } ?? "none")
+                LabeledContent("Key exchange", value: session?.hasPendingOffer == true ? "waiting for their answer" : "idle")
+                LabeledContent("Their prekey", value: contact.reachability.prekey.map { "#\($0.id)" } ?? "none")
+                LabeledContent("Online now", value: model.snapshot.onlinePeers.contains(contact.id) ? "yes" : "no")
+                let log = model.snapshot.linkLog[contact.id] ?? []
+                if log.isEmpty {
+                    Text("Nothing logged since the app started.").font(NX.body(13)).foregroundStyle(NX.textDim)
+                } else {
+                    ForEach(Array(log.suffix(15).enumerated().reversed()), id: \.offset) { _, line in
+                        Text(line).font(.caption2.monospaced()).foregroundStyle(NX.textDim)
+                    }
+                    Button {
+                        UIPasteboard.general.string = (["\(contact.name): epoch \(session?.epoch ?? 0), sending \(session?.sendEpoch ?? 0)"] + log)
+                            .joined(separator: "\n")
+                    } label: { Label("Copy link details", systemImage: "doc.on.doc") }
+                }
+                Button(role: .destructive) { model.engine.resetLink(with: contact.id) } label: {
+                    Label("Reset secure link", systemImage: "arrow.triangle.2.circlepath")
+                }
+            } header: {
+                SectionCaption(text: "Link details")
+            }
+            .nxRows()
+            Section {
                 LabeledContent("Background wake", value: contact.isWakeable ? "Yes" : "No")
                 ForEach(contact.reachability.candidates, id: \.self) { candidate in
                     Text(candidate.description).font(.caption.monospaced()).foregroundStyle(NX.textDim)
