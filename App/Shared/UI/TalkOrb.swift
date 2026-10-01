@@ -256,7 +256,7 @@ struct QuantumLock: View {
             let trail = 1 + Int(6 * energy)
             for k in 0..<trail {
                 let t = start - Double(k) * 0.16 * (i == 0 ? 1 : -1)
-                let point = CGPoint(x: a * cos(t), y: b * sin(t)).applying(transform)
+                let point = CGPoint(x: a * CGFloat(Foundation.cos(t)), y: b * CGFloat(Foundation.sin(t))).applying(transform)
                 let r = size * 0.085 * (1 - Double(k) / Double(trail + 1))
                 let dot = Path(ellipseIn: CGRect(x: point.x - r, y: point.y - r, width: 2 * r, height: 2 * r))
                 context.fill(dot, with: .color((k == 0 ? color : NX.cyan).opacity(1 - Double(k) / Double(trail + 1))))
