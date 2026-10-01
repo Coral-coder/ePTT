@@ -126,17 +126,24 @@ struct TalkOrb: View {
     private var label: some View {
         VStack(spacing: orbSize * 0.04) {
             if quantumSafe && mode != .receiving {
-                QuantumLock(size: orbSize * 0.2, filled: mode == .transmitting)
+                QuantumLock(size: orbSize * 0.2, charging: mode == .transmitting, color: textColor)
             } else {
                 Image(systemName: iconName)
                     .font(.system(size: orbSize * 0.2, weight: .medium))
             }
             Text(caption)
-                .font(NX.label(max(10, orbSize * 0.065), .bold))
-                .tracking(orbSize * 0.016)
+                .font(NX.label(max(12, orbSize * 0.078), .bold))
+                .tracking(orbSize * 0.012)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                // A faint light edge keeps the dark text crisp on the bright gel.
+                .shadow(color: .white.opacity(0.75), radius: 0.6)
+                .shadow(color: .white.opacity(0.35), radius: 3)
         }
-        .foregroundStyle(hot ? Color(hex: 0x012A44) : NX.ink)
+        .foregroundStyle(textColor)
     }
+
+    private var textColor: Color { hot ? Color(hex: 0x00182B) : Color(hex: 0x011526) }
 
     private var iconName: String {
         switch mode {
@@ -204,23 +211,80 @@ final class SpinClock {
     }
 }
 
-/// A padlock with two electron orbits around it: the link is post-quantum.
+/// A padlock with two electron orbits around it: the link is post-quantum. While talking, the
+/// electrons spin up ("charging") and their orbits glow; afterwards they coast back down.
 struct QuantumLock: View {
     var size: CGFloat
-    var filled = false
+    /// Transmitting: accelerate.
+    var charging = false
+    var color: Color = NX.ink
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var clock = OrbitClock()
 
     var body: some View {
-        ZStack {
-            Image(systemName: filled ? "lock.fill" : "lock")
-                .font(.system(size: size * 0.62, weight: .semibold))
-            ForEach([-35.0, 35.0], id: \.self) { angle in
-                Ellipse()
-                    .stroke(lineWidth: max(1, size * 0.055))
-                    .frame(width: size * 1.35, height: size * 0.5)
-                    .rotationEffect(.degrees(angle))
+        TimelineView(.animation(minimumInterval: 1 / 60, paused: reduceMotion)) { timeline in
+            let state = reduceMotion ? (phase: 0.0, energy: charging ? 1.0 : 0.0)
+                                     : clock.advance(to: timeline.date, charging: charging)
+            ZStack {
+                Image(systemName: charging ? "lock.fill" : "lock")
+                    .font(.system(size: size * 0.62, weight: .bold))
+                    .foregroundStyle(color)
+                Canvas { context, canvas in
+                    draw(in: &context, size: canvas, phase: state.phase, energy: state.energy)
+                }
             }
         }
-        .frame(width: size * 1.35, height: size * 1.1)
+        .frame(width: size * 1.45, height: size * 1.15)
         .accessibilityLabel("Post-quantum link")
+    }
+
+    private func draw(in context: inout GraphicsContext, size canvas: CGSize, phase: Double, energy: Double) {
+        let center = CGPoint(x: canvas.width / 2, y: canvas.height / 2)
+        let a = size * 0.68, b = size * 0.25
+        let line = max(1, size * 0.055)
+        // The orbit planes precess a little as the electrons go round.
+        let precession = phase * 0.08 * 360
+        if energy > 0.05 { context.addFilter(.shadow(color: NX.cyan.opacity(0.9 * energy), radius: size * 0.12 * energy)) }
+        for (i, tilt) in [-35.0, 35.0].enumerated() {
+            let angle = Angle.degrees(tilt + (i == 0 ? precession : -precession))
+            let transform = CGAffineTransform(translationX: center.x, y: center.y).rotated(by: angle.radians)
+            let orbit = Path(ellipseIn: CGRect(x: -a, y: -b, width: 2 * a, height: 2 * b)).applying(transform)
+            context.stroke(orbit, with: .color(color.opacity(0.55 + 0.45 * energy)), lineWidth: line * (1 + 0.4 * energy))
+            // The electron, with a trail that lengthens as it speeds up.
+            let start = (phase + Double(i) * 0.5) * 2 * .pi * (i == 0 ? 1 : -1)
+            let trail = 1 + Int(6 * energy)
+            for k in 0..<trail {
+                let t = start - Double(k) * 0.16 * (i == 0 ? 1 : -1)
+                let point = CGPoint(x: a * cos(t), y: b * sin(t)).applying(transform)
+                let r = size * 0.085 * (1 - Double(k) / Double(trail + 1))
+                let dot = Path(ellipseIn: CGRect(x: point.x - r, y: point.y - r, width: 2 * r, height: 2 * r))
+                context.fill(dot, with: .color((k == 0 ? color : NX.cyan).opacity(1 - Double(k) / Double(trail + 1))))
+            }
+        }
+    }
+}
+
+/// Electron phase with momentum: spins up quickly while charging, coasts down gently after.
+final class OrbitClock {
+    static let idleSpeed = 0.18   // turns per second
+    static let chargedSpeed = 2.6
+    private var phase: Double = 0
+    private var speed = OrbitClock.idleSpeed
+    private var last: Date?
+
+    func advance(to now: Date, charging: Bool) -> (phase: Double, energy: Double) {
+        if let last {
+            let dt = min(max(0, now.timeIntervalSince(last)), 0.25)
+            let target = charging ? Self.chargedSpeed : Self.idleSpeed
+            // Up in about a second, down over three or four.
+            let tau = charging ? 0.45 : 1.4
+            speed += (target - speed) * (1 - exp(-dt / tau))
+            phase += speed * dt
+            if phase >= 1000 { phase -= 1000 }
+        }
+        last = now
+        let energy = (speed - Self.idleSpeed) / (Self.chargedSpeed - Self.idleSpeed)
+        return (phase, min(1, max(0, energy)))
     }
 }
