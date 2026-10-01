@@ -366,6 +366,8 @@ final class PTTEngine {
             announceReachability()
             refreshRelaySubscription()   // mailbox tags rotate daily
             fetchRelay()
+            // Get the link up with whoever we're likely to talk to next.
+            if let id = state.settings.selectedChannel, let selected = channel(id) { warmUp(selected) }
             // Requests that came in a push while the app wasn't running (someone joining a group).
             for packet in RelayInbox.takePushed() { handleDatagram(packet, from: nil, relayed: true) }
             takeOneTimeKeysUsedElsewhere()
@@ -1396,6 +1398,9 @@ final class PTTEngine {
             if Date().timeIntervalSince(watch.endedAt) <= PTTEngine.deliveredBeepWindow { playDeliveredBeep() }
         }
         if hello.wantsReply {
+            // Reached by push in the background (someone opened our channel): stay reachable a
+            // while, so their first press comes straight through.
+            if endpoint == nil, !isForeground { startLinger() }
             // Over UDP we reply on the same path. A HELLO relayed by push has no path, so punch
             // towards every candidate it lists (PROTOCOL.md §8.2).
             sendHello(to: contact, replyRequested: endpoint == nil,
@@ -2279,6 +2284,30 @@ final class PTTEngine {
             state.settings.selectedChannel = channel
             ptt.setDescriptorName(self.channel(channel)?.name ?? "NXTPTT")
             save()
+            if let selected = self.channel(channel) { warmUp(selected) }
+        }
+    }
+
+    /// Reaches out to everyone on a channel we may be about to talk on, so the first press goes
+    /// straight to them instead of waiting on a wake or the relay: a HELLO to their last known
+    /// addresses, and the same HELLO in a silent push, which wakes their app briefly in the
+    /// background to punch back (PROTOCOL.md §8.2). At most every 45 s per contact.
+    private var lastWarmUp: [SenderID: Date] = [:]
+
+    private func warmUp(_ channel: Channel) {
+        guard !state.watchPrimary else { return }
+        for member in channel.members.prefix(16) {
+            guard let contact = self.contact(id: member), !isLinked(contact.senderID),
+                  Date().timeIntervalSince(lastWarmUp[contact.senderID] ?? .distantPast) > 45 else { continue }
+            lastWarmUp[contact.senderID] = Date()
+            sendHello(to: contact, replyRequested: true, endpoints: [], candidates: contact.reachability.candidates)
+            // Not to someone on Do Not Disturb: their phone stays undisturbed until we talk.
+            if let quiet = state.peerQuiet.first(where: { $0.id == contact.id }), !quiet.breaksThrough { continue }
+            if let apns, let direct = directChannel(for: contact.id),
+               let packet = helloPacket(replyRequested: true, keys: direct.keys, to: contact),
+               let wire = singleWire(packet, for: contact.senderID) {
+                apns.sendBackground(wire, to: contact)
+            }
         }
     }
 
