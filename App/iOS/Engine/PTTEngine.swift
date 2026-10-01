@@ -1109,6 +1109,12 @@ final class PTTEngine {
             save()
             if !wasSecure, session.sendEpoch >= 1, let contact = self.contact(sender) { sessionSecured(with: contact) }
         }
+        // They're still sending under an older epoch than ours: our confirmation (or our accept)
+        // hasn't reached them, and until it does they can't send to us. Confirm again, by every path.
+        if inbound.channel.kind == .direct, let session = channel(inbound.channel.id)?.session,
+           inbound.header.epoch < session.sendEpoch, let contact = self.contact(sender) {
+            confirmEpoch(to: contact)
+        }
         // A one-time key opened this: it's used. Deleted once the message completes.
         if let keyID = inbound.openedKeyID, OneTimeKeyStore.isOneTime(keyID) {
             prekeys.oneTime.markUsed(keyID)
@@ -1288,8 +1294,13 @@ final class PTTEngine {
     /// still at the classical epoch 0, then hourly while they're reachable.
     private func rekeyIfDue(_ contact: Contact, now: Date = Date()) {
         guard !state.watchPrimary, peerProtocol(contact.senderID) != .legacy, let i = channelIndex[directChannel(for: contact.id)?.id ?? .random()],
-              var session = state.channels[i].session,
-              session.sendEpoch == session.epoch else { return }   // wait out an unconfirmed one
+              var session = state.channels[i].session else { return }
+        // We answered their offer but haven't heard from them under the new epoch yet, so we
+        // can't use it. Ask them to confirm instead of waiting for them to talk first.
+        if session.sendEpoch < session.epoch {
+            askToConfirmEpoch(contact)
+            return
+        }
         let due = !session.isQuantumSafe || now.timeIntervalSince(session.epochStarted) > PTTEngine.rekeyInterval
         guard due || session.hasPendingOffer else { return }
         // Re-send briskly while they're live; otherwise once a minute to their last addresses
@@ -1331,12 +1342,55 @@ final class PTTEngine {
         lastOfferSent[state.channels[i].id] = nil
         save()
         log.info("Rekeyed a session (initiator) to epoch \(session.epoch)")
-        // Sealed under the new epoch: confirms it to them, and carries fresh one-time keys.
-        sendHello(to: contact, endpoints: links[contact.senderID].map { [$0.endpoint] } ?? [],
-                  candidates: isLinked(contact.senderID) ? [] : contact.reachability.candidates)
+        // Sealed under the new epoch: confirms it to them (by every path, relay included: until
+        // it arrives they can't send to us), and carries fresh one-time keys.
+        confirmEpoch(to: contact, force: true)
         topUpOneTimeKeys(for: contact, theyHold: nil)
         sessionSecured(with: contact)
         publish()
+    }
+
+    // MARK: - Epoch confirmation (PROTOCOL.md §5.3)
+
+    private var lastEpochConfirm: [IdentityID: Date] = [:]
+    private var lastConfirmAsk: [IdentityID: Date] = [:]
+    /// The relay and silent pushes cost more: at most every 3 minutes per contact.
+    private var lastConfirmFar: [IdentityID: Date] = [:]
+
+    /// Sends a confirmation HELLO: on the live link if there is one; otherwise to their last
+    /// addresses, plus (at most every 3 minutes) a silent push and the relay.
+    private func deliverConfirmation(_ packet: Data, to contact: Contact, force: Bool) {
+        if let link = links[contact.senderID], isLinked(contact.senderID) {
+            send(packet, to: contact.senderID, via: link.endpoint)
+            return
+        }
+        sendAnyway(packet, to: contact)
+        guard force || Date().timeIntervalSince(lastConfirmFar[contact.id] ?? .distantPast) > 180 else { return }
+        lastConfirmFar[contact.id] = Date()
+        deliverAnyway(packet, to: contact)
+        if let apns, let wire = singleWire(packet, for: contact.senderID) { apns.sendBackground(wire, to: contact) }
+    }
+
+    /// A HELLO under our current epoch, by every path including a silent push and the relay.
+    /// The responder of a rekey can't send under the new epoch until something sealed under it
+    /// arrives from us.
+    private func confirmEpoch(to contact: Contact, force: Bool = false) {
+        guard force || Date().timeIntervalSince(lastEpochConfirm[contact.id] ?? .distantPast) > 30,
+              let direct = directChannel(for: contact.id),
+              let packet = helloPacket(replyRequested: false, keys: direct.keys, to: contact) else { return }
+        lastEpochConfirm[contact.id] = Date()
+        deliverConfirmation(packet, to: contact, force: force)
+    }
+
+    /// We're the responder and still unconfirmed: a HELLO asking for a reply. Their answer is
+    /// sealed under the new epoch, which confirms it (and they confirm by every path when they
+    /// see us behind, in `handleInbound`).
+    private func askToConfirmEpoch(_ contact: Contact) {
+        guard Date().timeIntervalSince(lastConfirmAsk[contact.id] ?? .distantPast) > 30 else { return }
+        lastConfirmAsk[contact.id] = Date()
+        guard let direct = directChannel(for: contact.id),
+              let packet = helloPacket(replyRequested: true, keys: direct.keys, to: contact) else { return }
+        deliverConfirmation(packet, to: contact, force: false)
     }
 
     // MARK: - One-time prekeys (PROTOCOL.md §3.2)

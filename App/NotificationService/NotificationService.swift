@@ -116,7 +116,12 @@ final class NotificationService: UNNotificationServiceExtension {
                 content.sound = nil
                 return
             }
-            guard let message = RelayInbox.open(payload, with: sync) else { return }
+            // Nothing to play (key exchange or link upkeep, or a message we can't open): say
+            // nothing about a voice message, and make no sound.
+            guard let message = RelayInbox.open(payload, with: sync) else {
+                self?.showGeneric(content)
+                return
+            }
             RelayInbox.markRelayed(packets, record: record)
             // Do Not Disturb: keep it on this phone, silently, and take it out of the relay now.
             if RelayInbox.loadQuiet().holds(message.sender) {
