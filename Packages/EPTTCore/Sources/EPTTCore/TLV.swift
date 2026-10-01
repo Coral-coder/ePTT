@@ -129,7 +129,7 @@ struct TLVBuilder {
 
 extension String {
     /// The longest prefix whose UTF-8 encoding fits in `maxBytes`, never splitting a character.
-    func utf8Prefix(maxBytes: Int) -> String {
+    public func utf8Prefix(maxBytes: Int) -> String {
         guard utf8.count > maxBytes else { return self }
         var result = ""
         for character in self {

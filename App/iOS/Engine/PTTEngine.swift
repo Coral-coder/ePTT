@@ -1926,6 +1926,24 @@ final class PTTEngine {
         }
     }
 
+    /// Renames a talk group for everyone in it: the members get the new name with the same key
+    /// (an invite at the same epoch, which only updates the group).
+    func renameGroup(_ id: ChannelID, to newName: String) {
+        queue.async { [self] in
+            let name = newName.trimmingCharacters(in: .whitespacesAndNewlines).utf8Prefix(maxBytes: 64)
+            guard !name.isEmpty, let i = channelIndex[id], state.channels[i].kind == .group,
+                  state.channels[i].name != name else { return }
+            state.channels[i].name = name
+            if state.settings.selectedChannel == id { ptt.setDescriptorName(name) }
+            save()
+            publish()
+            let group = state.channels[i]
+            for member in group.members {
+                if let contact = self.contact(id: member) { sendInvite(group, to: contact) }
+            }
+        }
+    }
+
     func leaveGroup(_ id: ChannelID) {
         queue.async { [self] in
             guard let channel = self.channel(id), channel.kind == .group else { return }
@@ -2261,6 +2279,12 @@ final class PTTEngine {
                 state.channels[i].members = others
             } else {
                 state.channels[i].members = Array(Set(existing.members).union(others))
+            }
+            // A member renamed the group.
+            if !invite.name.isEmpty, invite.name != existing.name {
+                state.channels[i].name = invite.name
+                if state.settings.selectedChannel == id { ptt.setDescriptorName(invite.name) }
+                publish()
             }
             state.channels[i].keys = invite.keys
             save()

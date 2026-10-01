@@ -156,6 +156,8 @@ struct GroupCard: View {
     @EnvironmentObject private var model: AppModel
     let channel: Channel
     @State private var inviting = false
+    @State private var renaming = false
+    @State private var newName = ""
 
     private var selected: Bool { model.snapshot.settings.selectedChannel == channel.id }
 
@@ -210,8 +212,21 @@ struct GroupCard: View {
                 .strokeBorder(selected ? NX.ice.opacity(0.85) : .clear, lineWidth: 1)
         )
         .sheet(isPresented: $inviting) { GroupInviteView(channel: channel) }
+        .alert("Rename group", isPresented: $renaming) {
+            TextField("Name", text: $newName)
+            Button("Rename") { model.engine.renameGroup(channel.id, to: newName) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Everyone in the group sees the new name.")
+        }
         .contextMenu {
             PinMenuItem(channel: channel.id)
+            Button {
+                newName = channel.name
+                renaming = true
+            } label: {
+                Label("Rename", systemImage: "pencil")
+            }
             Button {
                 inviting = true
             } label: {
