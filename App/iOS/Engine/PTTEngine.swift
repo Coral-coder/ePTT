@@ -627,9 +627,8 @@ final class PTTEngine {
             var legacyMembers: [Contact] = []
             for member in channel.members {
                 guard let i = contactsBySender[member.senderID] else { continue }
-                if likelyLegacy(member.senderID) {
+                if peerProtocol(member.senderID) == .legacy {
                     legacyMembers.append(state.contacts[i])
-                    rekeyIfDue(state.contacts[i])   // if they're on protocol 2 after all, upgrade
                 } else if let target = sealTarget(forContactAt: i) {
                     targets.append(target)
                     secured.append(member)
@@ -953,9 +952,8 @@ final class PTTEngine {
             let alert = CallAlert(name: state.settings.displayName, timestamp: currentTimestamp(), text: text)
             let messageID = MessageID.random()
             let plaintext: Data
-            if likelyLegacy(contact.senderID) {
-                // An older build (or maybe one): protocol 1, text and all, under its classical
-                // channel key. (A protocol-2 app reads protocol 1 from someone it hasn't heard on 2.)
+            if peerProtocol(contact.senderID) == .legacy {
+                // An older build: protocol 1, text and all, under its classical channel key.
                 guard var link = legacy,
                       let packet = legacyOnly(try? link.sealCallAlert(name: alert.name, timestamp: alert.timestamp, text: text,
                                                                      channel: channel, peer: contact.identity,
@@ -2305,11 +2303,10 @@ final class PTTEngine {
             sendHello(to: contact, replyRequested: true, endpoints: [], candidates: contact.reachability.candidates)
             // Not to someone on Do Not Disturb: their phone stays undisturbed until we talk.
             if let quiet = state.peerQuiet.first(where: { $0.id == contact.id }), !quiet.breaksThrough { continue }
-            // Both forms to a contact we haven't heard since updating: an older app can only
-            // read protocol 1, and answering it is how we learn which one they run.
             if let apns, let direct = directChannel(for: contact.id),
-               let packet = helloPacket(replyRequested: true, keys: direct.keys, to: contact) {
-                for wire in wireForms(packet, for: contact.senderID) { apns.sendBackground(wire, to: contact) }
+               let packet = helloPacket(replyRequested: true, keys: direct.keys, to: contact),
+               let wire = singleWire(packet, for: contact.senderID) {
+                apns.sendBackground(wire, to: contact)
             }
         }
     }
@@ -2959,25 +2956,9 @@ final class PTTEngine {
     }
 
     /// One wire packet (a push or a relay record carries one form): protocol 1 for a contact
-    /// on an older build, or one who may be (see `likelyLegacy`); protocol 2 otherwise.
+    /// on an older build, protocol 2 otherwise.
     private func singleWire(_ packet: Data, for sender: SenderID) -> Data? {
-        if peerProtocol(sender) == .legacy { return twins[packet] }
-        if likelyLegacy(sender), let twin = twins[packet] { return twin }
-        return twins[packet] == packet ? nil : shield(packet)
-    }
-
-    /// A contact we can't tell apart from one on an older build: never heard from since
-    /// updating, and no post-quantum session with them (a contact on protocol 2 completes one
-    /// the moment they're reachable). Someone on an older app who hasn't written to us yet looks
-    /// exactly like this, so they get protocol 1 until they're heard in either protocol.
-    private func likelyLegacy(_ sender: SenderID) -> Bool {
-        switch peerProtocol(sender) {
-        case .legacy: return true
-        case .current: return false
-        case .unknown:
-            guard let contact = self.contact(sender) else { return false }
-            return directChannel(for: contact.id)?.session?.isQuantumSafe != true
-        }
+        peerProtocol(sender) == .legacy ? twins[packet] : (twins[packet] == packet ? nil : shield(packet))
     }
 
     /// For a protocol-1 copy: the peer of a direct channel (talk groups don't need one).
