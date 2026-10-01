@@ -111,7 +111,7 @@ extension WatchSync {
     func isLegacyFromContact(_ wire: Data) -> Bool {
         guard LegacyLink.looksLegacy(wire), let sender = LegacyLink.senderID(of: wire),
               let contact = contacts.first(where: { $0.senderID == sender }) else { return false }
-        return contactProtocols?[contact.id] != 2
+        return contactProtocols?[contact.id] != 3   // 3: heard under a post-quantum epoch
     }
 
     /// Opens a relayed or pushed packet in either protocol. Nil if it isn't for us.

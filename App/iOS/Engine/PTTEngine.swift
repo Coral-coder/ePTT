@@ -291,6 +291,8 @@ final class PTTEngine {
             Store.save(state)
         }
         migrateToProtocol2()
+        settleProtocolLatches()
+        Store.save(state)
         rebuildIndexes()
         rotatePrekeysIfNeeded()
     }
@@ -661,8 +663,11 @@ final class PTTEngine {
             var reasons: [String] = []
             for member in channel.members {
                 guard let i = contactsBySender[member.senderID] else { continue }
-                if peerProtocol(member.senderID) == .legacy {
+                if peerProtocol(member.senderID) == .classical {
+                    // No post-quantum link yet: protocol 1, which every build reads. Keep
+                    // trying to upgrade.
                     legacyMembers.append(state.contacts[i])
+                    rekeyIfDue(state.contacts[i])
                 } else if let target = sealTarget(forContactAt: i) {
                     targets.append(target)
                     secured.append(member)
@@ -992,8 +997,8 @@ final class PTTEngine {
             let alert = CallAlert(name: state.settings.displayName, timestamp: currentTimestamp(), text: text)
             let messageID = MessageID.random()
             let plaintext: Data
-            if peerProtocol(contact.senderID) == .legacy {
-                // An older build: protocol 1, text and all, under its classical channel key.
+            if peerProtocol(contact.senderID) == .classical {
+                // No post-quantum link yet: protocol 1, text and all, under its classical channel key.
                 guard var link = legacy,
                       let packet = legacyOnly(try? link.sealCallAlert(name: alert.name, timestamp: alert.timestamp, text: text,
                                                                      channel: channel, peer: contact.identity,
@@ -1149,13 +1154,16 @@ final class PTTEngine {
             return
         }
 
-        noteProtocol(2, from: inbound.header.senderID)
         handleInbound(inbound, from: endpoint, relayed: relayed)
     }
 
     /// An authenticated message, whichever protocol it came in.
     private func handleInbound(_ inbound: InboundPacket, from endpoint: PeerPath?, relayed: Bool) {
         let sender = inbound.header.senderID
+        // Heard under a post-quantum epoch: they've confirmed it, so protocol 1 is over with them.
+        if !inbound.isLegacy, inbound.channel.kind == .direct, inbound.header.epoch >= 1, let contact = self.contact(sender) {
+            latchReceive(contact)
+        }
         // They sealed this under a newer epoch of our session: they hold it, so we switch to it.
         if inbound.channel.kind == .direct, let i = channelIndex[inbound.channel.id],
            var session = state.channels[i].session, inbound.header.epoch > session.sendEpoch {
@@ -1163,6 +1171,7 @@ final class PTTEngine {
             session.peerUsed(epoch: inbound.header.epoch)
             state.channels[i].apply(session: session)
             save()
+            if session.sendEpoch >= 1, let contact = self.contact(sender) { latchReceive(contact) }
             if !wasSecure, session.sendEpoch >= 1, let contact = self.contact(sender) { sessionSecured(with: contact) }
             noteLink(state.channels[i].members.first, "confirmed: sending under epoch \(session.sendEpoch)")
         }
@@ -1357,7 +1366,7 @@ final class PTTEngine {
     /// Starts (or re-sends) a rekey with a contact when it's due: right away while the session is
     /// still at the classical epoch 0, then hourly while they're reachable.
     private func rekeyIfDue(_ contact: Contact, now: Date = Date()) {
-        guard !state.watchPrimary, peerProtocol(contact.senderID) != .legacy, let i = channelIndex[directChannel(for: contact.id)?.id ?? .random()],
+        guard !state.watchPrimary, let i = channelIndex[directChannel(for: contact.id)?.id ?? .random()],
               var session = state.channels[i].session else { return }
         // We answered their offer but haven't heard from them under the new epoch yet, so we
         // can't use it. Ask them to confirm instead of waiting for them to talk first.
@@ -1422,6 +1431,7 @@ final class PTTEngine {
         noteLink(contact.id, "accept for offer \(accept.offerID.bytes.prefix(2).hex) received: "
                  + (done ? "now at epoch \(session.epoch)" : "doesn't match our pending offer (\(session.hasPendingOffer ? "have one" : "none"))"))
         guard done else { return }
+        latchProtocol2(contact)
         state.channels[i].apply(session: session)
         lastOfferSent[state.channels[i].id] = nil
         save()
@@ -2058,7 +2068,7 @@ final class PTTEngine {
         guard let inbound = try? link.open(wire, maxAge: ReplayGuard.maxClockSkew,
                                            channelLookup: { [self] in channel($0) },
                                            identityLookup: { [self] in contact(id: $0)?.identity }),
-              peerProtocol(inbound.header.senderID) != .current else { return nil }
+              !refusesProtocol1(from: inbound.header.senderID) else { return nil }
         noteProtocol(1, from: inbound.header.senderID)
         return inbound
     }
@@ -2198,9 +2208,9 @@ final class PTTEngine {
         }
         let invite = GroupInvite(timestamp: currentTimestamp(), name: channel.name, keys: channel.keys, memberCards: cards)
         let messageID = MessageID.random()
-        if peerProtocol(contact.senderID) == .legacy {
-            // An older build: the group key goes to them in protocol 1 (classical), the only
-            // way they can read it.
+        if peerProtocol(contact.senderID) == .classical {
+            // No post-quantum link yet: the group key goes to them in protocol 1 (classical),
+            // which every build reads.
             guard var link = legacy,
                   let packet = legacyOnly(try? link.sealInvite(invite, direct: direct, peer: contact.identity,
                                                               prekey: contact.reachability.prekey, messageID: messageID))
@@ -3122,29 +3132,58 @@ final class PTTEngine {
 
     // MARK: - Contacts on older builds (protocol 1, PROTOCOL.md §10.1)
 
-    private enum PeerProtocol { case unknown, legacy, current }
+    /// `.current`: our post-quantum link with them is up (or was): protocol 2 only, for good.
+    /// `.classical`: not yet. Content goes in protocol 1, which every build reads; control
+    /// messages go in both, so the post-quantum exchange can happen when they run protocol 2.
+    private enum PeerProtocol { case classical, current }
 
     private func peerProtocol(_ sender: SenderID) -> PeerProtocol {
-        guard let contact = self.contact(sender) else { return .unknown }
-        switch state.contactProtocols[contact.id] {
-        case 2: return .current
-        case 1: return .legacy
-        default: return .unknown
-        }
+        guard let contact = self.contact(sender) else { return .classical }
+        return (state.contactProtocols[contact.id] ?? 0) >= 2 ? .current : .classical
     }
 
-    /// Records the protocol a contact just spoke (authenticated). Protocol 2 is final.
+    /// Protocol 1 from them is refused once they've been heard under a post-quantum epoch
+    /// (3): before that, they may still be waiting to confirm it and sending protocol 1.
+    private func refusesProtocol1(from sender: SenderID) -> Bool {
+        guard let contact = self.contact(sender) else { return false }
+        return state.contactProtocols[contact.id] == 3
+    }
+
+    /// Records that a contact spoke protocol 1 (shown as "older app"); changes nothing once latched.
     private func noteProtocol(_ version: UInt8, from sender: SenderID) {
-        guard let contact = self.contact(sender) else { return }
-        let was = state.contactProtocols[contact.id]
-        guard was != 2, was != version else { return }
-        state.contactProtocols[contact.id] = version
+        guard version == 1, let contact = self.contact(sender), state.contactProtocols[contact.id] == nil else { return }
+        state.contactProtocols[contact.id] = 1
         save()
         publish()
-        if version == 1 {
-            emit(.message("\(contact.name) is on an older NXTPTT. You can talk, but not post-quantum until they update."))
-        } else if was == 1 {
-            emit(.message("\(contact.name) updated: your link is post-quantum from now on"))
+    }
+
+    /// The post-quantum link with a contact is up: from now on protocol 2 only, both ways.
+    private func latchProtocol2(_ contact: Contact) {
+        guard (state.contactProtocols[contact.id] ?? 0) < 2 else { return }
+        let was = state.contactProtocols[contact.id]
+        state.contactProtocols[contact.id] = 2
+        save()
+        publish()
+        noteLink(contact.id, "post-quantum link up: protocol 2 from now on")
+        if was == 1 { emit(.message("\(contact.name) updated: your link is post-quantum from now on")) }
+    }
+
+    /// They spoke protocol 2 under a post-quantum epoch: protocol 1 from them is refused for good.
+    private func latchReceive(_ contact: Contact) {
+        guard state.contactProtocols[contact.id] != 3 else { return }
+        latchProtocol2(contact)
+        state.contactProtocols[contact.id] = 3
+        save()
+    }
+
+    /// Fixes the latch after an update: latched only where the post-quantum link is up, and
+    /// latched wherever it is (earlier builds latched on any protocol-2 packet).
+    private func settleProtocolLatches() {
+        for contact in state.contacts {
+            let secure = (directChannel(for: contact.id)?.session?.sendEpoch ?? 0) >= 1
+            if secure { state.contactProtocols[contact.id] = 2 } else if (state.contactProtocols[contact.id] ?? 0) >= 2 {
+                state.contactProtocols[contact.id] = nil
+            }
         }
     }
 
@@ -3170,16 +3209,29 @@ final class PTTEngine {
     private func wireForms(_ packet: Data, for sender: SenderID) -> [Data] {
         let isLegacyOnly = twins[packet] == packet
         switch peerProtocol(sender) {
-        case .current: return isLegacyOnly ? [] : shield(packet).map { [$0] } ?? []
-        case .legacy: return twins[packet].map { [$0] } ?? []
-        case .unknown: return (isLegacyOnly ? [] : shield(packet).map { [$0] } ?? []) + (twins[packet].map { [$0] } ?? [])
+        case .current:
+            return isLegacyOnly ? [] : shield(packet).map { [$0] } ?? []
+        case .classical:
+            // Content they can only open in protocol 1 (its keys are protocol 1's): just that copy.
+            if let twin = twins[packet], isLegacyOnly || isContent(packet) { return [twin] }
+            // Control: both, whichever build they run.
+            return (isLegacyOnly ? [] : shield(packet).map { [$0] } ?? []) + (twins[packet].map { [$0] } ?? [])
         }
     }
 
-    /// One wire packet (a push or a relay record carries one form): protocol 1 for a contact
-    /// on an older build, protocol 2 otherwise.
+    private func isContent(_ packet: Data) -> Bool {
+        guard let type = (try? PacketHeader(packet: packet))?.type else { return false }
+        switch type {
+        case .burstStart, .voice, .burstEnd, .wake, .callAlert, .groupInvite: return true
+        default: return false
+        }
+    }
+
+    /// One wire packet (a push or a relay record carries one form): protocol 2 once the
+    /// post-quantum link is up; before that the protocol-1 copy when there is one.
     private func singleWire(_ packet: Data, for sender: SenderID) -> Data? {
-        peerProtocol(sender) == .legacy ? twins[packet] : (twins[packet] == packet ? nil : shield(packet))
+        if peerProtocol(sender) == .classical, let twin = twins[packet] { return twin }
+        return twins[packet] == packet ? nil : shield(packet)
     }
 
     /// For a protocol-1 copy: the peer of a direct channel (talk groups don't need one).
@@ -3214,7 +3266,7 @@ final class PTTEngine {
             return
         } catch InboundError.replay {
             legacy = link
-            if let endpoint, let sender = LegacyLink.senderID(of: data), peerProtocol(sender) == .legacy {
+            if let endpoint, let sender = LegacyLink.senderID(of: data), peerProtocol(sender) == .classical {
                 noteHeard(sender, at: endpoint)
             }
             return
@@ -3225,7 +3277,7 @@ final class PTTEngine {
         }
         let sender = inbound.header.senderID
         // Downgrade lock: a contact who has spoken protocol 2 is never believed in protocol 1.
-        guard peerProtocol(sender) != .current else {
+        guard !refusesProtocol1(from: sender) else {
             log.notice("Dropped a protocol-1 packet from a contact on protocol 2")
             return
         }

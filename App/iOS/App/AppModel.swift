@@ -226,7 +226,7 @@ final class AppModel: ObservableObject {
         guard !channel.members.isEmpty else { return false }
         return channel.members.allSatisfy { member in
             !snapshot.legacyContacts.contains(member)
-                && snapshot.channels.first { $0.kind == .direct && $0.members == [member] }?.session?.isQuantumSafe == true
+                && (snapshot.channels.first { $0.kind == .direct && $0.members == [member] }?.session?.sendEpoch ?? 0) >= 1
         }
     }
 

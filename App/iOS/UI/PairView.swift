@@ -234,7 +234,8 @@ struct ContactDetailView: View {
             Section {
                 let session = model.directChannel(for: contact)?.session
                 let older = model.snapshot.legacyContacts.contains(contact.id)
-                LabeledContent("Link", value: older ? "Older app · classical" : session?.isQuantumSafe == true ? "Post-quantum" : "Securing…")
+                LabeledContent("Link", value: (session?.sendEpoch ?? 0) >= 1 ? "Post-quantum"
+                               : older ? "Older app · classical" : "Classical · upgrading…")
                 if older {
                     LabeledContent("Protocol", value: "1 · X25519 · ChaCha20-Poly1305")
                 } else if let session, session.isQuantumSafe {
@@ -250,7 +251,7 @@ struct ContactDetailView: View {
             } footer: {
                 Text(model.snapshot.legacyContacts.contains(contact.id)
                      ? "\(contact.name) is on an older NXTPTT. You can talk, but with the older encryption: end-to-end and forward-secret, not post-quantum, and without hidden packet headers. It upgrades on its own, for good, once they update."
-                     : "Nothing is sent to \(contact.name) until the link is post-quantum. Session keys renew every hour; every message also gets its own key, deleted after use.")
+                     : "Until the post-quantum link with \(contact.name) is up, messages use the older encryption (end-to-end and forward-secret, not post-quantum). Once it's up, it's post-quantum for good: session keys renew every hour and every message gets its own key, deleted after use.")
                     .font(NX.body(13))
             }
             .nxRows()
