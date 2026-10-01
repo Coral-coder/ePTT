@@ -103,7 +103,7 @@ final class WatchEngine {
     func beginBurst(on channelID: ChannelID) -> Bool {
         queue.sync {
             guard recording == nil, let identity, let sync,
-                  let channel = sync.channels.first(where: { $0.id == channelID }) else { return false }
+                  var channel = sync.channels.first(where: { $0.id == channelID }) else { return false }
             let encoder = CaptureEncoder()
             // Only members whose link is post-quantum (the iPhone runs the rekeys). Never their
             // one-time keys: the iPhone hands those out and would use them again.
@@ -120,7 +120,6 @@ final class WatchEngine {
                 return false
             }
             let secured = Set(targets.map(\.recipient))
-            var channel = channel
             channel.members = channel.members.filter { secured.contains($0.senderID) }
             do {
                 let burst = try OutgoingBurst(identity: identity, channelID: channel.id, timestamp: currentTimestamp(),
@@ -206,10 +205,9 @@ final class WatchEngine {
                                      : .sent(recipients: confirmed.count))
             return
         }
-        let wakePacket = try? PacketBuilder(local: identity).seal(
+        let wakePacket = try? PacketShield.shield(PacketBuilder(local: identity).seal(
             .wake, plaintext: Wake(name: sync.displayName, timestamp: currentTimestamp(), candidates: []).encoded,
-            keys: r.channel.keys, messageID: r.burst.burstID, group: r.channel.kind == .group)
-            .flatMap { try? PacketShield.shield($0, keys: r.channel.keys) }
+            keys: r.channel.keys, messageID: r.burst.burstID, group: r.channel.kind == .group), keys: r.channel.keys)
         let apns = self.apns
         let direct = confirmed.count
         Task { [weak self] in
@@ -315,8 +313,8 @@ final class WatchEngine {
         let reachability = Reachability(candidates: transport.localCandidates, prekey: prekey,
                                         relayMailbox: sync.relayMailbox)
         let body = Hello(name: sync.displayName, timestamp: currentTimestamp(), reachability: reachability, flags: flags)
-        return (try? PacketBuilder(local: identity).seal(.hello, plaintext: body.encoded, keys: channel.keys))
-            .flatMap { try? PacketShield.shield($0, keys: channel.keys) }
+        return try? PacketShield.shield(PacketBuilder(local: identity).seal(.hello, plaintext: body.encoded,
+                                                                            keys: channel.keys), keys: channel.keys)
     }
 
     /// Everyone: linked contacts on their link, the rest at every address they last gave us.
