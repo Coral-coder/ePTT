@@ -210,6 +210,9 @@ final class PTTEngine {
     private var tx: Transmission?
     /// Channel requested from our UI while we wait for PushToTalk to grant the transmission.
     private var pendingPress: ChannelID?
+    /// The talk button is held but nobody on the channel has a secure link yet: a steady tone
+    /// plays instead of the chirp, nothing is sent, and it ends when the button is released.
+    private var heldWithoutLink = false
 
     private struct Reception {
         let channel: Channel
@@ -478,13 +481,22 @@ final class PTTEngine {
                 }
                 let channel = self.pendingPress ?? self.state.settings.selectedChannel
                 self.pendingPress = nil
-                guard let channel, self.beginBurst(on: channel) else {
+                guard let channel, self.beginBurst(on: channel) || self.heldWithoutLink else {
                     self.ptt.stopTransmitting()
                     return
                 }
             }
         }
-        ptt.onEndTransmitting = { [weak self] in self?.queue.async { self?.endBurst() } }
+        ptt.onEndTransmitting = { [weak self] in
+            self?.queue.async {
+                guard let self else { return }
+                if self.heldWithoutLink {   // released from the system UI
+                    self.heldWithoutLink = false
+                    self.audio.stopHoldTone()
+                }
+                self.endBurst()
+            }
+        }
         ptt.onTransmitFailed = { [weak self] _ in self?.queue.async { self?.pendingPress = nil } }
         ptt.onAudioActivated = { [weak self] _ in self?.queue.async { self?.audioDidActivate() } }
         ptt.onAudioDeactivated = { [weak self] in
@@ -525,7 +537,9 @@ final class PTTEngine {
         }
         // Starting the engine enables voice processing, which can move output to the earpiece.
         AudioEngine.routeToSpeakerIfNeeded()
-        if tx != nil {
+        if heldWithoutLink {
+            audio.startHoldTone()
+        } else if tx != nil {
             audio.play(.talkPermit)
             audio.startCapture()
         } else if rx != nil, rx?.pcm == nil, rx?.isReplay == false {
@@ -567,6 +581,9 @@ final class PTTEngine {
                 if !audioActive { startManualAudio() }
                 audio.play(.talkPermit)
                 audio.startCapture()
+            } else if heldWithoutLink {
+                if !audioActive { startManualAudio() }
+                audio.startHoldTone()
             }
         }
     }
@@ -575,6 +592,20 @@ final class PTTEngine {
         queue.async { [self] in
             let requested = pendingPress != nil
             pendingPress = nil
+            if heldWithoutLink {
+                heldWithoutLink = false
+                audio.stopHoldTone()
+                if usesPushToTalk {
+                    ptt.stopTransmitting()
+                } else if rx == nil {
+                    queue.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                        guard let self, self.tx == nil, self.rx == nil, !self.heldWithoutLink else { return }
+                        self.audio.stop()
+                        self.audioActive = false
+                    }
+                }
+                return
+            }
             guard tx != nil else {
                 // Released before iOS granted the transmission: withdraw the request.
                 if requested, usesPushToTalk { ptt.stopTransmitting() }
@@ -640,7 +671,10 @@ final class PTTEngine {
             guard !targets.isEmpty || !legacyMembers.isEmpty else {
                 emit(.message("Securing the link with \(unsecured.joined(separator: ", ")). Try again in a moment."))
                 _ = floor.releaseTalk()
-                if usesPushToTalk { ptt.stopTransmitting() }
+                // Hold the steady "no link" tone until the button is released (with PushToTalk the
+                // audio session comes up shortly, see audioDidActivate).
+                heldWithoutLink = true
+                if audioActive { audio.startHoldTone() }
                 return
             }
             if !unsecured.isEmpty {

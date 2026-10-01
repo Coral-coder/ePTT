@@ -392,6 +392,20 @@ final class AudioEngine {
         }
     }
 
+    /// A steady tone until `stopHoldTone` (the talk button is held but nothing can be sent).
+    func startHoldTone() {
+        queue.async {
+            guard self.engine.isRunning, let format = self.toneFormat else { return }
+            self.tonePlayer.scheduleBuffer(ToneSynth.holdBuffer(format: format), at: nil,
+                                           options: [.interrupts, .loops], completionHandler: nil)
+            if !self.tonePlayer.isPlaying { self.tonePlayer.play() }
+        }
+    }
+
+    func stopHoldTone() {
+        queue.async { self.tonePlayer.stop() }
+    }
+
     // MARK: - Session (fallback when the PushToTalk framework is unavailable)
 
     static func activateSessionManually() throws {

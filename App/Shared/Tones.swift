@@ -44,7 +44,23 @@ enum ToneSynth {
     /// Renders `tone` into a buffer of `format` (normally Float32 mono 48 kHz). Every channel
     /// gets the same signal. Float32 and Int16 formats are supported.
     static func buffer(for tone: Tone, format: AVAudioFormat) -> AVAudioPCMBuffer {
-        let samples = render(tone, sampleRate: format.sampleRate > 0 ? format.sampleRate : 48_000)
+        buffer(samples: render(tone, sampleRate: format.sampleRate > 0 ? format.sampleRate : 48_000), format: format)
+    }
+
+    /// The "no link" tone: a steady tone held for as long as the talk button is, when nobody on
+    /// the channel can be reached securely yet. One second of whole cycles, so it loops cleanly.
+    static let holdToneHz: Double = 420
+
+    static func holdBuffer(format: AVAudioFormat) -> AVAudioPCMBuffer {
+        let rate = format.sampleRate > 0 ? format.sampleRate : 48_000
+        let count = Int(rate)
+        let samples = (0..<count).map { i in
+            Float(sin(2 * .pi * holdToneHz * Double(i) / rate)) * amplitude * 0.8
+        }
+        return buffer(samples: samples, format: format)
+    }
+
+    static func buffer(samples: [Float], format: AVAudioFormat) -> AVAudioPCMBuffer {
         let frames = AVAudioFrameCount(max(1, samples.count))
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames) else {
             // Only happens for a non-PCM format, which is a programming error.
