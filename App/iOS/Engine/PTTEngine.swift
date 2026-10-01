@@ -1276,10 +1276,17 @@ final class PTTEngine {
             return
         }
         for packet in packets { sendToCandidates(packet, for: contact.senderID, contact.reachability.candidates) }
-        guard !offersRelayed.contains(relayKey), let relay, state.settings.relayEnabled,
+        // Each fragment also as a silent push (once per offer or accept): the other phone
+        // handles it in the background, so the exchange completes without either app open.
+        let first = offersRelayed.insert(relayKey).inserted
+        if first, let apns {
+            for packet in packets {
+                if let wire = singleWire(packet, for: contact.senderID) { apns.sendBackground(wire, to: contact) }
+            }
+        }
+        guard first, let relay, state.settings.relayEnabled,
               let mailbox = contact.reachability.relayMailbox,
               let payload = Relay.encode(packets: shieldAll(packets)) else { return }
-        offersRelayed.insert(relayKey)
         Task { [weak self] in
             if let name = try? await relay.upload(payload: payload, tag: Relay.tag(mailbox: mailbox)) {
                 self?.queue.async {
