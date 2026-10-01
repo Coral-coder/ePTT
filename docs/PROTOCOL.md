@@ -798,43 +798,46 @@ packets.
 
 ### 10.1 Talking to protocol-1 devices
 
-A protocol-2 device also speaks protocol 1, unchanged, to contacts who haven't updated.
-It tracks one state per contact:
+A protocol-2 device also speaks protocol 1, unchanged, so devices on either protocol can
+talk. Per contact:
 
 | State | Meaning | Sends | Accepts |
 | --- | --- | --- | --- |
-| unknown | not heard from since updating | protocol 2, plus a protocol-1 copy of each control message (HELLO, CARD, bare CALL_ALERT, GROUP_LEAVE) | both |
-| 1 | an authenticated protocol-1 packet arrived, and never protocol 2 | protocol 1 only | both (a protocol-2 packet moves them to 2) |
-| 2 | an authenticated protocol-2 packet arrived | protocol 2 only | protocol 2 only |
+| classical | no post-quantum link with them yet | content (bursts, wakes, call alerts, group invites) in protocol 1; control messages (HELLO, CARD) in both; PQ_OFFER / PQ_ACCEPT in protocol 2 | both |
+| 2 | our send epoch is >= 1 (the post-quantum link is up) | protocol 2 only | both |
+| 3 | they've been heard in protocol 2 under an epoch >= 1 | protocol 2 only | protocol 2 only |
 
-**State 2 is final (downgrade lock).** Once a contact has spoken protocol 2, every
-protocol-1 packet that claims to be from them is dropped, and nothing is sent to them in
-protocol 1 again. No one can talk a pair back down to the classical protocol by
-suppressing protocol-2 traffic.
+**The latch is final (downgrade lock).** A contact moves from classical to 2 when our session
+with them reaches a post-quantum send epoch, and to 3 when we hear them under one; neither
+ever goes back. Between 2 and 3 their protocol-1 packets are still accepted, because the
+responder of the first exchange keeps sending protocol 1 until it has confirmed the new epoch
+(§5.3). No one can talk a pair back down to the classical protocol by suppressing protocol-2
+traffic once the link is up. On launch a device settles the state from its sessions.
 
 Receiving: a datagram that doesn't unshield, starts with 0x01 and is at least 56 bytes is
 processed as a protocol-1 packet (protocol 1, §6). Only after it authenticates under the
 protocol-1 channel key, from a member, is it handled, exactly like the same message in
 protocol 2.
 
-Sending to a contact in state 1:
+Sending to a contact in the classical state:
 
 - **Bursts.** The talker makes a second, protocol-1 burst with the same `burst_id`: its own
   random burst key, wrapped in 60-byte protocol-1 envelopes to each such member's signed
   prekey, and a protocol-1 BURST_START, VOICE and BURST_END. In a talk group with members on
   both protocols, each member gets the copy in its own protocol. The protocol-2 copy carries
   envelopes only for protocol-2 members, and the protocol-1 copy only for protocol-1 members.
-- **Wake pushes, call alerts, cards, group invites, leaves, receipts** go in protocol 1,
-  under the protocol-1 direct channel key (static X25519). Call-alert text is sealed only by
-  that key.
-- **Relay records** hold the protocol-1 packets, unshielded.
-- **No PQ_OFFER, PQ_ACCEPT or ONE_TIME_KEYS** are sent.
+- **Wake pushes, call alerts and group invites** go in protocol 1, under the protocol-1
+  direct channel key (static X25519). Call-alert text is sealed only by that key.
+- **HELLO, CARD, GROUP_LEAVE and receipts** go in both protocols.
+- **PQ_OFFER and PQ_ACCEPT** keep going in protocol 2, so the link upgrades as soon as both
+  sides run protocol 2 (a protocol-1 device ignores them).
+- **Relay records** hold each member's copy in its form: protocol-1 packets unshielded.
 
 What a protocol-1 link lacks: post-quantum protection, header shielding and padding,
 one-time prekeys, hourly rekeys, and group sender signatures. Group keys sent to a
 protocol-1 member travel under classical cryptography, so anyone who later breaks it can
-recover that group key. Apps show these contacts as on an older app, and the link becomes
-protocol 2, for good, the first time they're heard on it. Not supported across protocols:
+recover that group key. Apps show these links as classical ("older app" once heard in
+protocol 1), and they become protocol 2, for good, once the post-quantum link is up. Not supported across protocols:
 talk-group QR codes (§6.5) and the standalone Apple Watch, which speak protocol 2 only.
 
 ## 11. Store-and-forward relay
