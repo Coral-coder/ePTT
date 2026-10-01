@@ -230,9 +230,13 @@ struct QuantumLock: View {
                 Image(systemName: charging ? "lock.fill" : "lock")
                     .font(.system(size: size * 0.62, weight: .bold))
                     .foregroundStyle(color)
+                // Square, with room for the glow: an orbit can turn to any angle, vertical included.
+                // (Larger than the layout frame below; frames don't clip, so it just overhangs.)
                 Canvas { context, canvas in
                     draw(in: &context, size: canvas, phase: state.phase, energy: state.energy)
                 }
+                .frame(width: size * 1.9, height: size * 1.9)
+                .allowsHitTesting(false)
             }
         }
         .frame(width: size * 1.45, height: size * 1.15)
