@@ -30,7 +30,8 @@ final class BlinkLinkTests: XCTestCase {
             ((s(t - 0.015) ? 1 : 0) + (s(t - 0.023) ? 1 : 0)) / 2
         }
         var receiver = BlinkLink.Receiver(ownLight: mine)
-        var rng = SystemRandomNumberGenerator()
+        // Seeded: the same noise every run, so a pass or a failure means the same thing each time.
+        var rng = SplitMix64(seed: 0x4E58_5450_5454)
         var events: [BlinkLink.Receiver.Event] = []
         var t = 100.0
         while t < 100 + seconds {
@@ -60,5 +61,18 @@ final class BlinkLinkTests: XCTestCase {
                          own: [BlinkLink.dataLoop(payload: mine)], seconds: 100, ownBrightness: 140, noise: 5)
         XCTAssertTrue(events.contains(.payload(theirs)), "events: \(events)")
         XCTAssertTrue(events.contains(.ack(OpticalLink.ackValue(for: mine))), "events: \(events)")
+    }
+}
+
+/// A small seeded generator (SplitMix64) for reproducible noise.
+struct SplitMix64: RandomNumberGenerator {
+    private var state: UInt64
+    init(seed: UInt64) { state = seed }
+    mutating func next() -> UInt64 {
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        return z ^ (z >> 31)
     }
 }
