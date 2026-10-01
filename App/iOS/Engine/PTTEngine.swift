@@ -1176,8 +1176,7 @@ final class PTTEngine {
         guard now.timeIntervalSince(lastOfferSent[state.channels[i].id] ?? .distantPast) >= every else { return }
         guard let offer = try? session.offer(now: now),
               let keys = session.channelKeys(channelID: state.channels[i].id, epoch: offer.baseEpoch),
-              let packets = try? builder.sealFragmented(.pqOffer, plaintext: offer.encoded, keys: keys,
-                                                        messageID: offer.offerID) else { return }
+              let packets = try? builder.sealFragmented(.pqOffer, plaintext: offer.encoded, keys: keys) else { return }
         state.channels[i].apply(session: session)
         lastOfferSent[state.channels[i].id] = now
         save()
@@ -1193,8 +1192,7 @@ final class PTTEngine {
                                                 peerID: contact.id),
               case .reply(let accept) = result,
               let keys = session.channelKeys(channelID: channelID, epoch: offer.baseEpoch),
-              let packets = try? builder.sealFragmented(.pqAccept, plaintext: accept, keys: keys,
-                                                        messageID: offer.offerID) else { return }
+              let packets = try? builder.sealFragmented(.pqAccept, plaintext: accept, keys: keys) else { return }
         state.channels[i].apply(session: session)
         save()
         deliverRekey(packets, relayKey: "accept-\(offer.offerID)", to: contact)
@@ -1228,7 +1226,8 @@ final class PTTEngine {
     private func topUpOneTimeKeys(for contact: Contact, theyHold: Int?) {
         guard !state.watchPrimary,
               Date().timeIntervalSince(lastOneTimeKeysSent[contact.id] ?? .distantPast) > 30,
-              let channel = directChannel(for: contact.id) else { return }
+              let channel = directChannel(for: contact.id),
+              channel.session?.isQuantumSafe == true, channel.keys.epoch >= 1 else { return }
         let held = theyHold ?? prekeys.oneTime.outstanding(for: contact.id)
         guard held < OneTimeKeyStore.lowWater else { return }
         let keys = prekeys.oneTime.issue(to: contact.id, count: OneTimeKeyStore.target - held)
@@ -1750,6 +1749,8 @@ final class PTTEngine {
         queue.async { [self] in
             state.contacts.removeAll { $0.id == id }
             state.channels.removeAll { $0.kind == .direct && $0.members == [id] }
+            prekeys.oneTime.revoke(id)   // the keys we issued them: nobody else may use them
+            saveOneTimeKeys()
             for i in state.channels.indices { state.channels[i].members.removeAll { $0 == id } }
             save()
         }

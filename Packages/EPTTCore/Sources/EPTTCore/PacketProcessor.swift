@@ -165,6 +165,15 @@ public struct PacketProcessor {
         default:
             break
         }
+        // A direct channel's epoch 0 is classical (static keys only): it carries the rekey and
+        // self-authenticating messages (signed cards and prekeys), never anything that could be
+        // forged by someone who later breaks or steals a static key.
+        if channel.kind == .direct, header.epoch == 0 {
+            switch header.type {
+            case .hello, .card, .pqOffer, .pqAccept: break
+            default: throw InboundError.unknownEpoch
+            }
+        }
 
         if header.type == .pqOffer || header.type == .pqAccept {
             plaintext = try reassemble(header: header, fragment: plaintext, now: now)
@@ -343,7 +352,9 @@ public struct PacketBuilder {
     }
 
     /// PQ_OFFER / PQ_ACCEPT: split so each packet fits a datagram.
-    public func sealFragmented(_ type: PacketType, plaintext: Data, keys: ChannelKeys, messageID: MessageID,
+    /// Every transmission takes a fresh `messageID` (the default): a re-sent offer or accept is
+    /// a new message on the wire, never the same nonce over different bytes.
+    public func sealFragmented(_ type: PacketType, plaintext: Data, keys: ChannelKeys, messageID: MessageID = .random(),
                                chunk: Int = 880) throws -> [Data] {
         precondition(type == .pqOffer || type == .pqAccept)
         let total = max(1, (plaintext.count + chunk - 1) / chunk)

@@ -174,6 +174,17 @@ final class ParanoiaTests: XCTestCase {
         XCTAssertThrowsError(try processor.process(start, channelLookup: { _ in p.b },
                                                    memberLookup: { _ in self.alice.publicIdentity },
                                                    pairSecret: secretLookup(p.b))) {
+            XCTAssertEqual($0 as? InboundError, .unknownEpoch)   // epoch 0 carries no bursts at all
+        }
+        // Even sealed under a quantum-safe channel key, an envelope naming pair epoch 0 is refused.
+        var q = p
+        try rekey(&q, alice, bob)
+        let start1 = try PacketBuilder(local: alice).seal(.burstStart, plaintext: burst.start.encoded, keys: q.a.keys,
+                                                          messageID: burst.burstID)
+        var processor1 = PacketProcessor(local: bob, agreement: bob.keyAgreement(prekeys: { bobPrekeys }))
+        XCTAssertThrowsError(try processor1.process(start1, channelLookup: { _ in q.b },
+                                                    memberLookup: { _ in self.alice.publicIdentity },
+                                                    pairSecret: secretLookup(q.b))) {
             XCTAssertEqual($0 as? InboundError, .notARecipient)
         }
     }
@@ -366,8 +377,7 @@ final class ParanoiaTests: XCTestCase {
         var sa = p.a.session!
         let offer = try sa.offer()
         p.a.apply(session: sa)
-        let parts = try PacketBuilder(local: alice).sealFragmented(.pqOffer, plaintext: offer.encoded, keys: p.a.keys,
-                                                                   messageID: offer.offerID)
+        let parts = try PacketBuilder(local: alice).sealFragmented(.pqOffer, plaintext: offer.encoded, keys: p.a.keys)
         XCTAssertGreaterThan(parts.count, 1)
         for part in parts {
             XCTAssertLessThanOrEqual(try PacketShield.shield(part, keys: p.a.keys).count, 1280, "fits a datagram")
@@ -383,6 +393,78 @@ final class ParanoiaTests: XCTestCase {
         let done = try processor.process(parts[0], channelLookup: lookup, memberLookup: member)
         XCTAssertEqual(done.message, .pqOffer(offer))
         XCTAssertThrowsError(try processor.process(parts[0], channelLookup: lookup, memberLookup: member))
+    }
+
+    /// A re-sent offer (fresh timestamp) never reuses a nonce, and isn't dropped as a replay.
+    func testResentOfferIsANewMessage() throws {
+        var p = try pair(alice, bob)
+        var sa = p.a.session!
+        let first = try sa.offer(now: Date())
+        let again = try sa.offer(now: Date().addingTimeInterval(8))
+        XCTAssertEqual(first.offerID, again.offerID)
+        XCTAssertNotEqual(first.encoded, again.encoded)
+        p.a.apply(session: sa)
+        let builder = PacketBuilder(local: alice)
+        let a = try builder.sealFragmented(.pqOffer, plaintext: first.encoded, keys: p.a.keys)
+        let b = try builder.sealFragmented(.pqOffer, plaintext: again.encoded, keys: p.a.keys)
+        XCTAssertNotEqual(try PacketHeader(packet: a[0]).messageID, try PacketHeader(packet: b[0]).messageID)
+        var processor = PacketProcessor(local: bob)
+        let lookup = { (_: ChannelID) in p.b }
+        let member = { (_: SenderID) in self.alice.publicIdentity }
+        func deliver(_ parts: [Data]) throws -> InboundPacket? {
+            var done: InboundPacket?
+            for part in parts { done = try? processor.process(part, channelLookup: lookup, memberLookup: member) }
+            return done
+        }
+        XCTAssertEqual(try deliver(a)?.message, .pqOffer(first))
+        XCTAssertEqual(try deliver(b)?.message, .pqOffer(again))
+    }
+
+    /// Epoch 0 (classical) carries only the rekey and self-signed messages: nothing a future
+    /// quantum attacker who recomputes it could forge.
+    func testEpochZeroCarriesNoContent() throws {
+        let p = try pair(alice, bob)
+        XCTAssertEqual(p.a.keys.epoch, 0)
+        let alert = try PacketBuilder(local: alice).seal(.callAlert, plaintext: CallAlert(name: "A", timestamp: currentTimestamp()).encoded,
+                                                         keys: p.a.keys)
+        let batch = try PacketBuilder(local: alice).seal(.oneTimeKeys, plaintext: OneTimeKeyBatch(timestamp: currentTimestamp(), keys: []).encoded,
+                                                         keys: p.a.keys)
+        var processor = PacketProcessor(local: bob)
+        for packet in [alert, batch] {
+            XCTAssertThrowsError(try processor.process(packet, channelLookup: { _ in p.b },
+                                                       memberLookup: { _ in self.alice.publicIdentity })) {
+                XCTAssertEqual($0 as? InboundError, .unknownEpoch)
+            }
+        }
+    }
+
+    /// The BURST_START signature covers the audio parameters and the replay flag.
+    func testBurstStartParametersAreSigned() throws {
+        let channel = ChannelID.random(), burst = MessageID.random()
+        let signed = try BurstStart.signed(by: carol, channelID: channel, burstID: burst, timestamp: 1,
+                                           ephemeralPublicKey: Data(count: 32), envelopes: [Data(count: 62)])
+        XCTAssertTrue(signed.verify(sender: carol.publicIdentity, channelID: channel, burstID: burst))
+        var replay = signed; replay.allowsReplay = true
+        var codec = signed; codec.codec = .pcm16
+        var rate = signed; rate.sampleRate = 8_000
+        var frame = signed; frame.frameMilliseconds = 60
+        for forged in [replay, codec, rate, frame] {
+            XCTAssertFalse(forged.verify(sender: carol.publicIdentity, channelID: channel, burstID: burst))
+        }
+    }
+
+    /// A contact holds at most what the issuer keeps, and uses the newest first.
+    func testOneTimeKeysHeldMatchIssuerCap() throws {
+        var issuer = OneTimeKeyStore()
+        var contact = Contact(identity: alice.publicIdentity, name: "A", relayMailbox: nil)
+        for _ in 0..<4 { contact.add(oneTimeKeys: issuer.issue(to: bob.id, count: 20)) }
+        XCTAssertEqual(contact.availableOneTimeKeys, OneTimeKeyStore.maxOutstanding)
+        XCTAssertEqual(issuer.outstanding(for: bob.id), OneTimeKeyStore.maxOutstanding)
+        // Every key the contact holds still exists at the issuer.
+        while let key = contact.takeOneTimeKey() {
+            XCTAssertNoThrow(try issuer.agreement(id: key.id, with: Curve25519.KeyAgreement.PrivateKey().publicKey.rawRepresentation,
+                                                  from: bob.id))
+        }
     }
 
     func testRekeyMessagesOnlyOnDirectChannels() throws {

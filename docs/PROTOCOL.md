@@ -1,16 +1,48 @@
-# NXTPTT Wire Protocol, version 1
+# NXTPTT Wire Protocol, version 2
 
 This is the normative spec. Any implementation (iOS, Android, desktop) that
 follows it interoperates. `tools/reference/eptt_ref.py` is an executable
 reference, and `Packages/EPTTCore/Tests/EPTTCoreTests/Fixtures/vectors.json`
-holds the test vectors every implementation must reproduce.
+holds the test vectors every implementation must reproduce. The threat model
+is in `docs/SECURITY.md`.
 
-Conventions: integers are big-endian. `||` is concatenation. `HKDF` is
-HKDF-SHA256 (RFC 5869). `AEAD` is ChaCha20-Poly1305 (RFC 8439). ASCII string
-literals such as `"ePTT/1 direct"` are their UTF-8 bytes with no terminator.
-The labels keep the project's original name, ePTT. They are part of the wire
-format and do not follow the app's display name.
-`b64url` is base64url without padding.
+Protocol 2 replaces protocol 1 on the wire. The two do not interoperate (§10).
+
+## 0. Conventions
+
+Integers are big-endian. `||` is concatenation. `b64url` is base64url without
+padding. ASCII string literals such as `"NXTPTT/2 msg"` are their UTF-8 bytes
+with no terminator. `x[a..b]` is bytes `a` (inclusive) to `b` (exclusive).
+
+**Suite.** Everything that protects content uses a CNSA-aligned suite, with
+X25519 alongside ML-KEM:
+
+| Notation | Primitive |
+| --- | --- |
+| `HKDF(ikm, salt, info, L)` | HKDF-SHA-384 (RFC 5869). `L` is 32 unless stated. An empty salt means no salt (HashLen zero bytes). |
+| `AEAD(key, nonce, plaintext, aad)` | AES-256-GCM: 32-byte key, 12-byte nonce. Output is `ciphertext || 16-byte tag`. |
+| `KEM` | ML-KEM-1024 (FIPS 203): public key 1568 bytes, ciphertext 1568 bytes, shared secret 32 bytes. A decapsulation key is stored as its 64-byte seed. |
+| `X25519(sk, pk)` | RFC 7748. An all-zero output is rejected everywhere. |
+| `Ed25519` | RFC 8032 signatures, 64 bytes. |
+| `SHA-384`, `SHA-256` | FIPS 180-4. SHA-384 for the rekey transcript; SHA-256 only where noted. |
+
+**Labels.** Every derivation that is new or changed in protocol 2 uses a label
+`"NXTPTT/2 " || name`, written `v2("name")` below, so `v2("msg")` is the 12 bytes
+`"NXTPTT/2 msg"`. These protocol-1 values are kept byte for byte, so identities
+and pairings survive the upgrade. They keep the project's original name, ePTT,
+because they are part of the wire format:
+
+| Value | Definition | § |
+| --- | --- | --- |
+| identity ID, sender ID | `SHA-256(sign_pk)` | 3 |
+| safety number | `SHA-256("ePTT/1 safety" || …)` | 3 |
+| contact card signature | Ed25519 over the card, `card_version` 1 | 4 |
+| signed prekey signature | `"ePTT/1 prekey"` | 3.1 |
+| direct channel ID | `SHA-256("ePTT/1 direct-id" || …)` | 5.1 |
+| relay lookup tag | `HMAC-SHA256(mailbox, "ePTT/1 mailbox" || …)`, relay payload version 1 | 11 |
+| face-pairing safety code | `SHA-256("ePTT/1 face-pairing" || …)` | 12 |
+| Bonjour service type | `_eptt._udp` | 9 |
+| APNs payload key | `"eptt"` | 8 |
 
 ## 1. TLV encoding
 
@@ -47,20 +79,29 @@ tag: u8 | length: u16 | value: length bytes
 | 0x12 | frame_ms | u8, milliseconds of audio per frame |
 | 0x13 | signature | 64 bytes, Ed25519 |
 | 0x14 | frame_count | u32 |
-| 0x15 | text | UTF-8, at most 256 bytes |
+| 0x15 | text | protocol 1 only (plaintext call-alert text). Not sent in protocol 2: see sealed_text. |
 | 0x16 | ephemeral_pk | 32 bytes, X25519 public key used once |
-| 0x17 | envelope | 60 bytes, a wrapped burst key (§6.2), repeatable |
+| 0x17 | envelope | 62 bytes, a wrapped burst or text key (§6.2), repeatable |
 | 0x20 | group_id | 16 bytes |
 | 0x21 | group_name | UTF-8, at most 64 bytes |
 | 0x22 | group_key | 32 bytes |
 | 0x23 | group_epoch | u16 |
 | 0x24 | member_card | a complete contact card (§4), repeatable |
-| 0x25 | sealed_invite | `prekey_id: u32` then AEAD ciphertext (§6.3) |
+| 0x25 | sealed_invite | `prekey_id: u32 | pair_epoch: u16 | AEAD ciphertext` (§6.3) |
+| 0x26 | invite_secret | 32 bytes, a group code's secret (§6.5) |
 | 0x40 | card_version | u8, currently 1 |
 | 0x41 | sign_pk | 32 bytes, Ed25519 public key |
 | 0x42 | kx_pk | 32 bytes, X25519 public key |
 | 0x43 | prekey | 100 bytes, signed session prekey (§3.1) |
 | 0x4F | card_signature | 64 bytes, Ed25519 |
+| 0x50 | kem_public_key | 1568 bytes, ML-KEM-1024 encapsulation key (§5.3) |
+| 0x51 | kem_ciphertext | 1568 bytes, ML-KEM-1024 ciphertext (§5.3) |
+| 0x52 | offer_id | 8 bytes, identifies one rekey (§5.3) |
+| 0x53 | base_epoch | u16, the session epoch a rekey starts from (§5.3) |
+| 0x54 | one_time_key | 36 bytes: `key_id: u32 | X25519 public key (32)` (§3.2), repeatable |
+| 0x55 | sealed_text | AEAD ciphertext of call-alert text (§6.1) |
+| 0x56 | (reserved) | Reserved for fragments. PQ_OFFER / PQ_ACCEPT fragments use a raw prefix instead (§5.3), not this tag. |
+| 0x57 | held_one_time_keys | u16: how many of the recipient's one-time keys the sender still holds (§3.2) |
 
 ## 2. Candidates
 
@@ -93,23 +134,75 @@ are the two `sign_pk` values in bytewise order. For `i` in 0..5, group `i` is
 `h[5i..5i+5]` read as a big-endian u40, modulo 100000, zero-padded to 5
 digits. Display the 6 groups separated by spaces.
 
-### 3.1 Session prekeys (forward secrecy)
+**Verification.** A contact added from a link (`nxtptt://contact/…`) or from a group
+invite's member list is *unverified*: the link could have been swapped in transit.
+A contact becomes *verified* when its card is read face to face (§12), or when the
+user confirms that both phones show the same safety number. The state is local and
+is never sent. Unverified contacts work normally, and the app shows the state.
 
-Each device also holds rotating X25519 **session prekeys**:
+### 3.1 Session prekeys
+
+Each device also holds rotating X25519 **signed prekeys**:
 
 ```
 prekey = prekey_id: u32 | prekey_pk: 32 | Ed25519(sign_sk, "ePTT/1 prekey" || prekey_id_u32 || prekey_pk)
 ```
 
-- `prekey_id` starts at 1 and increases by one at each rotation. 0 is
-  reserved and means "no prekey: use kx_pk".
-- A device creates a new prekey every 24 h and advertises only the newest one,
-  in its contact card and in every HELLO.
-- It **deletes** a prekey's private key 7 days after replacing it. Anything
-  sealed to that prekey becomes permanently unreadable, even to someone who
-  later steals every key on the device. That is the forward-secrecy window.
-- A receiver verifies the signature with the peer's pinned `sign_pk` and keeps
-  the prekey with the highest `prekey_id`.
+- `prekey_id` starts at 1 and increases by one at each rotation. Its top bit is
+  clear. 0 is reserved and means "the static `kx_pk`".
+- A device creates a new prekey every **6 h** and advertises only the newest
+  one, in its contact card and in every HELLO.
+- It **deletes** a prekey's private key **30 h** after replacing it: the relay's
+  24 h lifetime plus margin. Anything sealed to that prekey then becomes
+  permanently unreadable, even to someone who later steals every key on the
+  device.
+- A receiver verifies the signature with the peer's pinned `sign_pk` (a HELLO
+  with a bad prekey signature is dropped) and keeps the prekey with the highest
+  `prekey_id`.
+
+A signed prekey is the fallback. Bursts and call-alert text are sealed to a
+one-time prekey (§3.2) when the sender holds one of the recipient's.
+
+### 3.2 One-time prekeys
+
+Each device hands every contact its own batch of X25519 **one-time prekeys**. A
+sender seals each burst (or call-alert text) to one of them, and the recipient
+deletes the private half as soon as that message is complete. Neither phone can
+open the message again after that.
+
+```
+key_id = 0x80000000 | counter        top bit set; counter is 31 bits, from 1, skipping 0
+```
+
+ONE_TIME_KEYS (0x14, §6.1) carries them: TLV `timestamp, one_time_key*`, at most
+20 keys per packet. Receivers reject a packet with more than 40 keys, or with any
+`key_id` whose top bit is clear. The packet is sealed under the direct channel's
+current sending epoch. The keys are not signed: their authenticity is the channel
+key's.
+
+Issuer (the device whose keys they are):
+
+- Keys are issued per contact. A key opens only an envelope from the contact it was
+  issued to.
+- It aims to keep **24** unused keys with each contact. When a contact holds fewer
+  than **10**, it sends `24 − held` more, at most once every 30 s. `held` comes
+  from the contact's latest HELLO (`held_one_time_keys`), or else from the issuer's
+  own count. It also tops up right after completing a rekey (§5.3).
+- A contact never has more than **48** unused keys outstanding. Issuing more first
+  deletes that contact's oldest unused keys.
+- A key that opened a BURST_START is marked used and deleted when that burst's
+  BURST_END arrives. A key that opened call-alert text is deleted at once. A used key
+  whose message never completed is deleted **24 h** after use (the relay may deliver
+  another copy). Unused keys are deleted after **14 days**.
+
+Holder (the contact):
+
+- Stores at most **48** keys per contact (the issuer's cap; beyond it, the oldest
+  go) and ignores duplicate `key_id`s.
+- Uses each key once, **newest first** (the issuer deletes its oldest first, so the
+  newest is the surest to still exist), and drops keys it received more than
+  **13 days** ago.
+- Reports how many it holds in every HELLO (`held_one_time_keys`).
 
 ## 4. Contact card
 
@@ -141,11 +234,31 @@ For peers A and B, let `lo` and `hi` be their `identity_id` values in bytewise
 order.
 
 ```
-shared      = X25519(my kx_sk, peer kx_pk)     all-zero output: reject
-channel_key = HKDF(ikm=shared, salt="ePTT/1 direct", info=lo||hi, L=32)
-channel_id  = SHA-256("ePTT/1 direct-id" || lo || hi)[0..16]
-epoch       = 0
+channel_id = SHA-256("ePTT/1 direct-id" || lo || hi)[0..16]
 ```
+
+The channel's keys come from the pair's session (§5.3), one set per epoch:
+
+```
+shared  = X25519(my kx_sk, peer kx_pk)                  all-zero output: reject
+root_0  = HKDF(ikm=shared, salt=v2("root0"), info=lo || hi)
+
+channel_key_e  = HKDF(ikm=root_e, salt="", info=v2("chan")  || channel_id || e_u16)
+burst_secret_e = HKDF(ikm=root_e, salt="", info=v2("burst") || channel_id || e_u16)
+```
+
+`channel_key_e` seals packets on the channel at epoch `e` (§6), and the header's
+`epoch` field is `e`. `burst_secret_e` is mixed into every envelope between the two
+devices (§6.2, §6.3).
+
+**Epoch 0 is classical** and comes from the static keys alone. It carries the
+traffic needed to run the first exchange and keep the link up: PQ_OFFER,
+PQ_ACCEPT, HELLO and CARD; HELLO and CARD are useful only for what is signed
+inside them (prekeys, the card). A receiver drops every other type on a direct
+channel at epoch 0, so nothing there can be forged by someone who later breaks or
+steals a static key. A device does not send a burst, a call alert, one-time keys or
+a group key to a contact until their session is at epoch 1 or later (§5.3, §6.2).
+Receivers reject envelopes and sealed invites that name pair epoch 0.
 
 ### 5.2 Talk groups
 
@@ -153,35 +266,142 @@ The creator picks `group_id` (16 random bytes), `group_key` (32 random bytes)
 and `epoch` = 1. Then:
 
 - `channel_id = group_id` and `channel_key = group_key`.
-- A rekey increments `epoch` and draws a fresh `group_key`.
-- Receivers keep the previous epoch's key for 60 s after a rekey.
+- A rekey increments `epoch` and draws a fresh `group_key`. It goes to every
+  remaining member in a GROUP_INVITE (§6.3). The rekey's member list replaces the
+  receiver's.
+- A device that **removes a member** rekeys the group at once. When a member
+  leaves (GROUP_LEAVE), the remaining member whose `identity_id` sorts lowest
+  rekeys.
+- Receivers keep the key of the one previous epoch, and accept packets under it,
+  until the next rekey replaces it.
+
+The group key authenticates membership and hides headers (§6.6). Audio and text
+are protected by per-burst keys wrapped to each member's pairwise session (§6.2),
+not by the group key.
+
+### 5.3 Pairwise session ratchet
+
+Two paired devices share a root key `root_e`. It is replaced, never reused, by a
+fully ephemeral hybrid exchange: a fresh ML-KEM-1024 key pair and a fresh X25519
+key pair on the initiating side, and a fresh encapsulation and a fresh X25519 key
+pair on the responding side. All of them are erased as soon as the new root exists.
+Only the newest root is kept.
+
+**PQ_OFFER** (0x07) and **PQ_ACCEPT** (0x08) are TLV payloads:
+
+```
+PQ_OFFER  = timestamp, ephemeral_pk (dh_i, 32), kem_public_key (kem_pk, 1568), offer_id (8), base_epoch (u16)
+PQ_ACCEPT = timestamp, ephemeral_pk (dh_r, 32), kem_ciphertext (kem_ct, 1568), offer_id (8), base_epoch (u16)
+```
+
+A decoder rejects any other key or ciphertext length.
+
+**Sealing and fragments.** Both are sealed on the direct channel under
+`channel_key_{base_epoch}`, with a fresh random `message_id` for every transmission
+(the offer is identified by `offer_id` inside it, and a re-sent offer carries a new
+timestamp, so it is a new message, never the old nonce over new bytes). At about
+1.6 KB they don't
+fit one datagram, so the plaintext is cut into chunks of at most 880 bytes, and
+each chunk becomes its own packet:
+
+```
+fragment plaintext = index: u8 | total: u8 | chunk          1 <= total <= 8, index < total
+header seq         = index
+```
+
+The receiver drops a fragment whose `index` differs from `seq`, or whose `total`
+disagrees with earlier fragments of the same message. It collects fragments per
+`(sender_id, message_id, type)`, joins them in index order once all `total` are
+in, and then processes the joined plaintext. It discards incomplete sets after
+60 s, and keeps at most 16 sets.
+
+**Exchange.** The initiator I sends PQ_OFFER from its current epoch `e`. The
+responder R answers:
+
+```
+(kem_ss, kem_ct) = KEM.Encaps(kem_pk)
+dh_r             = fresh X25519 public key;   dh = X25519(r_sk, dh_i) = X25519(i_sk, dh_r)
+
+transcript = SHA-384(v2("transcript") || lo || hi || offer_id || base_epoch_u16
+                     || kem_pk || dh_i || kem_ct || dh_r)
+root_{e+1} = HKDF(ikm=kem_ss || dh, salt=root_e, info=v2("ratchet") || transcript)
+```
+
+`lo` and `hi` are the two `identity_id`s in bytewise order. The initiator decapsulates
+`kem_ct` with its stored seed, computes the same `dh` and `transcript` from its own
+offer, and derives the same `root_{e+1}`. Both then derive `channel_key_{e+1}` and
+`burst_secret_{e+1}` (§5.1) and erase `root_e`.
+
+Rules:
+
+- **Responder.** It answers an offer only if `base_epoch` equals its current epoch.
+  It advances at once, but keeps *sending* under `e` until the initiator shows that it
+  has the new epoch, by sending any packet that authenticates under `e+1`. It keeps
+  the PQ_ACCEPT plaintext of the last offer it answered. If the same `offer_id`
+  arrives again, it sends that same accept again, sealed with the same header.
+- **Initiator.** It completes only if the accept's `offer_id` and `base_epoch` match its
+  pending offer and its current epoch. It sends under `e+1` at once, starting with a
+  HELLO and a top-up of one-time keys. That serves as **key confirmation**: a packet
+  that authenticates under `e+1` tells the responder that the initiator holds the
+  same root.
+- **Send epoch.** Each side seals with its *send epoch*. Whenever a packet from the
+  peer authenticates under a held epoch newer than the send epoch, the send epoch
+  moves up to it.
+- **Tie-break.** If both sides offer from the same epoch at once, the side whose
+  `identity_id` sorts lower wins. It ignores the other's offer. The other side
+  answers the winning offer and drops its own.
+- **Lost accept.** If the responder is still unconfirmed at `e+1`, and receives a
+  *different* offer from base epoch `e`, then its accept never arrived. It deletes
+  epoch `e+1`, returns to `root_e` (which it kept for this case only), and answers
+  the new offer.
+- **Pending offer.** An initiator re-sends its pending offer while no accept
+  arrives: every 8 s while the contact is linked, otherwise every 60 s to its last
+  known addresses, and once through the relay (§11). The offer's KEM and X25519
+  private keys are deleted with it, either when it completes or 24 h after it was
+  made.
+- **Retention.** When an epoch is replaced, its keys are kept for **24 h** (relayed
+  messages can be that old) and then deleted, except the epoch currently used for
+  sending. At most 8 old epochs are kept, however recent. Roots are never kept,
+  except a responder's previous root while it is unconfirmed (see Lost accept).
+- **Schedule.** A device starts a rekey as soon as a session is at epoch 0, and
+  then once the current epoch is older than **3600 s**. It does not start one while
+  its own newest epoch is still unconfirmed.
+- Epochs are u16. A session at epoch 65535 does not rekey further.
+
+A receiver opens a direct-channel packet with the keys of the epoch its header
+names, if it still holds them.
 
 ## 6. Packets
 
-Each packet is one UDP datagram. Stream transports prefix it with a `u16`
-length.
+A packet has a 40-byte header and a sealed body. On the wire it is always wrapped in
+the packet shield (§6.6). Each wire packet is one UDP datagram. Stream transports
+prefix it with a `u16` length. Relay records (§11) and APNs payloads (§8) carry
+wire packets too.
 
 ```
 offset size field
-0      1    version     = 0x01
+0      1    version     = 0x02
 1      1    type
 2      2    epoch       u16
 4      16   channel_id
 20     8    sender_id
 28     8    message_id  (burst_id for burst packets and WAKE; random otherwise)
 36     4    seq         u32
-40     n    ciphertext || 16-byte Poly1305 tag
+40     n    ciphertext || 16-byte GCM tag
+(group channels only, every type but BURST_START: 64-byte Ed25519 signature, §6.7)
 ```
 
 Sealing:
 
 ```
-msg_key = HKDF(ikm=channel_key, salt=message_id,
-               info="ePTT/1 msg" || sender_id || epoch_u16, L=32)
+msg_key = HKDF(ikm=channel_key, salt=message_id, info=v2("msg") || sender_id || epoch_u16)
 nonce   = type || 0x00 × 7 || seq_u32          12 bytes
 aad     = header bytes 0..40
-body    = AEAD-Encrypt(msg_key, nonce, plaintext, aad)
+body    = AEAD(msg_key, nonce, plaintext, aad)
 ```
+
+`channel_key` is the direct channel's key at the header's epoch (§5.1), the group key
+(§5.2), or a group code's join key (§6.5).
 
 **Which key seals which packet.** BURST_START and every non-burst message
 are sealed with `msg_key` from the channel key, as above. VOICE and BURST_END
@@ -189,8 +409,7 @@ are sealed the same way, except that the key comes from the burst's own
 random key (§6.2):
 
 ```
-burst_msg_key = HKDF(ikm=burst_key, salt=burst_id,
-                     info="ePTT/1 burst-msg" || sender_id || epoch_u16, L=32)
+burst_msg_key = HKDF(ikm=burst_key, salt=burst_id, info=v2("burst-msg") || sender_id || epoch_u16)
 ```
 
 Channel keys therefore authenticate who belongs to a channel, while audio is
@@ -199,38 +418,72 @@ protected by keys that are thrown away after each burst.
 A (key, nonce) pair must never protect two different plaintexts. A sender
 never reuses a `message_id` with different content. Retransmissions resend the
 **exact same sealed bytes**. A packet is never re-sealed with a different
-payload under the same header.
+payload under the same header. (Only the shield around it is fresh each time.)
 
 A receiver drops a packet without responding when any of these hold:
 
+- no candidate key opens its shield (§6.6)
 - the version is unknown
 - the channel is unknown or the epoch is unknown
 - the `sender_id` is not a member of the channel
 - the sender is the receiver itself
+- on a group channel, the sender signature is missing or invalid (§6.7)
 - AEAD fails
+- the type is direct-only (§6.1) and the channel is a group
+- its timestamp is stale, or it is a replay (§6.4)
 
 ### 6.1 Types
 
 | Type | Name | seq | Plaintext |
 | --- | --- | --- | --- |
-| 0x01 | HELLO | 0 | TLV: name, timestamp, apns_ptt_token?, apns_device_token?, apns_env?, candidate*, apns_topic?, flags, relay_mailbox?, prekey?. Flags: bit 0 = "reply with a HELLO"; bit 1 = the sender is on Do Not Disturb; bit 2 (with bit 1) = you, the recipient, break through it; bit 3 = the sender's app is going to the background; bit 4 = the sender sends receipts; bit 5 = this HELLO is a receipt (see §7, Delivery). Direct channels only. |
-| 0x02 | BURST_START | 0 | TLV: timestamp, codec, sample_rate, frame_ms, signature, ephemeral_pk, envelope* (one per recipient, §6.2), flags? |
+| 0x01 | HELLO | 0 | TLV: name, timestamp, apns_ptt_token?, apns_device_token?, apns_env?, candidate*, apns_topic?, flags, relay_mailbox?, apns_watch_token?, prekey?, held_one_time_keys?. Flags: bit 0 = "reply with a HELLO"; bit 1 = the sender is on Do Not Disturb; bit 2 (with bit 1) = you, the recipient, break through it; bit 3 = the sender's app is going to the background; bit 4 = the sender sends receipts; bit 5 = this HELLO is a receipt (see §7, Delivery). **Direct only.** |
+| 0x02 | BURST_START | 0 | TLV: timestamp, codec, sample_rate, frame_ms, signature, ephemeral_pk, envelope+ (one per recipient, §6.2), flags? |
 | 0x03 | VOICE | index of the first frame | `count: u8`, then `count` × (`len: u16`, frame bytes) |
 | 0x04 | BURST_END | total frame count | TLV: timestamp, frame_count |
-| 0x05 | CALL_ALERT | 0 | TLV: name, timestamp, text? |
+| 0x05 | CALL_ALERT | 0 | TLV: name, timestamp, and for text: ephemeral_pk, envelope, sealed_text (below) |
 | 0x06 | WAKE | 0 | TLV: name, timestamp, candidate*. `message_id` = the burst ID being woken for. |
-| 0x10 | GROUP_INVITE | 0 | TLV: timestamp, ephemeral_pk, sealed_invite. The sealed contents are TLV: group_id, group_name, group_key, group_epoch, member_card* (§6.3). Direct channels only. |
-| 0x11 | GROUP_LEAVE | 0 | TLV: timestamp, group_id. Direct channels only. |
+| 0x07 | PQ_OFFER | fragment index | A fragment of a rekey offer (§5.3). **Direct only.** |
+| 0x08 | PQ_ACCEPT | fragment index | A fragment of a rekey accept (§5.3). **Direct only.** |
+| 0x10 | GROUP_INVITE | 0 | TLV: timestamp, ephemeral_pk, sealed_invite. The sealed contents are TLV: group_id, group_name, group_key, group_epoch, member_card* (§6.3). **Direct only.** |
+| 0x11 | GROUP_LEAVE | 0 | TLV: timestamp, group_id. **Direct only.** |
+| 0x12 | CARD | 0 | The sender's complete signed contact card (§4), for example right after pairing face to face. It must be the sender's own card. **Direct only.** |
 | 0x13 | GROUP_JOIN | 0 | TLV: timestamp, member_card. Sealed with a group code's join keys (§6.5), not a channel's. |
+| 0x14 | ONE_TIME_KEYS | 0 | TLV: timestamp, one_time_key* (§3.2). **Direct only.** |
+
+Direct-only types that arrive on a group channel are dropped.
 
 BURST_START signature:
 
 ```
-Ed25519(sign_sk, "ePTT/1 burst" || channel_id || sender_id || burst_id || timestamp_u64
-                 || ephemeral_pk || SHA-256(envelope_1 || envelope_2 || …))
+Ed25519(sign_sk, v2("burst-start") || channel_id || sender_id || burst_id || timestamp_u64
+                 || ephemeral_pk || SHA-256(envelope_1 || envelope_2 || …)
+                 || codec_u8 || sample_rate_u32 || frame_ms_u8 || replay_u8)
 ```
 
-The envelopes are hashed in the order they appear.
+`replay_u8` is 1 if `flags` bit 0 is set, else 0. The signature covers every field of
+the body, so no one else holding the channel key can alter it.
+
+```
+```
+
+The envelopes are hashed in the order they appear. Receivers verify the signature
+with the sender's pinned `sign_pk`.
+
+**Call-alert text.** On a direct channel a call alert, bare or not, needs epoch 1 or
+later (§5.1); on a talk group a bare page goes under the group key. Typed
+text is content, so it is sealed per message like a burst key. It is sent only on the
+direct channel, and only once the pair's session is at epoch 1 or later:
+
+```
+text_key    = 32 random bytes
+envelope    = text_key wrapped as in §6.2, with burst_id = the packet's message_id and
+              channel_id = the direct channel's
+sealed_text = AEAD(HKDF(ikm=text_key, salt="", info=v2("alert-text")), 0x00 × 12,
+                   UTF-8 text (at most 256 bytes), aad=message_id)
+```
+
+A receiver that can't open the envelope drops the whole CALL_ALERT. If a one-time
+prekey opened it, that key is deleted at once (§3.2).
 
 **Do Not Disturb.** A phone on Do Not Disturb sets HELLO bit 1 in the HELLOs it
 sends. It sets bit 2 as well for contacts it has marked as priority. Senders don't
@@ -245,59 +498,81 @@ recipients to replay this message; absent or clear means they must not. Recipien
 keep at most the latest message received for replay, for one hour. The flag is not
 in the signature; the channel key's AEAD protects it like the rest of the body.
 
-Receivers verify it with the sender's pinned `sign_pk`.
-
 ### 6.2 Burst keys
 
 For every burst the talker draws a random 32-byte `burst_key` and a fresh
 X25519 key pair `(eph_sk, ephemeral_pk)`. For each recipient R (every other
-channel member), it creates an envelope:
+channel member) it creates an envelope, using the talker's pairwise session with
+R (§5.3):
 
 ```
-target   = R's newest prekey_pk, with its prekey_id
-           (or R's kx_pk with prekey_id = 0 if no prekey is known)
-wrap_key = HKDF(ikm=X25519(eph_sk, target), salt=burst_id,
-                info="ePTT/1 wrap" || channel_id || R.sender_id || prekey_id_u32, L=32)
-aad      = R.sender_id || prekey_id_u32
-envelope = aad || AEAD-Encrypt(wrap_key, 0x00 × 12, burst_key, aad)       60 bytes
+target     = one of R's one-time prekeys (§3.2), used up here,
+             else R's newest signed prekey (§3.1)
+key_id     = the target's id
+pair_epoch = the talker's send epoch with R; must be >= 1
+aad        = R.sender_id || key_id_u32 || pair_epoch_u16                  14 bytes
+wrap_key   = HKDF(ikm=X25519(eph_sk, target) || burst_secret_{pair_epoch},
+                  salt=burst_id, info=v2("wrap") || channel_id || aad)
+envelope   = aad || AEAD(wrap_key, 0x00 × 12, burst_key, aad)              62 bytes
 ```
 
-`eph_sk` is erased once the envelopes are built, and `burst_key` is erased
-when the burst ends. The receiver finds the envelope that carries its own
-`sender_id`, recomputes `wrap_key` with the matching private key, and opens it.
-If it no longer has that private key, the burst cannot be read.
+- A member with no session at epoch ≥ 1, or with no one-time or signed prekey
+  known, gets no envelope. The talker starts a rekey with them (§5.3). If no
+  member qualifies, the burst is not sent.
+- Envelopes are never sealed to the static `kx_pk` (key 0).
+- `eph_sk` is erased once the envelopes are built, and `burst_key` is erased
+  when the burst ends.
+
+The receiver finds the envelope that carries its own `sender_id`. It rejects it if
+`key_id` is 0 or `pair_epoch` is 0. Otherwise it looks up `burst_secret_{pair_epoch}`
+of its session with the sender, and the private key for `key_id`. A one-time key
+must have been issued to that sender. It recomputes `wrap_key` and opens the
+envelope. If it no longer holds that epoch or that private key, the burst cannot
+be read. A one-time key that opened an envelope is deleted when the burst ends
+(§3.2).
+
+Because `wrap_key` needs both the X25519 secret and the pairwise burst secret, a
+burst stays sealed unless both are broken: the prekey or ephemeral private key, and
+the session (§5.3), which needs ML-KEM-1024.
 
 ### 6.3 Sealed group invites
 
 A GROUP_INVITE's inner TLV (the group key and member cards) is sealed once
-more, to the invitee's prekey:
+more, to the invitee:
 
 ```
-key           = HKDF(ikm=X25519(eph_sk, target), salt=message_id,
-                     info="ePTT/1 invite" || R.sender_id || prekey_id_u32, L=32)
-sealed_invite = prekey_id_u32 || AEAD-Encrypt(key, 0x00 × 12, inner, R.sender_id || prekey_id_u32)
+target        = R's newest signed prekey, else R's static kx_pk with prekey_id = 0
+                (never a one-time prekey)
+pair_epoch    = the sender's send epoch with R; senders require >= 1
+aad           = R.sender_id || prekey_id_u32 || pair_epoch_u16
+key           = HKDF(ikm=X25519(eph_sk, target) || burst_secret_{pair_epoch},
+                     salt=message_id, info=v2("invite") || aad)
+sealed_invite = prekey_id_u32 || pair_epoch_u16 || AEAD(key, 0x00 × 12, inner, aad)
 ```
 
-A receiver accepts a GROUP_INVITE only when:
+`ephemeral_pk` in the outer TLV is `eph_sk`'s public key. A device does not send a group
+key to a member until their session is at epoch ≥ 1. Invites that are waiting go out
+when the session gets there.
+
+A receiver accepts a GROUP_INVITE only when it is listed in the member cards, the
+sender is listed too, and either:
 
 - its channel ID is unknown and is not the direct-channel ID it would share with any
   listed member (a new group), or
 - its channel ID is an existing **group** (never a direct channel), the sender is already
-  a member of it, and the epoch is higher (a rekey) or the same with the same key (a
-  member-list update).
+  a member of it, and the epoch is higher (a rekey, whose member list replaces the
+  receiver's) or the same with the same key (a member-list update).
 
-**Trust within a group.** Members share the group key and, for each burst, the burst key.
-Only BURST_START is signed, so a member could send CALL_ALERT or WAKE in another member's
-name, or add frames to another member's burst. Groups are for people who trust each
-other; outsiders can do none of this.
+Member cards it doesn't know yet are added as unverified contacts (§3).
 
 ### 6.4 Replay protection
 
-- HELLO, BURST_START, CALL_ALERT, WAKE and GROUP_* packets with a
-  `timestamp` more than 120 s from the local clock are dropped.
+- Every message that carries a `timestamp` (all but VOICE) is dropped when that
+  timestamp is more than 120 s in the future, or more than 120 s in the past (24 h
+  for packets that came through the relay).
 - Receivers remember `(sender_id, message_id, type)` for 300 s and drop
   duplicates. Retransmitted BURST_START and BURST_END packets are therefore
-  idempotent.
+  idempotent. A rekey message counts once it is fully reassembled.
 - VOICE and BURST_END are accepted only for a burst whose BURST_START has
   been verified and whose envelope was opened.
   VOICE that arrives before its BURST_START may be held for up to 1 s.
@@ -323,12 +598,13 @@ The code never contains the group key. It is valid for 24 hours; making a new co
 retires the old ones.
 
 ```
-join_channel_id = SHA-256("ePTT/1 join-id" || invite_secret)[0..16]
-join_key        = HKDF(ikm=invite_secret, salt="ePTT/1 join", info=join_channel_id, L=32)
+join_channel_id = SHA-256(v2("join-id") || invite_secret)[0..16]
+join_key        = HKDF(ikm=invite_secret, salt=v2("join"), info=join_channel_id)
 ```
 
 1. The scanner adds the inviter from the card, then sends GROUP_JOIN, sealed like any
-   packet (§6) with `join_key`, epoch 0, and `join_channel_id` as the channel ID. It goes
+   packet (§6) with `join_key`, epoch 0, and `join_channel_id` as the channel ID, and
+   shielded (§6.6) with the same key. It goes
    to the inviter's last known addresses and relay mailbox, and as an alert push to the
    inviter's device token (the packet rides in the payload; a notification extension keeps
    it for the app). The body carries the scanner's own signed card, whose sender ID must
@@ -339,10 +615,82 @@ join_key        = HKDF(ikm=invite_secret, salt="ePTT/1 join", info=join_channel_
    timestamp, sender matches the card), asks its user whether to let the scanner in (a
    refusal is remembered, so retries are ignored), then adds the scanner as a contact and group member,
    and sends GROUP_INVITE (§6.3) to every member, the new one included. The group key
-   therefore only ever travels sealed to each member's own keys.
+   therefore only ever travels sealed to each member's own keys, and only once the
+   inviter's session with the new member has completed a post-quantum exchange (§5.3).
 3. Existing members learn the new member's card from that GROUP_INVITE.
 
 Whoever holds the code can join until it expires: it is meant to be shown in person.
+
+### 6.6 Packet shield
+
+The header names the channel, sender, message and epoch. On the wire it would let anyone
+follow the same two devices across networks and days. So every packet is wrapped:
+
+```
+inner      = header (40) || body                       body = everything after the header
+shield_key = HKDF(ikm=channel_key, salt=channel_id, info=v2("shield") || epoch_u16)
+nonce      = 12 random bytes, fresh for every transmission
+wire       = nonce || AEAD(shield_key, nonce, header || len(body)_u16, aad=v2("shield"))
+                   || body || padding
+```
+
+`channel_key`, `channel_id` and `epoch` are those the header names (the direct channel's
+epoch key, the group key, or a join key). The sealed part is 42 + 16 = 58 bytes, so the
+fixed overhead is 70 bytes.
+
+**Padding.** `wire` is padded with random bytes up to the first of 160, 320, 480, 640,
+800, 960, 1120 or 1280 bytes that fits, and beyond 1280 bytes up to the next multiple of
+1024.
+
+**Receiving.** The receiver has no cleartext to tell it which key to use. So it tries
+every key it holds: every channel at every epoch it still keeps, plus its live group-code
+join keys, starting with the key that opened the last packet. It accepts the first key
+where all of these hold:
+
+- the wire packet is at least 70 bytes
+- `wire[12..70]` opens under that key, to exactly 42 bytes
+- the header parses (version 2, a known type)
+- the header's `channel_id` and `epoch` equal the key's
+- `70 + len(body)` is no more than the wire length
+
+`inner = header || wire[70..70+len(body)]` is then processed as in §6. Padding is
+ignored. If no key opens the packet, it is dropped.
+
+The shield hides the header and rounds the size. The body is already AEAD
+ciphertext, and it is not re-encrypted, so a retransmission carries the same body
+bytes under a fresh shield.
+
+### 6.7 Group sender signatures
+
+Every member holds the group key and, for bursts addressed to it, the burst key. So on
+a talk group, the AEAD alone can't tell one member from another. On a group channel,
+every packet type except BURST_START carries the sender's signature after the sealed
+packet:
+
+```
+signed packet = header || ciphertext || tag || Ed25519(sign_sk, v2("group-packet") || header || ciphertext || tag)
+```
+
+The types this covers are VOICE, BURST_END, CALL_ALERT and WAKE. BURST_START already
+carries its own signature (§6.1). The receiver verifies the signature with the pinned
+`sign_pk` of the member the header's `sender_id` names. Only then does it remove the
+signature and open the packet. A missing or invalid signature drops the packet. Direct
+channels carry no such signature, because there only the two peers hold the keys.
+
+**What remains true within a group.**
+
+- One member can no longer send VOICE, BURST_END, CALL_ALERT or WAKE in another
+  member's name, or inject frames into another member's burst.
+- A member can re-seal another member's BURST_START byte for byte (it is signed in
+  full, §6.1), which changes nothing: the copy that arrives second is a replay.
+- Any member can rekey the group with a GROUP_INVITE (§6.3), and so set the member list
+  for everyone who accepts it.
+- Members can record everything they are sent. A removed member keeps every key it
+  had, and anything it already heard. It hears new bursts only from members who
+  haven't yet applied the rekey and still seal envelopes to it.
+
+Groups are still for people who trust each other. Outsiders, including former members
+once the rekey has reached everyone, can do none of this.
 
 ## 7. Bursts and floor control
 
@@ -400,7 +748,7 @@ apns-push-type: pushtotalk
 apns-topic: <apns_topic>.voip-ptt
 apns-priority: 10
 apns-expiration: 0
-body: {"eptt":"<b64url WAKE packet>"}
+body: {"eptt":"<b64url shielded WAKE packet (§6.6)>"}
 ```
 
 ### 8.2 Listener to talker: wake acknowledgement
@@ -414,7 +762,7 @@ POST .../3/device/<hex apns_device_token of the talker>
 apns-push-type: background
 apns-topic: <apns_topic>
 apns-priority: 5
-body: {"aps":{"content-available":1},"eptt":"<b64url HELLO packet, reply flag set>"}
+body: {"aps":{"content-available":1},"eptt":"<b64url shielded HELLO packet, reply flag set>"}
 ```
 
 A talker that receives a HELLO through any path sends HELLOs back to the
@@ -430,15 +778,35 @@ sender's candidates, and then streams that sender the stored burst packets.
 
 ## 10. Versioning
 
-Any byte-level change bumps `version` and the `"ePTT/<n>"` labels. New TLV
-tags are backward-compatible, because unknown tags are ignored.
+Any byte-level change bumps the header `version` and the derivation labels
+(`"NXTPTT/<n>"`). New TLV tags are backward-compatible, because unknown tags are
+ignored.
+
+**Protocol 1 and protocol 2 do not interoperate.** Protocol 2 changed the suite
+(§0), the header version (0x02), every content-protecting derivation and the
+envelope format, and it shields every packet (§6.6). A protocol-1 device cannot
+parse protocol-2 packets, and a protocol-2 device cannot open protocol-1 packets.
+
+- A protocol-2 device drops any datagram it cannot unshield. If that datagram looks
+  like an unshielded protocol-1 packet from a contact (at least 56 bytes, first byte
+  0x01, bytes 20..28 a known `sender_id`), it tells the user that the contact is on an
+  older NXTPTT and needs to update. It does this at most once an hour per contact.
+- Identities, contact cards (`card_version` 1), signed prekeys, safety numbers and
+  direct channel IDs are unchanged, so pairings survive the upgrade. On upgrade,
+  each direct channel gets a fresh session at epoch 0 (§5.3). The first post-quantum
+  exchange runs as soon as the contact is reachable, and nothing with content is sent
+  before it completes.
+- Talk groups keep their group ID, key and epoch across the upgrade until their next
+  rekey (§5.2).
+- The relay payload format (§11) is unchanged (`version` 1). The packets inside are
+  protocol-2 wire packets.
 
 ## 11. Store-and-forward relay
 
 When a recipient never connected during a burst, the talker may leave the
 burst in a **relay**: any shared store both can reach. On iOS this is the
 app's CloudKit public database, which Apple hosts. The relay only ever sees
-sealed packets. Their audio is protected by the burst key, which only
+shielded packets (§6.6). Their audio is protected by the burst key, which only
 recipients can unwrap (§6.2).
 
 - **Mailbox.** Each device picks a random 16-byte `relay_mailbox` and shares it
@@ -452,7 +820,7 @@ recipients can unwrap (§6.2).
   ```
 
   Recipients look up today's and yesterday's tags.
-- **Payload.** `version: u8 = 1`, then each sealed packet of the burst in order
+- **Payload.** `version: u8 = 1`, then each wire (shielded) packet of the burst in order
   (BURST_START first) as `len: u16 | packet`. The talker uploads one record per
   recipient. The total must stay under 900 KB, which a 60-second burst does.
 - **CloudKit record.** Type `RelayMessage`, with fields `mailbox` (String,
@@ -572,10 +940,13 @@ sends GROUP_INVITE (§6.3) to every member. The other phone only pairs; the grou
 reaches it sealed to its own keys.
 
 
-**After pairing.** Each side adds the contact straight from the card it read and
-sends a HELLO (§6.1) to the addresses the card lists. Both phones already hold each
-other's prekey, push tokens and addresses. So the first transmission can go
-directly, sealed to the prekey (forward secrecy, §3.1 and §6.2), without waiting on the relay.
+**After pairing.** Each side adds the contact straight from the card it read, marks
+it verified (§3), and sends a HELLO (§6.1) to the addresses the card lists. Both
+phones already hold each other's prekey, push tokens and addresses. So the first
+post-quantum exchange (§5.3) and the first one-time keys (§3.2) can go directly,
+without waiting on the relay. Talk works as soon as that exchange completes,
+normally within a second or two of the HELLOs. Until then, pressing talk is refused
+with "Securing the link".
 
 **Safety code.** Both phones show six digits: the first 4 bytes of
 `SHA-256("ePTT/1 face-pairing" ‖ lower ‖ higher)` modulo 10⁶, where `lower` and

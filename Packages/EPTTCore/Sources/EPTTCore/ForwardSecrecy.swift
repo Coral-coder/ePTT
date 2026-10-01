@@ -271,7 +271,10 @@ enum InviteSealing {
         guard sealed.count > 6 + 16 else { throw DecodingError.truncated }
         let prekeyID = try UInt32(bigEndianBytes: Data(sealed.prefix(4)))
         let pairEpoch = try UInt16(bigEndianBytes: Data(sealed.dropFirst(4).prefix(2)))
-        guard let secret = pairSecret(sender.senderID, pairEpoch) else { throw DecodingError.invalid("pair epoch") }
+        // Epoch 0 is classical: invites need a post-quantum pair secret, like bursts.
+        guard pairEpoch >= 1, let secret = pairSecret(sender.senderID, pairEpoch) else {
+            throw DecodingError.invalid("pair epoch")
+        }
         let aad = recipient.bytes + Data.be(prekeyID) + Data.be(pairEpoch)
         let key = Primitives.hkdf(ikm: try agreement(prekeyID, ephemeralPublicKey, sender.id) + secret,
                                   salt: messageID.bytes, info: Primitives.v2("invite") + aad)

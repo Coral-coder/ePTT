@@ -100,15 +100,23 @@ public struct BurstStart: Equatable {
         self.envelopes = envelopes
     }
 
+    /// Covers everything in the body, so no one holding the channel key (another group member)
+    /// can re-seal it with different audio parameters or replay permission (PROTOCOL.md §6.1).
     public static func signatureInput(channelID: ChannelID, senderID: SenderID, burstID: MessageID,
-                                      timestamp: UInt64, ephemeralPublicKey: Data, envelopes: [Data]) -> Data {
-        var d = Primitives.v2("burst")
+                                      timestamp: UInt64, ephemeralPublicKey: Data, envelopes: [Data],
+                                      codec: VoiceCodecID, sampleRate: UInt32, frameMilliseconds: UInt8,
+                                      allowsReplay: Bool) -> Data {
+        var d = Primitives.v2("burst-start")
         d.append(channelID.bytes)
         d.append(senderID.bytes)
         d.append(burstID.bytes)
         d.appendBE(timestamp)
         d.append(ephemeralPublicKey)
         d.append(Primitives.sha256(envelopes.reduce(Data(), +)))
+        d.append(codec.rawValue)
+        d.appendBE(sampleRate)
+        d.append(frameMilliseconds)
+        d.append(allowsReplay ? 1 : 0)
         return d
     }
 
@@ -118,7 +126,9 @@ public struct BurstStart: Equatable {
                               codec: VoiceCodecID = .opus, sampleRate: UInt32 = 48_000,
                               frameMilliseconds: UInt8 = 20, allowsReplay: Bool = false) throws -> BurstStart {
         let input = signatureInput(channelID: channelID, senderID: identity.senderID, burstID: burstID,
-                                   timestamp: timestamp, ephemeralPublicKey: ephemeralPublicKey, envelopes: envelopes)
+                                   timestamp: timestamp, ephemeralPublicKey: ephemeralPublicKey, envelopes: envelopes,
+                                   codec: codec, sampleRate: sampleRate, frameMilliseconds: frameMilliseconds,
+                                   allowsReplay: allowsReplay)
         return BurstStart(timestamp: timestamp, codec: codec, sampleRate: sampleRate,
                           frameMilliseconds: frameMilliseconds, signature: try identity.sign(input),
                           ephemeralPublicKey: ephemeralPublicKey, envelopes: envelopes, allowsReplay: allowsReplay)
@@ -127,7 +137,8 @@ public struct BurstStart: Equatable {
     public func verify(sender: PublicIdentity, channelID: ChannelID, burstID: MessageID) -> Bool {
         sender.isValidSignature(signature, for: BurstStart.signatureInput(
             channelID: channelID, senderID: sender.senderID, burstID: burstID, timestamp: timestamp,
-            ephemeralPublicKey: ephemeralPublicKey, envelopes: envelopes))
+            ephemeralPublicKey: ephemeralPublicKey, envelopes: envelopes, codec: codec, sampleRate: sampleRate,
+            frameMilliseconds: frameMilliseconds, allowsReplay: allowsReplay))
     }
 
     public var encoded: Data {

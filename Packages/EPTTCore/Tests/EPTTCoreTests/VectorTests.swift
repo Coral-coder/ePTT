@@ -233,7 +233,8 @@ final class VectorTests: XCTestCase {
         XCTAssertEqual(keying.envelopes, [try hex("envelope_alice", in: d), try hex("envelope_bob", in: d)])
         XCTAssertEqual(BurstStart.signatureInput(channelID: keys.channelID, senderID: carol.senderID, burstID: burst,
                                                  timestamp: timestamp, ephemeralPublicKey: keying.ephemeralPublicKey,
-                                                 envelopes: keying.envelopes),
+                                                 envelopes: keying.envelopes, codec: .opus, sampleRate: 16_000,
+                                                 frameMilliseconds: 20, allowsReplay: false),
                        try hex("signature_input", in: d))
 
         // Each recipient opens its own envelope: alice via her one-time key, bob via his prekey,

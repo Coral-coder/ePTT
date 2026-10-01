@@ -63,23 +63,25 @@ public struct Contact: Identifiable, Equatable, Codable {
         return true
     }
 
-    /// Unused one-time keys of theirs, oldest first.
+    /// Unused one-time keys of theirs.
     public var availableOneTimeKeys: Int { oneTimeKeys?.count ?? 0 }
 
-    /// Stores one-time keys they sent us. Keeps at most 64; ignores duplicates.
+    /// Stores one-time keys they sent us. Keeps the newest `OneTimeKeyStore.maxOutstanding`, the
+    /// issuer's own cap (it deletes its oldest beyond that); ignores duplicates.
     public mutating func add(oneTimeKeys batch: [(id: UInt32, publicKey: Data)], now: Date = Date()) {
         var keys = oneTimeKeys ?? []
         for key in batch where !keys.contains(where: { $0.id == key.id }) {
             keys.append(OneTimeKey(id: key.id, publicKey: key.publicKey, received: now))
         }
-        oneTimeKeys = Array(keys.suffix(64))
+        oneTimeKeys = Array(keys.suffix(OneTimeKeyStore.maxOutstanding))
     }
 
-    /// Takes (removes) the oldest one-time key still fresh enough. Each is used exactly once.
+    /// Takes (removes) the newest one-time key still fresh enough: the issuer drops its oldest
+    /// first, so the newest is the one surest to still exist. Each is used exactly once.
     public mutating func takeOneTimeKey(now: Date = Date()) -> OneTimeKey? {
         guard var keys = oneTimeKeys else { return nil }
         keys.removeAll { now.timeIntervalSince($0.received) > OneTimeKeyStore.peerLifetime }
-        let key = keys.isEmpty ? nil : keys.removeFirst()
+        let key = keys.popLast()
         oneTimeKeys = keys
         return key
     }

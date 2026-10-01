@@ -270,9 +270,11 @@ def voice_body(frames: list[bytes]) -> bytes:
 
 
 def burst_signature_input(channel_id: bytes, sender_id: bytes, burst_id: bytes, timestamp: int,
-                          ephemeral_pk: bytes, envelopes: list[bytes]) -> bytes:
-    return (v2("burst") + channel_id + sender_id + burst_id + u64(timestamp) + ephemeral_pk
-            + sha256(b"".join(envelopes)))
+                          ephemeral_pk: bytes, envelopes: list[bytes], codec: int, sample_rate: int,
+                          frame_ms: int, allows_replay: bool) -> bytes:
+    """Covers the whole body: codec, sample rate, frame length and the replay flag too."""
+    return (v2("burst-start") + channel_id + sender_id + burst_id + u64(timestamp) + ephemeral_pk
+            + sha256(b"".join(envelopes)) + u8(codec) + u32(sample_rate) + u8(frame_ms) + u8(int(allows_replay)))
 
 
 # ---------------------------------------------------------------- forward secrecy
@@ -539,7 +541,7 @@ def build_vectors() -> dict:
     assert unwrap_burst_key(env_alice, alice_otk_sk, eph_pk, group_id, burst_id, pair_ca) == burst_key
     assert unwrap_burst_key(env_bob, bob_prekey_sk, eph_pk, group_id, burst_id, pair_cb) == burst_key
     envelopes = [env_alice, env_bob]
-    sig_input = burst_signature_input(group_id, carol.sender_id, burst_id, ts, eph_pk, envelopes)
+    sig_input = burst_signature_input(group_id, carol.sender_id, burst_id, ts, eph_pk, envelopes, 1, 16000, 20, False)
     sig = carol.sign_sk.sign(sig_input)
     start_pt = tlv_encode([(T_TIMESTAMP, u64(ts)), (T_CODEC, u8(1)), (T_SAMPLE_RATE, u32(16000)),
                            (T_FRAME_MS, u8(20)), (T_SIGNATURE, sig), (T_EPHEMERAL, eph_pk),

@@ -167,8 +167,9 @@ final class ProcessorTests: XCTestCase {
         let aliceCard = try ContactCard(signing: alice, name: "Alice", timestamp: 1, reachability: .init())
         let aliceView = try Channel.direct(local: alice, peer: bobCard)
         let bobView = try Channel.direct(local: bob, peer: aliceCard)
-        let alert = CallAlert(name: "Alice", timestamp: currentTimestamp(Date().addingTimeInterval(-600)))
-        let packet = try PacketBuilder(local: alice).seal(.callAlert, plaintext: alert.encoded, keys: aliceView.keys)
+        let hello = Hello(name: "Alice", timestamp: currentTimestamp(Date().addingTimeInterval(-600)),
+                          reachability: .init(), flags: 0)
+        let packet = try PacketBuilder(local: alice).seal(.hello, plaintext: hello.encoded, keys: aliceView.keys)
         var processor = PacketProcessor(local: bob)
         XCTAssertThrowsError(try processor.process(packet, channelLookup: { _ in bobView },
                                                    memberLookup: { _ in self.alice.publicIdentity })) {

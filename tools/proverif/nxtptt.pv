@@ -1,0 +1,294 @@
+(* NXTPTT protocol 2: symbolic model of one direct (pairwise) channel.
+
+   Covers docs/PROTOCOL.md:
+     Sec. 5.3  epoch 0 from the static X25519 keys, then a hybrid ML-KEM-1024 + X25519 rekey
+           (PQ_OFFER / PQ_ACCEPT) that ratchets the root and derives the epoch keys,
+     Sec. 3.1  signed prekeys, Sec. 3.2 one-time prekeys (ONE_TIME_KEYS),
+     Sec. 6.2  burst envelopes: a random burst key wrapped under
+           HKDF(X25519(eph, prekey) || pair burst secret, ...),
+     Sec. 6    VOICE sealed under a key derived from the burst key.
+
+   What is abstracted is listed in tools/proverif/README.md. In short: perfect primitives,
+   no packet shield, no fragmentation, no timestamps or replay cache, exactly one rekey
+   (epoch 0 -> 1), two honest parties with each other's keys pinned, and no third party.
+
+   Five independent copies of the protocol run in parallel, each with its own identities,
+   so that one file can check several compromise scenarios:
+
+     s1  baseline: nothing leaks.
+     s2  forward secrecy: in phase 1 (after the session) both devices' long-term keys leak:
+         Ed25519 identity keys, static X25519 keys and the signed prekeys.
+     s3  state compromise after the fact: as s2, plus the current session root (root1).
+         One-time prekeys and burst ephemerals are deleted after use, so they do not leak.
+     s4  harvest now, decrypt later: in phase 1 every X25519 secret ever used leaks (static,
+         rekey ephemerals, burst ephemerals, signed and one-time prekeys) and the Ed25519
+         keys leak too, as if a quantum computer broke both. ML-KEM secrets and roots don't.
+     s5  limitation: the static X25519 keys and the signed prekey are known to an *active*
+         attacker from the start (a quantum attacker present before the first rekey).
+
+   Expected results are in tools/proverif/README.md. *)
+
+free c: channel.
+
+type exponent.
+type G.
+type key.
+type kemsk.
+type kempk.
+type sigsk.
+type sigpk.
+
+(* ---- X25519, as the usual Diffie-Hellman equational theory *)
+
+const g: G [data].
+fun exp(G, exponent): G.
+equation forall x: exponent, y: exponent; exp(exp(g, x), y) = exp(exp(g, y), x).
+
+(* ---- ML-KEM-1024 as an abstract KEM: the shared secret is the encapsulation's randomness,
+   recoverable only with the decapsulation key. *)
+
+fun kempub(kemsk): kempk.
+fun kemenc(kempk, key): bitstring.
+reduc forall sk: kemsk, k: key; kemdec(sk, kemenc(kempub(sk), k)) = k.
+
+(* ---- Ed25519 *)
+
+fun spk(sigsk): sigpk.
+fun sign(sigsk, bitstring): bitstring.
+reduc forall sk: sigsk, m: bitstring; checksign(spk(sk), m, sign(sk, m)) = true.
+reduc forall sk: sigsk, m: bitstring; getmess(sign(sk, m)) = m.
+
+(* ---- AES-256-GCM (nonces are abstracted: every key here seals one message per header) *)
+
+fun aeadEnc(key, bitstring, bitstring): bitstring.          (* key, aad, plaintext *)
+reduc forall k: key, ad: bitstring, m: bitstring; aeadDec(k, ad, aeadEnc(k, ad, m)) = m.
+
+fun encKey(key, bitstring, key): bitstring.                 (* envelope: wraps a burst key *)
+reduc forall k: key, ad: bitstring, m: key; decKey(k, ad, encKey(k, ad, m)) = m.
+
+(* ---- HKDF-SHA-384 and SHA-384, as random oracles (one function per label) *)
+
+fun kdfRoot0(G, sigpk, sigpk): key.                         (* "NXTPTT/2 root0" *)
+fun kdfChan(key, bitstring): key.                           (* "NXTPTT/2 chan" || cid || epoch *)
+fun kdfBurst(key, bitstring): key.                          (* "NXTPTT/2 burst" || cid || epoch *)
+fun transcript(sigpk, sigpk, bitstring, bitstring, kempk, G, bitstring, G): bitstring.
+fun kdfRatchet(key, key, G, bitstring): key.                (* salt = root, ikm = kem || dh *)
+fun kdfWrap(G, key, bitstring, bitstring, bitstring): key.  (* ikm = dh || pair secret *)
+fun kdfMsg(key, bitstring, sigpk, bitstring): key.          (* "NXTPTT/2 burst-msg" *)
+
+(* ---- Constants: packet types, labels, the channel ID and the two epochs *)
+
+const tOffer, tAccept, tOTK, tStart, tVoice: bitstring.
+const lPrekey, lBurst: bitstring.
+const cid, ep0, ep1: bitstring.
+const s1, s2, s3, s4, s5: bitstring.
+const pOTK, pSPK: bitstring.
+
+(* ---- Events *)
+
+event RootI(bitstring, key).                                (* initiator completed a rekey *)
+event RootR(bitstring, key).                                (* responder completed a rekey *)
+event ConfirmedR(bitstring, key).                           (* responder saw the new epoch used *)
+event Sent(bitstring, bitstring, sigpk, sigpk, bitstring).  (* scenario, path, from, to, audio *)
+event Received(bitstring, bitstring, sigpk, sigpk, bitstring).
+
+(* ---- Long-term secrets of each scenario *)
+
+free skA1, skB1, skA2, skB2, skA3, skB3, skA4, skB4, skA5, skB5: sigsk [private].
+free a1, b1, a2, b2, a3, b3, a4, b4, a5, b5: exponent [private].
+free sp1, sp2, sp3, sp4, sp5: exponent [private].
+
+(* The audio of every burst: secO_n is sent to a one-time prekey, secS_n to a signed prekey. *)
+free secO1, secS1, secO2, secS2, secO3, secS3, secO4, secS4, secO5, secS5: bitstring [private].
+
+(* ---- Queries *)
+
+(* Secrecy of burst content. *)
+query attacker(secO1); attacker(secS1).
+query attacker(secO2); attacker(secS2).
+query attacker(secO3); attacker(secS3).
+query attacker(secO4); attacker(secS4).
+query attacker(secO5); attacker(secS5).
+
+(* Authentication: B plays audio as coming from A only if A sent it to B. *)
+query p: bitstring, a: sigpk, b: sigpk, m: bitstring;
+  event(Received(s1, p, a, b, m)) ==> event(Sent(s1, p, a, b, m)).
+query a: sigpk, b: sigpk, m: bitstring;
+  inj-event(Received(s1, pOTK, a, b, m)) ==> inj-event(Sent(s1, pOTK, a, b, m)).
+(* Bursts to a signed prekey can be replayed in this model (the replay cache of Sec. 6.4 is not
+   modelled), so this one is expected to be false. *)
+query a: sigpk, b: sigpk, m: bitstring;
+  inj-event(Received(s1, pSPK, a, b, m)) ==> inj-event(Sent(s1, pSPK, a, b, m)).
+
+(* Key agreement: the initiator only completes a rekey with a root its peer derived. *)
+query k: key; event(RootI(s1, k)) ==> event(RootR(s1, k)).
+(* Key confirmation: the responder treats the new epoch as confirmed only once a packet
+   sealed under it arrives from the initiator (sendEpoch, Sec. 5.3), and by then the initiator
+   holds the same root. *)
+query k: key; event(ConfirmedR(s1, k)) ==> event(RootI(s1, k)).
+
+(* ---- The talker: initiates the rekey, then sends bursts. *)
+
+let Talker(sc: bitstring, skA: sigsk, a: exponent, pkB: sigpk, gb: G,
+           secO: bitstring, secS: bitstring, leakRoot: bool, leakEph: bool) =
+  let pkA = spk(skA) in
+  (* Epoch 0: static X25519 only; it carries the rekey and nothing else. *)
+  let root0 = kdfRoot0(exp(gb, a), pkA, pkB) in
+  let ck0 = kdfChan(root0, ep0) in
+  new kemSk: kemsk;
+  new x: exponent;
+  new offerID: bitstring;
+  (
+    (if leakEph = true then (phase 1; out(c, x); 0))
+  | (
+    (* PQ_OFFER, sealed under epoch 0; the header (type, sender, message ID) is the AAD. *)
+    out(c, ((tOffer, pkA, offerID),
+            aeadEnc(ck0, (tOffer, pkA, offerID), (offerID, ep0, kempub(kemSk), exp(g, x)))));
+    (* PQ_ACCEPT *)
+    in(c, ((=tAccept, =pkB, =offerID), accCt: bitstring));
+    let (=offerID, =ep0, kct: bitstring, gy: G) = aeadDec(ck0, (tAccept, pkB, offerID), accCt) in
+    let ss = kemdec(kemSk, kct) in
+    let tr = transcript(pkA, pkB, offerID, ep0, kempub(kemSk), exp(g, x), kct, gy) in
+    let root1 = kdfRatchet(root0, ss, exp(gy, x), tr) in
+    event RootI(sc, root1);
+    let ck1 = kdfChan(root1, ep1) in
+    let bs1 = kdfBurst(root1, ep1) in
+    (
+      (if leakRoot = true then (phase 1; out(c, root1); 0))
+
+      (* Bursts to a one-time prekey. ONE_TIME_KEYS is only as authentic as the channel key it
+         arrives under; it is modelled at epoch 0, the weakest case. *)
+    | ( ! in(c, ((=tOTK, =pkB), otkCt: bitstring));
+          let (otkId: bitstring, gotk: G) = aeadDec(ck0, (tOTK, pkB), otkCt) in
+          new bid: bitstring;
+          new bk: key;
+          new e: exponent;
+          (
+            (if leakEph = true then (phase 1; out(c, e); 0))
+          | ( let aad = (pkB, otkId, ep1) in
+              let env = encKey(kdfWrap(exp(gotk, e), bs1, bid, cid, aad), aad, bk) in
+              let sg = sign(skA, (lBurst, cid, pkA, bid, exp(g, e), env)) in
+              out(c, ((tStart, pkA, bid), aeadEnc(ck1, (tStart, pkA, bid), (exp(g, e), env, sg))));
+              new m: bitstring;
+              event Sent(sc, pOTK, pkA, pkB, m);
+              out(c, ((tVoice, pkA, bid),
+                      aeadEnc(kdfMsg(bk, bid, pkA, ep1), (tVoice, pkA, bid), (m, secO))));
+              0 )
+          )
+      )
+
+      (* Bursts to the signed prekey (no one-time key left). *)
+    | ( ! in(c, (spkId: bitstring, gsp: G, spSig: bitstring));
+          if checksign(pkB, (lPrekey, spkId, gsp), spSig) = true then
+          new bid: bitstring;
+          new bk: key;
+          new e: exponent;
+          (
+            (if leakEph = true then (phase 1; out(c, e); 0))
+          | ( let aad = (pkB, spkId, ep1) in
+              let env = encKey(kdfWrap(exp(gsp, e), bs1, bid, cid, aad), aad, bk) in
+              let sg = sign(skA, (lBurst, cid, pkA, bid, exp(g, e), env)) in
+              out(c, ((tStart, pkA, bid), aeadEnc(ck1, (tStart, pkA, bid), (exp(g, e), env, sg))));
+              new m: bitstring;
+              event Sent(sc, pSPK, pkA, pkB, m);
+              out(c, ((tVoice, pkA, bid),
+                      aeadEnc(kdfMsg(bk, bid, pkA, ep1), (tVoice, pkA, bid), (m, secS))));
+              0 )
+          )
+      )
+    )
+    )
+  ).
+
+(* ---- The listener: answers the rekey, hands out prekeys, receives bursts. *)
+
+let Listener(sc: bitstring, skB: sigsk, b: exponent, pkA: sigpk, ga: G, sp: exponent,
+             leakRoot: bool, leakEph: bool) =
+  let pkB = spk(skB) in
+  let root0 = kdfRoot0(exp(ga, b), pkA, pkB) in
+  let ck0 = kdfChan(root0, ep0) in
+  (* Signed prekey (Sec. 3.1), published in the contact card and HELLOs. *)
+  new spId: bitstring;
+  out(c, (spId, exp(g, sp), sign(skB, (lPrekey, spId, exp(g, sp)))));
+  in(c, ((=tOffer, =pkA, oid: bitstring), offCt: bitstring));
+  let (=oid, =ep0, kpk: kempk, gx: G) = aeadDec(ck0, (tOffer, pkA, oid), offCt) in
+  new kss: key;
+  new y: exponent;
+  let kct = kemenc(kpk, kss) in
+  let tr = transcript(pkA, pkB, oid, ep0, kpk, gx, kct, exp(g, y)) in
+  let root1 = kdfRatchet(root0, kss, exp(gx, y), tr) in
+  event RootR(sc, root1);
+  out(c, ((tAccept, pkB, oid), aeadEnc(ck0, (tAccept, pkB, oid), (oid, ep0, kct, exp(g, y)))));
+  let ck1 = kdfChan(root1, ep1) in
+  let bs1 = kdfBurst(root1, ep1) in
+  (
+    (if leakEph = true then (phase 1; out(c, y); 0))
+  | (if leakRoot = true then (phase 1; out(c, root1); 0))
+
+    (* One one-time prekey per burst; its private half is deleted after use (never leaked,
+       except in s4 where every X25519 secret is assumed broken). *)
+  | ( ! new otkId: bitstring;
+        new o: exponent;
+        (
+          (if leakEph = true then (phase 1; out(c, o); 0))
+        | ( out(c, ((tOTK, pkB), aeadEnc(ck0, (tOTK, pkB), (otkId, exp(g, o)))));
+            in(c, ((=tStart, =pkA, bid: bitstring), stCt: bitstring));
+            let (ge: G, env: bitstring, sg: bitstring) = aeadDec(ck1, (tStart, pkA, bid), stCt) in
+            event ConfirmedR(sc, root1);
+            if checksign(pkA, (lBurst, cid, pkA, bid, ge, env), sg) = true then
+            let aad = (pkB, otkId, ep1) in
+            let bk = decKey(kdfWrap(exp(ge, o), bs1, bid, cid, aad), aad, env) in
+            in(c, ((=tVoice, =pkA, =bid), vCt: bitstring));
+            let (m: bitstring, sm: bitstring) = aeadDec(kdfMsg(bk, bid, pkA, ep1), (tVoice, pkA, bid), vCt) in
+            event Received(sc, pOTK, pkA, pkB, m);
+            0 )
+        )
+    )
+
+    (* Bursts to the signed prekey. *)
+  | ( ! in(c, ((=tStart, =pkA, bid: bitstring), stCt: bitstring));
+        let (ge: G, env: bitstring, sg: bitstring) = aeadDec(ck1, (tStart, pkA, bid), stCt) in
+        event ConfirmedR(sc, root1);
+        if checksign(pkA, (lBurst, cid, pkA, bid, ge, env), sg) = true then
+        let aad = (pkB, spId, ep1) in
+        let bk = decKey(kdfWrap(exp(ge, sp), bs1, bid, cid, aad), aad, env) in
+        in(c, ((=tVoice, =pkA, =bid), vCt: bitstring));
+        let (m: bitstring, sm: bitstring) = aeadDec(kdfMsg(bk, bid, pkA, ep1), (tVoice, pkA, bid), vCt) in
+        event Received(sc, pSPK, pkA, pkB, m);
+        0
+    )
+  ).
+
+process
+  (* Public keys are public: they travel in contact cards. *)
+  out(c, (spk(skA1), exp(g, a1), spk(skB1), exp(g, b1)));
+  out(c, (spk(skA2), exp(g, a2), spk(skB2), exp(g, b2)));
+  out(c, (spk(skA3), exp(g, a3), spk(skB3), exp(g, b3)));
+  out(c, (spk(skA4), exp(g, a4), spk(skB4), exp(g, b4)));
+  out(c, (spk(skA5), exp(g, a5), spk(skB5), exp(g, b5)));
+  (
+    (* s1: baseline *)
+    ( Talker(s1, skA1, a1, spk(skB1), exp(g, b1), secO1, secS1, false, false)
+    | Listener(s1, skB1, b1, spk(skA1), exp(g, a1), sp1, false, false) )
+
+    (* s2: long-term keys stolen after the session *)
+  | ( Talker(s2, skA2, a2, spk(skB2), exp(g, b2), secO2, secS2, false, false)
+    | Listener(s2, skB2, b2, spk(skA2), exp(g, a2), sp2, false, false)
+    | (phase 1; out(c, (skA2, a2, skB2, b2, sp2)); 0) )
+
+    (* s3: long-term keys and the current root stolen after the session *)
+  | ( Talker(s3, skA3, a3, spk(skB3), exp(g, b3), secO3, secS3, true, false)
+    | Listener(s3, skB3, b3, spk(skA3), exp(g, a3), sp3, true, false)
+    | (phase 1; out(c, (skA3, a3, skB3, b3, sp3)); 0) )
+
+    (* s4: X25519 and Ed25519 broken later (harvest now, decrypt later) *)
+  | ( Talker(s4, skA4, a4, spk(skB4), exp(g, b4), secO4, secS4, false, true)
+    | Listener(s4, skB4, b4, spk(skA4), exp(g, a4), sp4, false, true)
+    | (phase 1; out(c, (skA4, a4, skB4, b4, sp4)); 0) )
+
+    (* s5: X25519 (static keys and the signed prekey) broken by an attacker who is active
+       before the first rekey *)
+  | ( out(c, (a5, b5, sp5));
+      ( Talker(s5, skA5, a5, spk(skB5), exp(g, b5), secO5, secS5, false, false)
+      | Listener(s5, skB5, b5, spk(skA5), exp(g, a5), sp5, false, false) ) )
+  )
