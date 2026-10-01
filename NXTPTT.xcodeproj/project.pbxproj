@@ -92,6 +92,7 @@
 		E9E7BE59DBD99423581C6B98 /* Michroma-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 491106D4D4A4C379330E7D8F /* Michroma-Regular.ttf */; };
 		EEBC7C8EDA04AB18260304FE /* UDPTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26DDD1D519B9A057A89F92C3 /* UDPTransport.swift */; };
 		F0B4EE11E20B998AF99A23FD /* PairView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36E3EB4EF56C3AF302C8490C /* PairView.swift */; };
+		F22084C3DF3F8FA72F63C191 /* PrivacyCover.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63578D76E0FB71719851FE49 /* PrivacyCover.swift */; };
 		F706519E51350819E0E1C93D /* TalkIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BD4C6CC622AA8FF584FA6C0 /* TalkIntents.swift */; };
 		FBFC6D538CA979D3A4452392 /* RelayInbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DF053F9471D6B0FC2198E4E /* RelayInbox.swift */; };
 		FC5046A9F3E5F6F64CDF12CA /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9337F442BFF9EF1F84AAD59 /* NotificationService.swift */; };
@@ -170,6 +171,7 @@
 		5DAD98032A4268C672E17E75 /* TalkLayouts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TalkLayouts.swift; sourceTree = "<group>"; };
 		5DF053F9471D6B0FC2198E4E /* RelayInbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayInbox.swift; sourceTree = "<group>"; };
 		5F26C0993586F06E0277C2EE /* ChannelsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelsView.swift; sourceTree = "<group>"; };
+		63578D76E0FB71719851FE49 /* PrivacyCover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyCover.swift; sourceTree = "<group>"; };
 		6491F3384F5ADA236ECD6732 /* GridBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridBackground.swift; sourceTree = "<group>"; };
 		670CC2CACF289A683AB032A0 /* NXTPTTWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NXTPTTWatchApp.swift; sourceTree = "<group>"; };
 		6E2AE46EE092CDD2652AB8F4 /* TalkOrb.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TalkOrb.swift; sourceTree = "<group>"; };
@@ -422,6 +424,7 @@
 				FF14FF95427D6CC114A44733 /* OnboardingView.swift */,
 				BD7AD74250234448DCDCEEA1 /* OrbitPairView.swift */,
 				36E3EB4EF56C3AF302C8490C /* PairView.swift */,
+				63578D76E0FB71719851FE49 /* PrivacyCover.swift */,
 				F0220AFF770A796A696493B8 /* SettingsView.swift */,
 				90A31E58691124529D39C377 /* SoundsView.swift */,
 				5DAD98032A4268C672E17E75 /* TalkLayouts.swift */,
@@ -628,6 +631,7 @@
 				4C2714092CE55A4182662055 /* OrbitPairView.swift in Sources */,
 				140445E2C96F7A09C8021C87 /* PTTEngine.swift in Sources */,
 				F0B4EE11E20B998AF99A23FD /* PairView.swift in Sources */,
+				F22084C3DF3F8FA72F63C191 /* PrivacyCover.swift in Sources */,
 				C3C698E53D06432948E6857C /* PushToTalkManager.swift in Sources */,
 				9FFC6AD5A1FFCAB7C0C33CAF /* RelayInbox.swift in Sources */,
 				A2330D8AEF6EF45B4D6FBF79 /* SettingsView.swift in Sources */,
