@@ -121,6 +121,10 @@ final class OpusEncoder: VoiceEncoder {
             }
         }
 
+        // Constant bitrate: with variable bitrate, packet sizes follow what is being said, which
+        // leaks through encryption. Packet padding (PROTOCOL.md §6.6) covers any remaining jitter.
+        converter.bitRateStrategy = AVAudioBitRateStrategy_Constant
+
         self.pcmFormat = pcm
         self.frameLength = frames
         self.opusFormat = opus

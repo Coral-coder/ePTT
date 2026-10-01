@@ -2211,7 +2211,25 @@ final class PTTEngine {
     /// Adds a contact whose signed card was read face to face, and says hello straight to the
     /// addresses it lists. They hold our card already, so nothing waits on the relay.
     func addFacePaired(_ card: ContactCard) {
-        queue.async { [self] in addContact(card) }
+        queue.async { [self] in
+            addContact(card)
+            markVerified(card.id)
+        }
+    }
+
+    /// Confirmed in person (optical handshake) or by comparing safety numbers.
+    func setVerified(_ id: IdentityID, _ verified: Bool) {
+        queue.async { [self] in
+            guard let i = state.contacts.firstIndex(where: { $0.id == id }) else { return }
+            state.contacts[i].verifiedAt = verified ? Date() : nil
+            save()
+        }
+    }
+
+    private func markVerified(_ id: IdentityID) {
+        guard let i = state.contacts.firstIndex(where: { $0.id == id }), !state.contacts[i].isVerified else { return }
+        state.contacts[i].verifiedAt = Date()
+        save()
     }
 
     /// What this phone shows over light: public keys, name and relay mailbox.
@@ -2240,6 +2258,7 @@ final class PTTEngine {
                 }
                 save()
             }
+            markVerified(profile.identity.id)   // their keys came over light, phone to phone
             guard let contact = self.contact(id: profile.identity.id) else { return }
             sendCard(to: contact)
         }

@@ -172,7 +172,16 @@ struct ContactRow: View {
         HStack(spacing: 12) {
             InitialsRing(name: contact.name, size: 40, lit: online)
             VStack(alignment: .leading, spacing: 2) {
-                Text(contact.name).font(NX.label(16, .bold)).foregroundStyle(NX.text)
+                HStack(spacing: 6) {
+                    Text(contact.name).font(NX.label(16, .bold)).foregroundStyle(NX.text)
+                    if !contact.isVerified {
+                        Text("UNVERIFIED")
+                            .font(NX.label(10, .bold))
+                            .foregroundStyle(.orange)
+                            .padding(.horizontal, 5).padding(.vertical, 1)
+                            .overlay(Capsule().stroke(.orange.opacity(0.7), lineWidth: 1))
+                    }
+                }
                 Text((model.snapshot.peerQuiet[contact.id] != nil ? "Do Not Disturb · " : "")
                      + (model.snapshot.peerRoutes[contact.id].map { "Connected · \($0.shortLabel)" } ?? (contact.isWakeable ? "Not connected · wakes by push" : "Not connected")))
                     .font(NX.body(13))
@@ -201,8 +210,35 @@ struct ContactDetailView: View {
                 Text("Compare this with \(contact.name)'s screen. If the numbers match, nobody is in the middle.")
                     .font(NX.body(13))
                     .foregroundStyle(NX.textDim)
+                if contact.isVerified {
+                    Label("Verified", systemImage: "checkmark.seal.fill").foregroundStyle(NX.cyan)
+                    Button("Mark as not verified", role: .destructive) { model.engine.setVerified(contact.id, false) }
+                } else {
+                    Text("Not verified. Added from a link or code that could have been swapped on the way. Compare the numbers in person or on a call before trusting it.")
+                        .font(NX.body(13))
+                        .foregroundStyle(.orange)
+                    Button { model.engine.setVerified(contact.id, true) } label: {
+                        Label("The numbers match", systemImage: "checkmark.seal")
+                    }
+                }
             } header: {
                 SectionCaption(text: "Safety number")
+            }
+            .nxRows()
+            Section {
+                let session = model.directChannel(for: contact)?.session
+                LabeledContent("Link", value: session?.isQuantumSafe == true ? "Post-quantum" : "Securing…")
+                if let session, session.isQuantumSafe {
+                    LabeledContent("Key exchange", value: "ML-KEM-1024 + X25519")
+                    LabeledContent("Session key", value: "#\(session.epoch) · \(session.epochStarted.formatted(.relative(presentation: .named)))")
+                }
+                LabeledContent("Cipher", value: "AES-256-GCM · HKDF-SHA-384")
+                LabeledContent("Their one-time keys held", value: "\(contact.availableOneTimeKeys)")
+            } header: {
+                SectionCaption(text: "Encryption")
+            } footer: {
+                Text("Nothing is sent to \(contact.name) until the link is post-quantum. Session keys renew every hour; every message also gets its own key, deleted after use.")
+                    .font(NX.body(13))
             }
             .nxRows()
             Section {
@@ -234,7 +270,6 @@ struct ContactDetailView: View {
             .nxRows()
             Section {
                 LabeledContent("Background wake", value: contact.isWakeable ? "Yes" : "No")
-                LabeledContent("Forward secrecy", value: contact.reachability.prekey != nil ? "Session keys active" : "After first exchange")
                 ForEach(contact.reachability.candidates, id: \.self) { candidate in
                     Text(candidate.description).font(.caption.monospaced()).foregroundStyle(NX.textDim)
                 }

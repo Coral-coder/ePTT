@@ -217,6 +217,20 @@ struct GroupCard: View {
             } label: {
                 Label("Invite with QR code", systemImage: "qrcode")
             }
+            if !channel.members.isEmpty {
+                // Removing someone changes the group key, so they can't hear anything said after.
+                Menu {
+                    ForEach(channel.members, id: \.self) { member in
+                        Button(role: .destructive) {
+                            model.engine.removeMember(member, from: channel.id)
+                        } label: {
+                            Text(model.snapshot.contacts.first { $0.id == member }?.name ?? "Unknown member")
+                        }
+                    }
+                } label: {
+                    Label("Remove member", systemImage: "person.badge.minus")
+                }
+            }
             Button(role: .destructive) {
                 model.engine.leaveGroup(channel.id)
             } label: {
