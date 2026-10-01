@@ -94,10 +94,25 @@ public struct OneTimeKeyStore: Codable, Equatable {
         entries.filter { $0.issuedTo == contact && $0.usedAt == nil && now.timeIntervalSince($0.created) < Self.peerLifetime }.count
     }
 
+    /// Most unused keys any one contact may hold from us; the oldest go first.
+    public static let maxOutstanding = 48
+
     /// New keys for a contact, up to the target. Returns the public halves to send.
     public mutating func issue(to contact: IdentityID, max: Int = OneTimeKeyBatch.maxPerPacket,
                                now: Date = Date()) -> [(id: UInt32, publicKey: Data)] {
-        let count = Swift.min(max, Swift.max(0, Self.target - outstanding(for: contact, now: now)))
+        issue(to: contact, count: Swift.min(max, Swift.max(0, Self.target - outstanding(for: contact, now: now))), now: now)
+    }
+
+    /// Exactly `count` new keys (at most one packet's worth), e.g. when the contact says it holds
+    /// fewer than we think (a batch was lost). Keeps the contact's unused keys under the cap.
+    public mutating func issue(to contact: IdentityID, count: Int, now: Date = Date()) -> [(id: UInt32, publicKey: Data)] {
+        let count = Swift.max(0, Swift.min(count, OneTimeKeyBatch.maxPerPacket))
+        let unused = entries.enumerated().filter { $0.element.issuedTo == contact && $0.element.usedAt == nil }
+        let excess = unused.count + count - Self.maxOutstanding
+        if excess > 0 {
+            let drop = Set(unused.prefix(excess).map { $0.element.id })
+            entries.removeAll { drop.contains($0.id) }
+        }
         return (0..<count).map { _ in
             let key = Curve25519.KeyAgreement.PrivateKey()
             let id = 0x8000_0000 | (nextID & 0x7FFF_FFFF)

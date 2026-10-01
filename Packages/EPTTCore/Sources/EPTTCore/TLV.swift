@@ -35,6 +35,7 @@ public enum Tag: UInt8, CaseIterable {
     case oneTimeKey = 0x54
     case sealedText = 0x55
     case fragment = 0x56
+    case heldOneTimeKeys = 0x57
     case cardVersion = 0x40
     case signPublicKey = 0x41
     case kxPublicKey = 0x42

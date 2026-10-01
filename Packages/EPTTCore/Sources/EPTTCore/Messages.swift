@@ -29,12 +29,17 @@ public struct Hello: Equatable {
     public var timestamp: UInt64
     public var reachability: Reachability
     public var flags: UInt8
+    /// How many of the recipient's one-time prekeys the sender still holds (so the recipient
+    /// knows when to hand out more; PROTOCOL.md §3.2).
+    public var heldOneTimeKeys: UInt16?
 
-    public init(name: String, timestamp: UInt64, reachability: Reachability, flags: UInt8 = 0) {
+    public init(name: String, timestamp: UInt64, reachability: Reachability, flags: UInt8 = 0,
+                heldOneTimeKeys: UInt16? = nil) {
         self.name = name
         self.timestamp = timestamp
         self.reachability = reachability
         self.flags = flags
+        self.heldOneTimeKeys = heldOneTimeKeys
     }
 
     public var wantsReply: Bool { flags & Hello.replyRequested != 0 }
@@ -50,6 +55,7 @@ public struct Hello: Equatable {
         b.add(.timestamp, integer: timestamp)
         reachability.add(to: &b)
         b.add(.flags, integer: flags)
+        if let heldOneTimeKeys { b.add(.heldOneTimeKeys, integer: heldOneTimeKeys) }
         return b.encoded
     }
 
@@ -59,6 +65,7 @@ public struct Hello: Equatable {
         timestamp = try f.requireUInt(.timestamp)
         reachability = try Reachability(fields: f)
         flags = try f.uint(.flags) ?? 0
+        heldOneTimeKeys = try f.uint(.heldOneTimeKeys)
     }
 }
 

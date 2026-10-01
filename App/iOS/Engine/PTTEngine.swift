@@ -125,6 +125,8 @@ final class PTTEngine {
     private final class PrekeyBox {
         var store = PrekeyKeychain.load()
         var signed: SignedPrekey?
+        /// One-time prekeys we've handed to contacts (protocol 2, §3.2).
+        var oneTime = OneTimeKeyKeychain.load()
     }
     private let prekeys = PrekeyBox()
     private var processor: PacketProcessor
@@ -190,6 +192,9 @@ final class PTTEngine {
         var wakePacket: Data?
         var lastStartResend = Date()
         let startedAt = Date()
+        /// Members left out because our session with them isn't post-quantum yet (or we have no
+        /// key of theirs to seal to). Nothing is sent to them, not even through the relay.
+        var unsecured: [String] = []
     }
     private var tx: Transmission?
     /// Channel requested from our UI while we wait for PushToTalk to grant the transmission.
@@ -242,7 +247,8 @@ final class PTTEngine {
         identity = IdentityKeychain.loadOrCreate()
         state = Store.load()
         let box = prekeys
-        processor = PacketProcessor(local: identity, agreement: identity.keyAgreement(prekeys: { box.store }))
+        processor = PacketProcessor(local: identity, agreement: identity.keyAgreement(prekeys: { box.store },
+                                                                                      oneTimeKeys: { box.oneTime }))
         builder = PacketBuilder(local: identity)
         floor = FloorControl(localSender: identity.senderID)
         transport = UDPTransport(queue: queue)
@@ -261,8 +267,26 @@ final class PTTEngine {
             state.relayMailbox = .random(count: 16)
             Store.save(state)
         }
+        migrateToProtocol2()
         rebuildIndexes()
         rotatePrekeysIfNeeded()
+    }
+
+    /// Protocol 2: every direct channel runs a pairwise session ratchet. Channels saved by older
+    /// builds get a fresh session at epoch 0; the first post-quantum exchange runs as soon as
+    /// the contact is reachable, and nothing with content is sent before it completes.
+    private func migrateToProtocol2() {
+        var changed = false
+        for i in state.channels.indices where state.channels[i].kind == .direct && state.channels[i].session == nil {
+            guard let member = state.channels[i].members.first,
+                  let contact = state.contacts.first(where: { $0.id == member }),
+                  var fresh = try? Channel.direct(local: identity, peer: contact.identity,
+                                                  name: state.channels[i].name) else { continue }
+            fresh.isMonitored = state.channels[i].isMonitored
+            state.channels[i] = fresh
+            changed = true
+        }
+        if changed { Store.save(state) }
     }
 
     /// Creates, rotates and expires session prekeys (PROTOCOL.md §3.1). Returns true on change.
@@ -326,6 +350,7 @@ final class PTTEngine {
             fetchRelay()
             // Requests that came in a push while the app wasn't running (someone joining a group).
             for packet in RelayInbox.takePushed() { handleDatagram(packet, from: nil, relayed: true) }
+            takeOneTimeKeysUsedElsewhere()
             retryJoins(loud: false)
         }
     }
@@ -378,6 +403,17 @@ final class PTTEngine {
             earlyVoice.expire(now: now)
             earlyPackets.expire(now: now)
             if rotatePrekeysIfNeeded() { announceReachability() }
+            takeOneTimeKeysUsedElsewhere()
+            if prekeys.oneTime.purge(now: now) { saveOneTimeKeys() }
+            var expired = false
+            for i in state.channels.indices {
+                guard var session = state.channels[i].session else { continue }
+                let before = session
+                session.expire(now: now)
+                if session != before { state.channels[i].apply(session: session); expired = true }
+            }
+            if expired { save() }
+            for contact in state.contacts { rekeyIfDue(contact, now: now) }
             if now.timeIntervalSince(lastRelayFetch) >= 60 {
                 fetchRelay()
                 refreshRelaySubscription()
@@ -552,11 +588,35 @@ final class PTTEngine {
     }
 
     private func startTransmission(channelID: ChannelID, burst: MessageID, timestamp: UInt64) {
-        guard let channel = self.channel(channelID) else { return }
+        guard var channel = self.channel(channelID) else { return }
         do {
-            // Seal a fresh burst key to each member's current prekey (or static key if unknown).
-            let targets = channel.members.compactMap { self.contact(id: $0) }
-                .map { SealTarget(identity: $0.identity, prekey: $0.reachability.prekey) }
+            // Seal a fresh burst key to each member: one of their one-time keys (else their signed
+            // prekey), mixed with our post-quantum session secret with them. Members whose
+            // session hasn't completed a post-quantum exchange get nothing at all.
+            var targets: [SealTarget] = []
+            var secured: [IdentityID] = []
+            var unsecured: [String] = []
+            for member in channel.members {
+                guard let i = contactsBySender[member.senderID] else { continue }
+                if let target = sealTarget(forContactAt: i) {
+                    targets.append(target)
+                    secured.append(member)
+                } else {
+                    unsecured.append(state.contacts[i].name)
+                    rekeyIfDue(state.contacts[i])
+                }
+            }
+            guard !targets.isEmpty else {
+                emit(.message("Securing the link with \(unsecured.joined(separator: ", ")). Try again in a moment."))
+                _ = floor.releaseTalk()
+                if usesPushToTalk { ptt.stopTransmitting() }
+                return
+            }
+            if !unsecured.isEmpty {
+                emit(.message("Not sent to \(unsecured.joined(separator: ", ")) yet: securing the link"))
+            }
+            save()   // one-time keys were used up
+            channel.members = secured
             let outgoing = try OutgoingBurst(identity: identity, channelID: channel.id, burstID: burst,
                                              timestamp: timestamp, targets: targets,
                                              codec: audio.captureCodec.codec,
@@ -567,6 +627,7 @@ final class PTTEngine {
                                           messageID: burst)
             var t = Transmission(channel: channel, burst: burst, burstKey: outgoing.burstKey, startPacket: packet,
                                  backlog: BurstBacklog(burst: burst))
+            t.unsecured = unsecured
             t.backlog.append(packet)
             tx = t
             for member in channel.members {
@@ -601,7 +662,8 @@ final class PTTEngine {
         guard var t = tx, !t.pending.isEmpty else { return }
         do {
             let packet = try builder.sealBurst(.voice, plaintext: VoiceBody.encode(t.pending), keys: t.channel.keys,
-                                               burstID: t.burst, burstKey: t.burstKey, seq: t.nextFrameIndex)
+                                               burstID: t.burst, burstKey: t.burstKey, seq: t.nextFrameIndex,
+                                               group: t.channel.kind == .group)
             t.nextFrameIndex += UInt32(t.pending.count)
             t.pending.removeAll()
             t.backlog.append(packet)
@@ -621,7 +683,8 @@ final class PTTEngine {
         tx = nil
         let end = BurstEnd(timestamp: currentTimestamp(), frameCount: t.nextFrameIndex)
         let endPacket = try? builder.sealBurst(.burstEnd, plaintext: end.encoded, keys: t.channel.keys,
-                                               burstID: t.burst, burstKey: t.burstKey, seq: t.nextFrameIndex)
+                                               burstID: t.burst, burstKey: t.burstKey, seq: t.nextFrameIndex,
+                                               group: t.channel.kind == .group)
         if let endPacket {
             // Three copies 40 ms apart; receivers drop the duplicates.
             for i in 0..<3 {
@@ -744,13 +807,15 @@ final class PTTEngine {
         } else {
             let wake = Wake(name: state.settings.displayName, timestamp: currentTimestamp(),
                             candidates: transport.localCandidates)
-            guard let sealed = try? builder.seal(.wake, plaintext: wake.encoded, keys: t.channel.keys, messageID: t.burst)
+            guard let sealed = try? builder.seal(.wake, plaintext: wake.encoded, keys: t.channel.keys, messageID: t.burst,
+                                                 group: t.channel.kind == .group)
             else { return }
             packet = sealed
             if tx?.burst == t.burst { tx?.wakePacket = sealed }
         }
         noteWake(contact, "sending…")
-        apns.sendWake(packet, to: contact) { [weak self] failure in
+        guard let wire = shield(packet) else { return }
+        apns.sendWake(wire, to: contact) { [weak self] failure in
             self?.queue.async {
                 guard let self else { return }
                 if let failure {
@@ -779,9 +844,27 @@ final class PTTEngine {
 
     func sendCallAlert(to contactID: IdentityID, text: String? = nil) {
         queue.async { [self] in
-            guard let contact = self.contact(id: contactID), let channel = self.directChannel(for: contactID) else { return }
+            guard let contact = self.contact(id: contactID), let channel = self.directChannel(for: contactID),
+                  let i = contactsBySender[contact.senderID] else { return }
             let alert = CallAlert(name: state.settings.displayName, timestamp: currentTimestamp(), text: text)
-            guard let packet = try? builder.seal(.callAlert, plaintext: alert.encoded, keys: channel.keys) else { return }
+            let messageID = MessageID.random()
+            let plaintext: Data
+            if let text, !text.isEmpty {
+                // Typed text is content: sealed like a burst, so only post-quantum and per message.
+                guard let target = sealTarget(forContactAt: i),
+                      let sealed = try? alert.encoded(sealingTextFor: target, channelID: channel.id, messageID: messageID)
+                else {
+                    rekeyIfDue(contact)
+                    emit(.message("Securing the link with \(contact.name). Send the text again in a moment."))
+                    return
+                }
+                save()
+                plaintext = sealed
+            } else {
+                plaintext = alert.encoded
+            }
+            guard let packet = try? builder.seal(.callAlert, plaintext: plaintext, keys: channel.keys,
+                                                 messageID: messageID) else { return }
             if isLinked(contact.senderID) {
                 send(packet, to: [contact.senderID])
                 emit(.message("Call alert sent to \(contact.name)"))
@@ -794,7 +877,8 @@ final class PTTEngine {
                 relayCallAlert(packet, to: contact)
                 return
             }
-            apns.sendAlert(packet, to: contact) { [weak self] failure in
+            guard let wire = shield(packet) else { return }
+            apns.sendAlert(wire, to: contact) { [weak self] failure in
                 self?.queue.async {
                     guard let self else { return }
                     if let failure {
@@ -809,7 +893,7 @@ final class PTTEngine {
 
     private func relayCallAlert(_ packet: Data, to contact: Contact, pushFailure: String? = nil) {
             guard let relay, state.settings.relayEnabled, let mailbox = contact.reachability.relayMailbox,
-                  let payload = Relay.encode(packets: [packet]) else {
+                  let payload = Relay.encode(packets: shieldAll([packet])) else {
                 emit(.message("Call alert to \(contact.name) may not arrive: "
                               + (pushFailure.map { "push \($0), and " } ?? "")
                               + "the iCloud relay isn't available"))
@@ -837,7 +921,28 @@ final class PTTEngine {
         queue.async { self.handleDatagram(packet, from: nil) }
     }
 
-    private func handleDatagram(_ data: Data, from endpoint: PeerPath?, relayed: Bool = false) {
+    /// A packet as it arrived on the wire: shielded (PROTOCOL.md §6.6).
+    private func handleDatagram(_ wire: Data, from endpoint: PeerPath?, relayed: Bool = false) {
+        guard let inner = unshield(wire) else {
+            noteUnreadable(wire)
+            return
+        }
+        handleInner(inner, from: endpoint, relayed: relayed)
+    }
+
+    /// Nothing of ours opens it. If it's a protocol-1 packet from a contact (unshielded, so its
+    /// header is readable), tell the user they need to update, at most hourly per contact.
+    private var updateNagged: [SenderID: Date] = [:]
+
+    private func noteUnreadable(_ wire: Data) {
+        guard wire.count >= 56, wire.first == 1, wire.count > 28 else { return }
+        guard let sender = try? SenderID(bytes: Data(wire[20..<28])), let contact = self.contact(sender),
+              Date().timeIntervalSince(updateNagged[sender] ?? .distantPast) > 3600 else { return }
+        updateNagged[sender] = Date()
+        emit(.message("\(contact.name) is on an older NXTPTT. Ask them to update: older versions can't talk to this one."))
+    }
+
+    private func handleInner(_ data: Data, from endpoint: PeerPath?, relayed: Bool = false) {
         // Someone who scanned one of our group codes: not a contact yet, so not for the processor.
         if (try? PacketHeader(packet: data))?.type == .groupJoin {
             // A push can sit a while before it's seen: allow it the relay's age.
@@ -850,8 +955,11 @@ final class PTTEngine {
                 data,
                 maxAge: relayed ? Relay.lifetime : ReplayGuard.maxClockSkew,
                 channelLookup: { [self] in channel($0) },
-                memberLookup: { [self] in contact($0)?.identity }
+                memberLookup: { [self] in contact($0)?.identity },
+                pairSecret: pairSecrets
             )
+        } catch InboundError.incomplete {
+            return   // a fragment of a rekey message; the rest is on its way
         } catch InboundError.unknownBurst {
             // VOICE overtook its BURST_START (or the start is still in flight): retry after it lands.
             if !relayed, let header = try? PacketHeader(packet: data) {
@@ -870,6 +978,25 @@ final class PTTEngine {
         }
 
         let sender = inbound.header.senderID
+        // They sealed this under a newer epoch of our session: they hold it, so we switch to it.
+        if inbound.channel.kind == .direct, let i = channelIndex[inbound.channel.id],
+           var session = state.channels[i].session, inbound.header.epoch > session.sendEpoch {
+            let wasSecure = session.sendEpoch >= 1
+            session.peerUsed(epoch: inbound.header.epoch)
+            state.channels[i].apply(session: session)
+            save()
+            if !wasSecure, session.sendEpoch >= 1, let contact = self.contact(sender) { sessionSecured(with: contact) }
+        }
+        // A one-time key opened this: it's used. Deleted once the message completes.
+        if let keyID = inbound.openedKeyID, OneTimeKeyStore.isOneTime(keyID) {
+            prekeys.oneTime.markUsed(keyID)
+            if case .burstStart = inbound.message {
+                oneTimeKeyForBurst[inbound.header.messageID] = keyID
+            } else {
+                prekeys.oneTime.consume(keyID)
+            }
+            saveOneTimeKeys()
+        }
         // The watch has taken over: no links, no playing, no answering. Other messages (cards,
         // group invites) are still applied.
         if state.watchPrimary {
@@ -892,7 +1019,7 @@ final class PTTEngine {
             handleHello(hello, from: sender, endpoint: endpoint)
         case .burstStart(let start):
             defer {
-                for (packet, from) in earlyPackets.take(inbound.header.messageID) { handleDatagram(packet, from: from) }
+                for (packet, from) in earlyPackets.take(inbound.header.messageID) { handleInner(packet, from: from) }
             }
             guard inbound.channel.isMonitored || inbound.channel.kind == .direct else { return }
             let burst = inbound.header.messageID
@@ -923,6 +1050,12 @@ final class PTTEngine {
             }
         case .burstEnd(let end):
             let burst = inbound.header.messageID
+            // The whole message is here: its one-time key goes now. Nobody, us included, can
+            // open a copy of it any more.
+            if let keyID = oneTimeKeyForBurst.removeValue(forKey: burst) {
+                prekeys.oneTime.consume(keyID)
+                saveOneTimeKeys()
+            }
             // Receipt for the whole message (the talker relays it if this never arrives): only
             // for a message we're playing or just played, never one we dropped.
             if rx?.burst == burst || recentlyPlayed.contains(burst), let endpoint, let contact = self.contact(sender) {
@@ -945,15 +1078,167 @@ final class PTTEngine {
         case .groupInvite(let invite):
             acceptInvite(invite, from: sender)
         case .groupLeave(let leave):
-            if let i = channelIndex[leave.groupID], state.channels[i].kind == .group, let contact = self.contact(sender) {
+            if let i = channelIndex[leave.groupID], state.channels[i].kind == .group, let contact = self.contact(sender),
+               state.channels[i].members.contains(contact.id) {
                 state.channels[i].members.removeAll { $0 == contact.id }
                 save()
+                // They keep the old group key: the remaining member who sorts first replaces it.
+                let remaining = state.channels[i].members + [identity.id]
+                if remaining.min() == identity.id { rekeyGroup(at: i) }
             }
         case .card(let card):
             // Their full signed card, e.g. after pairing face to face: tokens, prekey, addresses.
             guard let i = contactsBySender[sender], state.contacts[i].id == card.id else { return }
             if state.contacts[i].apply(card: card) { save() }
+        case .pqOffer(let offer):
+            handleRekeyOffer(offer, from: sender)
+        case .pqAccept(let accept):
+            handleRekeyAccept(accept, from: sender)
+        case .oneTimeKeys(let batch):
+            guard let i = contactsBySender[sender] else { return }
+            state.contacts[i].add(oneTimeKeys: batch.keys)
+            save()
         }
+    }
+
+    /// Where to seal a message for a contact (PROTOCOL.md §6.2): only once our session with them
+    /// is post-quantum, and only to one of their one-time keys (used up here) or their signed
+    /// prekey — never their static key.
+    private func sealTarget(forContactAt i: Int) -> SealTarget? {
+        let contact = state.contacts[i]
+        guard let session = directChannel(for: contact.id)?.session, session.isQuantumSafe,
+              let epoch = session.keys(forEpoch: session.sendEpoch), epoch.epoch >= 1 else { return nil }
+        let oneTime = state.contacts[i].takeOneTimeKey()
+        return SealTarget(identity: contact.identity, oneTimeKey: oneTime, prekey: contact.reachability.prekey,
+                          epoch: epoch)
+    }
+
+    /// Which one-time key opened a burst still being received.
+    private var oneTimeKeyForBurst: [MessageID: UInt32] = [:]
+
+    /// One-time keys the notification extension opened messages with: mark them used, so they
+    /// are deleted once the message's relay copy can no longer be fetched again.
+    private func takeOneTimeKeysUsedElsewhere() {
+        let used = RelayInbox.takeUsedOneTimeKeys()
+        guard !used.isEmpty else { return }
+        for id in used { prekeys.oneTime.markUsed(id) }
+        saveOneTimeKeys()
+    }
+
+    private func saveOneTimeKeys() {
+        OneTimeKeyKeychain.save(prekeys.oneTime)
+        syncWatch()
+        syncInbox()
+    }
+
+    // MARK: - Post-quantum session ratchet (PROTOCOL.md §5.3)
+
+    /// A quantum-safe epoch is replaced this often while the contact is reachable.
+    static let rekeyInterval: TimeInterval = 3600
+    /// A pending offer is re-sent this often while the contact is linked.
+    static let offerResend: TimeInterval = 8
+    private var lastOfferSent: [ChannelID: Date] = [:]
+    private var offersRelayed: Set<String> = []
+
+    /// Sends PQ_OFFER / PQ_ACCEPT fragments: on the live link, else to their last addresses and
+    /// (once per message) through the relay.
+    private func deliverRekey(_ packets: [Data], relayKey: String, to contact: Contact) {
+        if isLinked(contact.senderID), let link = links[contact.senderID] {
+            for packet in packets { send(packet, via: link.endpoint) }
+            return
+        }
+        for packet in packets { sendToCandidates(packet, contact.reachability.candidates) }
+        guard !offersRelayed.contains(relayKey), let relay, state.settings.relayEnabled,
+              let mailbox = contact.reachability.relayMailbox,
+              let payload = Relay.encode(packets: shieldAll(packets)) else { return }
+        offersRelayed.insert(relayKey)
+        Task { [weak self] in
+            if let name = try? await relay.upload(payload: payload, tag: Relay.tag(mailbox: mailbox)) {
+                self?.queue.async {
+                    self?.state.relayUploads[name] = Date().addingTimeInterval(Relay.lifetime)
+                    self?.save()
+                }
+            }
+        }
+    }
+
+    /// Starts (or re-sends) a rekey with a contact when it's due: right away while the session is
+    /// still at the classical epoch 0, then hourly while they're reachable.
+    private func rekeyIfDue(_ contact: Contact, now: Date = Date()) {
+        guard !state.watchPrimary, let i = channelIndex[directChannel(for: contact.id)?.id ?? .random()],
+              var session = state.channels[i].session,
+              session.sendEpoch == session.epoch else { return }   // wait out an unconfirmed one
+        let due = !session.isQuantumSafe || now.timeIntervalSince(session.epochStarted) > PTTEngine.rekeyInterval
+        guard due || session.hasPendingOffer else { return }
+        // Re-send briskly while they're live; otherwise once a minute to their last addresses
+        // (the relay gets each offer once).
+        let every = isLinked(contact.senderID) ? PTTEngine.offerResend : 60
+        guard now.timeIntervalSince(lastOfferSent[state.channels[i].id] ?? .distantPast) >= every else { return }
+        guard let offer = try? session.offer(now: now),
+              let keys = session.channelKeys(channelID: state.channels[i].id, epoch: offer.baseEpoch),
+              let packets = try? builder.sealFragmented(.pqOffer, plaintext: offer.encoded, keys: keys,
+                                                        messageID: offer.offerID) else { return }
+        state.channels[i].apply(session: session)
+        lastOfferSent[state.channels[i].id] = now
+        save()
+        deliverRekey(packets, relayKey: "offer-\(offer.offerID)", to: contact)
+    }
+
+    private func handleRekeyOffer(_ offer: PQOffer, from sender: SenderID) {
+        guard !state.watchPrimary, let contact = self.contact(sender),
+              let i = channelIndex[directChannel(for: contact.id)?.id ?? .random()],
+              var session = state.channels[i].session else { return }
+        let channelID = state.channels[i].id
+        guard let result = try? session.receive(offer: offer, channelID: channelID, localID: identity.id,
+                                                peerID: contact.id),
+              case .reply(let accept) = result,
+              let keys = session.channelKeys(channelID: channelID, epoch: offer.baseEpoch),
+              let packets = try? builder.sealFragmented(.pqAccept, plaintext: accept, keys: keys,
+                                                        messageID: offer.offerID) else { return }
+        state.channels[i].apply(session: session)
+        save()
+        deliverRekey(packets, relayKey: "accept-\(offer.offerID)", to: contact)
+        log.info("Rekeyed a session (responder) to epoch \(session.epoch)")
+    }
+
+    private func handleRekeyAccept(_ accept: PQAccept, from sender: SenderID) {
+        guard !state.watchPrimary, let contact = self.contact(sender),
+              let i = channelIndex[directChannel(for: contact.id)?.id ?? .random()],
+              var session = state.channels[i].session,
+              (try? session.receive(accept: accept, channelID: state.channels[i].id, localID: identity.id,
+                                    peerID: contact.id)) == true else { return }
+        state.channels[i].apply(session: session)
+        lastOfferSent[state.channels[i].id] = nil
+        save()
+        log.info("Rekeyed a session (initiator) to epoch \(session.epoch)")
+        // Sealed under the new epoch: confirms it to them, and carries fresh one-time keys.
+        sendHello(to: contact, endpoints: links[contact.senderID].map { [$0.endpoint] } ?? [],
+                  candidates: isLinked(contact.senderID) ? [] : contact.reachability.candidates)
+        topUpOneTimeKeys(for: contact, theyHold: nil)
+        sessionSecured(with: contact)
+        publish()
+    }
+
+    // MARK: - One-time prekeys (PROTOCOL.md §3.2)
+
+    private var lastOneTimeKeysSent: [IdentityID: Date] = [:]
+
+    /// Hands a contact more of our one-time keys if they're running low. `theyHold`: what their
+    /// latest HELLO says they have (nil: go by our own count).
+    private func topUpOneTimeKeys(for contact: Contact, theyHold: Int?) {
+        guard !state.watchPrimary,
+              Date().timeIntervalSince(lastOneTimeKeysSent[contact.id] ?? .distantPast) > 30,
+              let channel = directChannel(for: contact.id) else { return }
+        let held = theyHold ?? prekeys.oneTime.outstanding(for: contact.id)
+        guard held < OneTimeKeyStore.lowWater else { return }
+        let keys = prekeys.oneTime.issue(to: contact.id, count: OneTimeKeyStore.target - held)
+        guard !keys.isEmpty,
+              let packet = try? builder.seal(.oneTimeKeys,
+                                             plaintext: OneTimeKeyBatch(timestamp: currentTimestamp(), keys: keys).encoded,
+                                             keys: channel.keys) else { return }
+        lastOneTimeKeysSent[contact.id] = Date()
+        saveOneTimeKeys()
+        deliverAnyway(packet, to: contact)
     }
 
     /// BURST_START details by burst, needed when reception begins.
@@ -971,6 +1256,10 @@ final class PTTEngine {
             save()
         }
         if hello.sendsReceipts { receiptSenders.insert(sender) } else { receiptSenders.remove(sender) }
+        if !hello.isAway {
+            rekeyIfDue(contact)
+            topUpOneTimeKeys(for: contact, theyHold: hello.heldOneTimeKeys.map(Int.init))
+        }
         if hello.isReceipt || hello.isAway { lastReceipt[sender] = Date() }
         if hello.isAway {
             // Their app went to the background: its sockets are about to go quiet. Reach it by
@@ -1392,9 +1681,10 @@ final class PTTEngine {
             return nil
         }
         transport.start()
-        guard let packet = APNsRequest.packet(fromPayload: payload),
+        guard let wire = APNsRequest.packet(fromPayload: payload), let packet = unshield(wire),
               let inbound = try? processor.process(packet, channelLookup: { [self] in channel($0) },
-                                                   memberLookup: { [self] in contact($0)?.identity }),
+                                                   memberLookup: { [self] in contact($0)?.identity },
+                                                   pairSecret: pairSecrets),
               case .wake(let wake) = inbound.message,
               let contact = self.contact(inbound.header.senderID) else {
             log.notice("Rejected an unauthenticated wake push")
@@ -1421,8 +1711,8 @@ final class PTTEngine {
     /// Punch towards the talker and tell them where we are (PROTOCOL.md §8.2).
     private func respondToWake(_ wake: Wake, from contact: Contact) {
         if let apns, let channel = self.directChannel(for: contact.id),
-           let packet = helloPacket(replyRequested: true, keys: channel.keys, to: contact) {
-            apns.sendBackground(packet, to: contact)
+           let packet = helloPacket(replyRequested: true, keys: channel.keys, to: contact), let wire = shield(packet) {
+            apns.sendBackground(wire, to: contact)
         }
         for attempt in 0..<20 {
             queue.asyncAfter(deadline: .now() + .milliseconds(250 * attempt)) { [weak self] in
@@ -1490,6 +1780,39 @@ final class PTTEngine {
         }
     }
 
+    /// Removes someone from a talk group and replaces the group key, sent only to who's left.
+    /// They can't hear new messages anyway (each message key is sealed per member), but the new
+    /// key also locks them out of the group's wake-ups and metadata.
+    func removeMember(_ member: IdentityID, from groupID: ChannelID) {
+        queue.async { [self] in
+            guard let i = channelIndex[groupID], state.channels[i].kind == .group,
+                  state.channels[i].members.contains(member) else { return }
+            state.channels[i].members.removeAll { $0 == member }
+            rekeyGroup(at: i)
+            emit(.message("\(contact(id: member)?.name ?? "They") can no longer hear \(state.channels[i].name)"))
+        }
+    }
+
+    /// A new group key at the next epoch, sealed to every remaining member.
+    private func rekeyGroup(at i: Int) {
+        let old = state.channels[i].keys
+        state.channels[i].previousKeys = old
+        state.channels[i].keys = old.rekeyed()
+        save()
+        let group = state.channels[i]
+        for member in group.members {
+            if let contact = self.contact(id: member) { sendInvite(group, to: contact) }
+        }
+    }
+
+    /// Our session with a contact just became post-quantum (or moved on): re-offer the groups
+    /// we share, whose invites waited for it.
+    private func sessionSecured(with contact: Contact) {
+        for channel in state.channels where channel.kind == .group && channel.members.contains(contact.id) {
+            sendInvite(channel, to: contact)
+        }
+    }
+
     private func sendInvite(_ channel: Channel, to contact: Contact) {
         guard let direct = self.directChannel(for: contact.id), let mine = try? myCard() else { return }
         var cards = [mine]
@@ -1498,7 +1821,15 @@ final class PTTEngine {
         }
         let invite = GroupInvite(timestamp: currentTimestamp(), name: channel.name, keys: channel.keys, memberCards: cards)
         let messageID = MessageID.random()
-        let target = SealTarget(identity: contact.identity, prekey: contact.reachability.prekey)
+        // The group key only ever travels under a post-quantum session; until ours with this
+        // contact is ready, the invite waits (it's re-sent once the exchange completes).
+        guard let session = direct.session, session.isQuantumSafe,
+              let epoch = session.keys(forEpoch: session.sendEpoch), epoch.epoch >= 1,
+              let target = SealTarget(identity: contact.identity, oneTimeKey: nil, prekey: contact.reachability.prekey,
+                                      epoch: epoch, allowStatic: true) else {
+            rekeyIfDue(contact)
+            return
+        }
         guard let plaintext = try? invite.sealed(for: target, messageID: messageID),
               let packet = try? builder.seal(.groupInvite, plaintext: plaintext, keys: direct.keys,
                                              messageID: messageID) else { return }
@@ -1622,7 +1953,8 @@ final class PTTEngine {
             return
         }
         deliverAnyway(packet, to: inviter)
-        apns?.sendJoinRequest(packet, to: inviter) { [weak self] failure in
+        guard let wire = shield(packet) else { return }
+        apns?.sendJoinRequest(wire, to: inviter) { [weak self] failure in
             guard let failure else { return }
             self?.log.notice("Join request push failed: \(failure, privacy: .public)")
         }
@@ -1750,9 +2082,14 @@ final class PTTEngine {
         let others = memberIDs.filter { $0 != identity.id }
         if let i = channelIndex[id] {
             let existing = state.channels[i]
-            if invite.keys.epoch > existing.keys.epoch { state.channels[i].previousKeys = existing.keys }
+            if invite.keys.epoch > existing.keys.epoch {
+                // A rekey: its member list is the whole truth (someone may have been removed).
+                state.channels[i].previousKeys = existing.keys
+                state.channels[i].members = others
+            } else {
+                state.channels[i].members = Array(Set(existing.members).union(others))
+            }
             state.channels[i].keys = invite.keys
-            state.channels[i].members = Array(Set(existing.members).union(others))
             save()
         } else {
             state.channels.append(Channel(kind: .group, name: invite.name, keys: invite.keys, members: others))
@@ -1919,7 +2256,7 @@ final class PTTEngine {
     private func deliverAnyway(_ packet: Data, to contact: Contact) {
         sendAnyway(packet, to: contact)
         guard let relay, state.settings.relayEnabled, let mailbox = contact.reachability.relayMailbox,
-              let payload = Relay.encode(packets: [packet]) else { return }
+              let payload = Relay.encode(packets: shieldAll([packet])) else { return }
         Task { [weak self] in
             if let name = try? await relay.upload(payload: payload, tag: Relay.tag(mailbox: mailbox)) {
                 self?.queue.async {
@@ -1945,7 +2282,7 @@ final class PTTEngine {
             if state.settings.priorityContacts.contains(contact.id) { flags |= Hello.breaksThrough }
         }
         let hello = Hello(name: state.settings.displayName, timestamp: currentTimestamp(), reachability: myReachability,
-                          flags: flags)
+                          flags: flags, heldOneTimeKeys: UInt16(clamping: contact.availableOneTimeKeys))
         return try? builder.seal(.hello, plaintext: hello.encoded, keys: keys)
     }
 
@@ -1960,7 +2297,9 @@ final class PTTEngine {
     }
 
     private func sendToCandidates(_ packet: Data, _ candidates: [Candidate]) {
-        for candidate in candidates where candidate.isRoutable { transport.send(packet, to: candidate) }
+        for candidate in candidates where candidate.isRoutable {
+            if let wire = shield(packet) { transport.send(wire, to: candidate) }
+        }
     }
 
     /// Sends over live links only.
@@ -2025,7 +2364,12 @@ final class PTTEngine {
 
         // Anyone we couldn't reach directly goes to the relay, or gets a reason why not.
         var relayable: [(Contact, Data)] = []
-        let payload = t.nextFrameIndex > 0 ? Relay.encode(packets: packets) : nil
+        let payload = t.nextFrameIndex > 0 ? Relay.encode(packets: shieldAll(packets)) : nil
+        for name in t.unsecured {
+            legs.append(.init(peer: name, route: .failed,
+                              reason: "not sent: the post-quantum link with them isn't set up yet (it sets itself up "
+                                + "the next time you're both online)"))
+        }
         for contact in missed {
             let reason: String?
             if t.nextFrameIndex == 0 || payload == nil {
@@ -2194,14 +2538,15 @@ final class PTTEngine {
     private func playNextRelayed() {
         guard rx == nil, tx == nil, !relayQueue.isEmpty else { return }
         let next = relayQueue.removeFirst()
-        if RelayInbox.isReplayedCopy(next.packets, record: next.record) {
+        let inner = next.packets.compactMap(unshield)
+        if RelayInbox.isReplayedCopy(inner, record: next.record) {
             // An old message posted again under a new record: don't play it twice.
             log.notice("Skipped a replayed relay record")
             if !relayQueue.isEmpty { playNextRelayed() }
             return
         }
-        for packet in next.packets { handleDatagram(packet, from: nil, relayed: true) }
-        if rx != nil { RelayInbox.markRelayed(next.packets, record: next.record) }
+        for packet in inner { handleInner(packet, from: nil, relayed: true) }
+        if rx != nil { RelayInbox.markRelayed(inner, record: next.record) }
         if let relay { Task { await relay.delete(recordName: next.record) } }
         // Not playable (e.g. not addressed to this device, or sealed to a deleted prekey): move on.
         if rx == nil, !relayQueue.isEmpty { playNextRelayed() }
@@ -2296,9 +2641,49 @@ final class PTTEngine {
     // MARK: - Helpers
 
     private func send(_ packet: Data, via path: PeerPath) {
+        guard let wire = shield(packet) else { return }
         switch path {
-        case .udp(let endpoint): transport.send(packet, to: endpoint)
-        case .nearby(let peer): nearby.send(packet, to: peer)
+        case .udp(let endpoint): transport.send(wire, to: endpoint)
+        case .nearby(let peer): nearby.send(wire, to: peer)
+        }
+    }
+
+    // MARK: - Packet shield (PROTOCOL.md §6.6)
+
+    /// Wraps an inner packet for the wire with a fresh random nonce, so the same packet never
+    /// looks the same twice. Nil if we don't hold the key its header names.
+    private func shield(_ packet: Data) -> Data? {
+        guard let header = try? PacketHeader(packet: packet) else { return nil }
+        let keys = channel(header.channelID)?.keys(forEpoch: header.epoch)
+            ?? pendingJoinCodes.first { $0.joinKeys.channelID == header.channelID }?.joinKeys
+            ?? liveJoinCodes.first { $0.joinKeys.channelID == header.channelID }?.joinKeys
+        guard let keys, keys.epoch == header.epoch else {
+            log.error("No key to shield a packet with")
+            return nil
+        }
+        return try? PacketShield.shield(packet, keys: keys)
+    }
+
+    private func shieldAll(_ packets: [Data]) -> [Data] { packets.compactMap(shield) }
+
+    /// Keys an incoming packet may be shielded with: every channel at every epoch we hold,
+    /// plus our live group-join codes. The last one that worked is tried first.
+    private var lastShieldKey: ChannelKeys?
+
+    private func unshield(_ wire: Data) -> Data? {
+        var candidates = state.channels.flatMap(\.shieldCandidates) + liveJoinCodes.map(\.joinKeys)
+        if let last = lastShieldKey, let i = candidates.firstIndex(of: last) {
+            candidates.swapAt(0, i)
+        }
+        guard let opened = PacketShield.unshield(wire, candidates: candidates) else { return nil }
+        lastShieldKey = opened.keys
+        return opened.inner
+    }
+
+    /// The burst secret of our session with a sender at an epoch: mixed into every envelope.
+    private var pairSecrets: PairSecretLookup {
+        { [self] sender, epoch in
+            contact(sender).flatMap { directChannel(for: $0.id)?.session?.keys(forEpoch: epoch)?.burstSecret }
         }
     }
 
@@ -2349,7 +2734,7 @@ final class PTTEngine {
                                  prekeys: prekeys.store, displayName: state.settings.displayName,
                                  contacts: state.contacts, channels: state.channels,
                                  selectedChannel: state.settings.selectedChannel,
-                                 relayMailbox: state.relayMailbox, pushKey: nil)
+                                 relayMailbox: state.relayMailbox, pushKey: nil, oneTimeKeys: prekeys.oneTime)
         guard snapshot != lastInboxSnapshot else { return }
         lastInboxSnapshot = snapshot
         RelayInbox.saveSnapshot(snapshot)
@@ -2365,7 +2750,8 @@ final class PTTEngine {
                              relayMailbox: relay != nil && state.settings.relayEnabled ? state.relayMailbox : nil,
                              // A key shared by link, else the one bundled into this build: without it
                              // the watch can leave messages in the relay but wake nobody.
-                             pushKey: PushKeyKeychain.load() ?? PushKey.fromBundle())
+                             pushKey: PushKeyKeychain.load() ?? PushKey.fromBundle(),
+                             oneTimeKeys: prekeys.oneTime)
         guard sync != lastWatchSync else { return }
         lastWatchSync = sync
         onWatchSync?(sync)

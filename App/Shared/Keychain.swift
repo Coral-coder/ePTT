@@ -170,6 +170,40 @@ enum PrekeyKeychain {
     }
 }
 
+/// One-time prekeys (private keys). Device-only, like the prekeys; each is deleted after use.
+enum OneTimeKeyKeychain {
+    private static let service = "app.eptt.onetimekeys"
+    private static let account = "onetimekeys-v1"
+
+    static func load() -> OneTimeKeyStore {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var result: AnyObject?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data,
+              let store = try? JSONDecoder().decode(OneTimeKeyStore.self, from: data) else { return OneTimeKeyStore() }
+        return store
+    }
+
+    static func save(_ store: OneTimeKeyStore) {
+        let base: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        SecItemDelete(base as CFDictionary)
+        guard let data = try? JSONEncoder().encode(store) else { return }
+        var item = base
+        item[kSecValueData as String] = data
+        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        SecItemAdd(item as CFDictionary, nil)
+    }
+}
+
 /// A copy of the display name the user chose, so it survives anything that resets the app's
 /// saved state (a failed migration, an offload and reinstall). Not secret; the Keychain is just
 /// the one store iOS keeps across all of those.

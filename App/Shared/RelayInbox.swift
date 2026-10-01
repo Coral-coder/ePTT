@@ -349,9 +349,8 @@ enum RelayInbox {
     /// still the full length.
     static func open(_ payload: Data, with sync: WatchSync, maxSeconds: Double = maxSoundSeconds) -> Message? {
         guard let local = try? LocalIdentity(signingSeed: sync.signingSeed, keyAgreementSeed: sync.keyAgreementSeed),
-              let packets = try? Relay.decode(payload) else { return nil }
-        let prekeys = sync.prekeys
-        var processor = PacketProcessor(local: local, agreement: local.keyAgreement(prekeys: { prekeys }))
+              let packets = (try? Relay.decode(payload))?.compactMap(sync.unshield) else { return nil }
+        var processor = PacketProcessor(local: local, agreement: sync.keyAgreement(local))
         var start: BurstStart?
         var talker = "NXTPTT"
         var sender: SenderID?
@@ -361,7 +360,9 @@ enum RelayInbox {
             guard let inbound = try? processor.process(
                 packet, maxAge: Relay.lifetime,
                 channelLookup: { id in sync.channels.first { $0.id == id } },
-                memberLookup: { id in sync.contacts.first { $0.senderID == id }?.identity }) else { continue }
+                memberLookup: { id in sync.contacts.first { $0.senderID == id }?.identity },
+                pairSecret: sync.pairSecrets) else { continue }
+            if let keyID = inbound.openedKeyID, OneTimeKeyStore.isOneTime(keyID) { noteOneTimeKeyUsed(keyID) }
             switch inbound.message {
             case .burstStart(let s):
                 start = s
@@ -394,21 +395,23 @@ enum RelayInbox {
     /// isn't a call alert for us.
     static func callAlert(in payload: Data, with sync: WatchSync) -> (name: String, text: String?, sender: SenderID)? {
         guard let packets = try? Relay.decode(payload) else { return nil }
-        return callAlert(packets: packets, with: sync)
+        return callAlert(packets: packets, with: sync)   // shielded; unshielded below
     }
 
-    /// The same, for a single sealed packet (a call alert that arrived as a push).
-    static func callAlert(packets: [Data], with sync: WatchSync) -> (name: String, text: String?, sender: SenderID)? {
+    /// The same, for shielded packets (e.g. a call alert that arrived as a push).
+    static func callAlert(packets wire: [Data], with sync: WatchSync) -> (name: String, text: String?, sender: SenderID)? {
         guard let local = try? LocalIdentity(signingSeed: sync.signingSeed, keyAgreementSeed: sync.keyAgreementSeed)
         else { return nil }
-        let prekeys = sync.prekeys
-        var processor = PacketProcessor(local: local, agreement: local.keyAgreement(prekeys: { prekeys }))
+        let packets = wire.compactMap(sync.unshield)
+        var processor = PacketProcessor(local: local, agreement: sync.keyAgreement(local))
         for packet in packets {
             guard let inbound = try? processor.process(
                 packet, maxAge: Relay.lifetime,
                 channelLookup: { id in sync.channels.first { $0.id == id } },
-                memberLookup: { id in sync.contacts.first { $0.senderID == id }?.identity }),
+                memberLookup: { id in sync.contacts.first { $0.senderID == id }?.identity },
+                pairSecret: sync.pairSecrets),
                   case .callAlert(let alert) = inbound.message else { continue }
+            if let keyID = inbound.openedKeyID, OneTimeKeyStore.isOneTime(keyID) { noteOneTimeKeyUsed(keyID) }
             let name = sync.contacts.first { $0.senderID == inbound.header.senderID }?.name ?? alert.name
             return (name, alert.text, inbound.header.senderID)
         }
@@ -488,22 +491,45 @@ enum RelayInbox {
 
     /// A request to join one of our talk groups (someone scanned our group QR code). The app
     /// adds them when it next fetches the relay; the extension can only say so.
-    static func containsJoinRequest(_ payload: Data) -> Bool {
+    static func containsJoinRequest(_ payload: Data, with sync: WatchSync?) -> Bool {
         guard let packets = try? Relay.decode(payload) else { return false }
-        return packets.contains { (try? PacketHeader(packet: $0))?.type == .groupJoin }
+        // Join requests are shielded with a join code's key, which the snapshot doesn't carry;
+        // anything nothing of ours opens is reported as a possible request.
+        guard let sync else { return true }
+        return packets.contains { sync.unshield($0) == nil }
+    }
+
+    // MARK: - One-time keys used here (the app deletes them)
+
+    private static var usedKeysURL: URL? { container?.appendingPathComponent("used-one-time-keys.json") }
+
+    /// A one-time prekey opened a message here; the app deletes its private half on its next run.
+    static func noteOneTimeKeyUsed(_ id: UInt32) {
+        guard let url = usedKeysURL else { return }
+        var ids = (try? JSONDecoder().decode([UInt32].self, from: Data(contentsOf: url))) ?? []
+        guard !ids.contains(id) else { return }
+        ids.append(id)
+        if let data = try? JSONEncoder().encode(ids) { try? data.write(to: url, options: .atomic) }
+    }
+
+    /// The one-time keys used since last asked, cleared.
+    static func takeUsedOneTimeKeys() -> [UInt32] {
+        guard let url = usedKeysURL, let data = try? Data(contentsOf: url) else { return [] }
+        try? FileManager.default.removeItem(at: url)
+        return (try? JSONDecoder().decode([UInt32].self, from: data)) ?? []
     }
 
     /// The talk group a relayed GROUP_INVITE adds us to, and who sent it.
     static func groupInvite(in payload: Data, with sync: WatchSync) -> (group: String, from: String)? {
         guard let local = try? LocalIdentity(signingSeed: sync.signingSeed, keyAgreementSeed: sync.keyAgreementSeed),
-              let packets = try? Relay.decode(payload) else { return nil }
-        let prekeys = sync.prekeys
-        var processor = PacketProcessor(local: local, agreement: local.keyAgreement(prekeys: { prekeys }))
+              let packets = (try? Relay.decode(payload))?.compactMap(sync.unshield) else { return nil }
+        var processor = PacketProcessor(local: local, agreement: sync.keyAgreement(local))
         for packet in packets {
             guard let inbound = try? processor.process(
                 packet, maxAge: Relay.lifetime,
                 channelLookup: { id in sync.channels.first { $0.id == id } },
-                memberLookup: { id in sync.contacts.first { $0.senderID == id }?.identity }),
+                memberLookup: { id in sync.contacts.first { $0.senderID == id }?.identity },
+                pairSecret: sync.pairSecrets),
                   case .groupInvite(let invite) = inbound.message else { continue }
             let from = sync.contacts.first { $0.senderID == inbound.header.senderID }?.name ?? "Someone"
             return (invite.name, from)
@@ -513,14 +539,14 @@ enum RelayInbox {
 
     static func cardSender(in payload: Data, with sync: WatchSync) -> String? {
         guard let local = try? LocalIdentity(signingSeed: sync.signingSeed, keyAgreementSeed: sync.keyAgreementSeed),
-              let packets = try? Relay.decode(payload) else { return nil }
-        let prekeys = sync.prekeys
-        var processor = PacketProcessor(local: local, agreement: local.keyAgreement(prekeys: { prekeys }))
+              let packets = (try? Relay.decode(payload))?.compactMap(sync.unshield) else { return nil }
+        var processor = PacketProcessor(local: local, agreement: sync.keyAgreement(local))
         for packet in packets {
             guard let inbound = try? processor.process(
                 packet, maxAge: Relay.lifetime,
                 channelLookup: { id in sync.channels.first { $0.id == id } },
-                memberLookup: { id in sync.contacts.first { $0.senderID == id }?.identity }),
+                memberLookup: { id in sync.contacts.first { $0.senderID == id }?.identity },
+                pairSecret: sync.pairSecrets),
                   case .card(let card) = inbound.message else { continue }
             return card.name
         }

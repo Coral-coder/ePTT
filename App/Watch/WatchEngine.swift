@@ -81,8 +81,7 @@ final class WatchEngine {
                                              keyAgreementSeed: newSync.keyAgreementSeed) else { return }
         sync = newSync
         identity = local
-        let prekeys = newSync.prekeys
-        processor = PacketProcessor(local: local, agreement: local.keyAgreement(prekeys: { prekeys }))
+        processor = PacketProcessor(local: local, agreement: newSync.keyAgreement(local))
         if let key = newSync.pushKey, let credentials = try? APNsCredentials(teamID: key.teamID, keyID: key.keyID,
                                                                             p8PEM: key.pem) {
             apns = APNsClient(credentials: credentials, bundleID: Self.phoneBundleID,
@@ -106,14 +105,30 @@ final class WatchEngine {
             guard recording == nil, let identity, let sync,
                   let channel = sync.channels.first(where: { $0.id == channelID }) else { return false }
             let encoder = CaptureEncoder()
+            // Only members whose link is post-quantum (the iPhone runs the rekeys). Never their
+            // one-time keys: the iPhone hands those out and would use them again.
             let targets = channel.members.compactMap { id in sync.contacts.first { $0.id == id } }
-                .map { SealTarget(identity: $0.identity, prekey: $0.reachability.prekey) }
+                .compactMap { contact -> SealTarget? in
+                    guard let session = sync.channels.first(where: { $0.kind == .direct && $0.members == [contact.id] })?.session,
+                          session.isQuantumSafe, let epoch = session.keys(forEpoch: session.sendEpoch),
+                          epoch.epoch >= 1 else { return nil }
+                    return SealTarget(identity: contact.identity, oneTimeKey: nil, prekey: contact.reachability.prekey,
+                                      epoch: epoch)
+                }
+            guard !targets.isEmpty else {
+                status(.failed("Securing the link. Open NXTPTT on your iPhone."))
+                return false
+            }
+            let secured = Set(targets.map(\.recipient))
+            var channel = channel
+            channel.members = channel.members.filter { secured.contains($0.senderID) }
             do {
                 let burst = try OutgoingBurst(identity: identity, channelID: channel.id, timestamp: currentTimestamp(),
                                               targets: targets, codec: encoder.codecID,
                                               sampleRate: UInt32(encoder.sampleRate), frameMilliseconds: 20)
                 let start = try PacketBuilder(local: identity).seal(.burstStart, plaintext: burst.start.encoded,
-                                                                   keys: channel.keys, messageID: burst.burstID)
+                                                                   keys: channel.keys, messageID: burst.burstID,
+                                                                   group: channel.kind == .group)
                 var r = Recording(channel: channel, burst: burst, encoder: encoder, packets: [start])
                 r.live = Set(channel.members.map(\.senderID).filter { isLinked($0) })
                 recording = r
@@ -142,7 +157,7 @@ final class WatchEngine {
     private func seal(_ frames: [Data], into r: inout Recording) {
         guard let identity, let packet = try? PacketBuilder(local: identity).sealBurst(
             .voice, plaintext: VoiceBody.encode(frames), keys: r.channel.keys, burstID: r.burst.burstID,
-            burstKey: r.burst.burstKey, seq: r.nextFrame) else { return }
+            burstKey: r.burst.burstKey, seq: r.nextFrame, group: r.channel.kind == .group) else { return }
         r.nextFrame += UInt32(frames.count)
         r.packets.append(packet)
         sendLive(packet, to: r.live)
@@ -159,7 +174,7 @@ final class WatchEngine {
             let end = BurstEnd(timestamp: currentTimestamp(), frameCount: r.nextFrame)
             if let packet = try? PacketBuilder(local: identity).sealBurst(
                 .burstEnd, plaintext: end.encoded, keys: r.channel.keys, burstID: r.burst.burstID,
-                burstKey: r.burst.burstKey, seq: r.nextFrame) {
+                burstKey: r.burst.burstKey, seq: r.nextFrame, group: r.channel.kind == .group) {
                 r.packets.append(packet)
                 // Three copies 40 ms apart, like the phone.
                 for i in 0..<3 {
@@ -185,14 +200,16 @@ final class WatchEngine {
             status(.sent(recipients: confirmed.count))
             return
         }
-        guard let relay, let payload = Relay.encode(packets: r.packets) else {
+        let shielded = r.packets.compactMap { try? PacketShield.shield($0, keys: r.channel.keys) }
+        guard let relay, shielded.count == r.packets.count, let payload = Relay.encode(packets: shielded) else {
             status(confirmed.isEmpty ? .failed(relay == nil ? "iCloud unavailable" : "Too long")
                                      : .sent(recipients: confirmed.count))
             return
         }
         let wakePacket = try? PacketBuilder(local: identity).seal(
             .wake, plaintext: Wake(name: sync.displayName, timestamp: currentTimestamp(), candidates: []).encoded,
-            keys: r.channel.keys, messageID: r.burst.burstID)
+            keys: r.channel.keys, messageID: r.burst.burstID, group: r.channel.kind == .group)
+            .flatMap { try? PacketShield.shield($0, keys: r.channel.keys) }
         let apns = self.apns
         let direct = confirmed.count
         Task { [weak self] in
@@ -275,9 +292,15 @@ final class WatchEngine {
 
     private func contact(_ sender: SenderID) -> Contact? { sync?.contacts.first { $0.senderID == sender } }
 
+    /// Shields each copy separately (a fresh nonce and padding every time, PROTOCOL.md §6.6).
     private func sendLive(_ packet: Data, to senders: Set<SenderID>) {
-        guard let transport else { return }
-        for sender in senders { if let link = links[sender] { transport.send(packet, to: link.endpoint) } }
+        guard let transport, let header = try? PacketHeader(packet: packet),
+              let keys = sync?.channels.first(where: { $0.id == header.channelID })?.keys(forEpoch: header.epoch) else { return }
+        for sender in senders {
+            if let link = links[sender], let wire = try? PacketShield.shield(packet, keys: keys) {
+                transport.send(wire, to: link.endpoint)
+            }
+        }
     }
 
     private func hello(for contact: Contact, reply: Bool = false, receipt: Bool = false, away: Bool = false) -> Data? {
@@ -292,7 +315,8 @@ final class WatchEngine {
         let reachability = Reachability(candidates: transport.localCandidates, prekey: prekey,
                                         relayMailbox: sync.relayMailbox)
         let body = Hello(name: sync.displayName, timestamp: currentTimestamp(), reachability: reachability, flags: flags)
-        return try? PacketBuilder(local: identity).seal(.hello, plaintext: body.encoded, keys: channel.keys)
+        return (try? PacketBuilder(local: identity).seal(.hello, plaintext: body.encoded, keys: channel.keys))
+            .flatMap { try? PacketShield.shield($0, keys: channel.keys) }
     }
 
     /// Everyone: linked contacts on their link, the rest at every address they last gave us.
@@ -325,14 +349,15 @@ final class WatchEngine {
         }
     }
 
-    private func handleLive(_ data: Data, from endpoint: NWEndpoint) {
-        guard var processor, let sync else { return }
+    private func handleLive(_ wire: Data, from endpoint: NWEndpoint) {
+        guard var processor, let sync, let data = sync.unshield(wire) else { return }
         let inbound: InboundPacket
         do {
             inbound = try processor.process(
                 data,
                 channelLookup: { id in sync.channels.first { $0.id == id } },
-                memberLookup: { id in sync.contacts.first { $0.senderID == id }?.identity })
+                memberLookup: { id in sync.contacts.first { $0.senderID == id }?.identity },
+                pairSecret: sync.pairSecrets)
         } catch {
             self.processor = processor
             return
@@ -440,7 +465,7 @@ final class WatchEngine {
     private var announced: Set<String> = []
 
     private func play(_ payload: Data) {
-        guard var processor, let sync, let packets = try? Relay.decode(payload) else { return }
+        guard var processor, let sync, let packets = (try? Relay.decode(payload))?.compactMap(sync.unshield) else { return }
         var start: BurstStart?
         var talker = "NXTPTT"
         var frames: [UInt32: Data] = [:]
@@ -450,7 +475,8 @@ final class WatchEngine {
             guard let inbound = try? processor.process(
                 packet, maxAge: Relay.lifetime,
                 channelLookup: { id in sync.channels.first { $0.id == id } },
-                memberLookup: { id in sync.contacts.first { $0.senderID == id }?.identity }) else { continue }
+                memberLookup: { id in sync.contacts.first { $0.senderID == id }?.identity },
+                pairSecret: sync.pairSecrets) else { continue }
             switch inbound.message {
             case .burstStart(let s):
                 start = s

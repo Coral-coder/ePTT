@@ -19,7 +19,7 @@ jobs:
   core-linux:
     name: EPTTCore tests (Linux)
     runs-on: ubuntu-latest
-    container: swift:6.0-jammy
+    container: swift:6.1-noble
     steps:
       - uses: actions/checkout@v4
       - run: swift test --package-path Packages/EPTTCore
@@ -29,6 +29,15 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      # ML-KEM (CryptoKit) needs the iOS 26 SDK.
+      - name: Select Xcode 26 or later
+        run: |
+          xcode=$(ls -d /Applications/Xcode_2[6-9]*.app /Applications/Xcode_[3-9][0-9]*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$xcode" ]; then
+            echo "::error::No Xcode 26+ on this runner:"; ls -d /Applications/Xcode*.app; exit 1
+          fi
+          sudo xcode-select -s "$xcode/Contents/Developer"
+          xcodebuild -version
       - run: brew install xcodegen
       - run: xcodegen generate
       - name: Build (simulator, unsigned)

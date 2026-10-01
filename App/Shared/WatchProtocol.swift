@@ -61,4 +61,36 @@ struct WatchSync: Codable, Equatable {
     var selectedChannel: ChannelID?
     var relayMailbox: Data?
     var pushKey: PushKey?
+    /// One-time prekeys (protocol 2). Optional so older snapshots still decode.
+    var oneTimeKeys: OneTimeKeyStore?
+}
+
+extension WatchSync {
+    /// The local identity these keys belong to.
+    var localIdentity: LocalIdentity? {
+        try? LocalIdentity(signingSeed: signingSeed, keyAgreementSeed: keyAgreementSeed)
+    }
+
+    func keyAgreement(_ local: LocalIdentity) -> LocalKeyAgreement {
+        let prekeys = self.prekeys, oneTime = self.oneTimeKeys ?? OneTimeKeyStore()
+        return local.keyAgreement(prekeys: { prekeys }, oneTimeKeys: { oneTime })
+    }
+
+    /// The burst secret of our pairwise session with a sender at an epoch (PROTOCOL.md §5.3).
+    var pairSecrets: PairSecretLookup {
+        let contacts = self.contacts, channels = self.channels
+        return { sender, epoch in
+            guard let contact = contacts.first(where: { $0.senderID == sender }) else { return nil }
+            return channels.first { $0.kind == .direct && $0.members == [contact.id] }?
+                .session?.keys(forEpoch: epoch)?.burstSecret
+        }
+    }
+
+    /// Every key an incoming packet might be shielded with (PROTOCOL.md §6.6).
+    var shieldCandidates: [ChannelKeys] { channels.flatMap(\.shieldCandidates) }
+
+    /// The inner packet of a shielded one, if it is for one of our channels.
+    func unshield(_ wire: Data) -> Data? {
+        PacketShield.unshield(wire, candidates: shieldCandidates)?.inner
+    }
 }

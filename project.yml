@@ -3,8 +3,8 @@ name: NXTPTT
 options:
   bundleIdPrefix: app.eptt
   deploymentTarget:
-    iOS: "16.0"
-    watchOS: "9.0"
+    iOS: "26.0"
+    watchOS: "26.0"
   createIntermediateGroups: true
 configFiles:
   Debug: Config/Debug.xcconfig

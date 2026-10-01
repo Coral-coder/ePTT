@@ -20,15 +20,17 @@ final class NotificationService: UNNotificationServiceExtension {
 
         // A call alert pushed straight from the other phone: decrypt it and use the four beeps.
         if let packet = APNsRequest.packet(fromPayload: request.content.userInfo) {
-            // Someone scanned our talk group code: the app lets them in when it next runs.
-            if (try? PacketHeader(packet: packet))?.type == .groupJoin {
+            let sync = RelayInbox.loadSnapshot()
+            // Someone scanned our talk group code: shielded with the code's key, which only the
+            // app holds, so nothing here opens it. The app sorts it out when it next runs.
+            if sync.map({ $0.unshield(packet) == nil }) ?? true {
                 RelayInbox.keepPushed(packet)
                 content.title = "Talk group request"
                 content.body = "Someone scanned your talk group code. Open NXTPTT to let them in."
                 deliver()
                 return
             }
-            guard let sync = RelayInbox.loadSnapshot(), let alert = RelayInbox.callAlert(packets: [packet], with: sync) else {
+            guard let sync, let alert = RelayInbox.callAlert(packets: [packet], with: sync) else {
                 // Not a call alert from a contact (anyone holding a push key can send pushes):
                 // never show text we didn't write.
                 showGeneric(content)
@@ -76,7 +78,7 @@ final class NotificationService: UNNotificationServiceExtension {
             defer { self?.deliver() }
             guard let payload = try? await relay.fetch(recordName: record) else { return }
             // The same message already played from another record: a replay.
-            let packets = (try? Relay.decode(payload)) ?? []
+            let packets = ((try? Relay.decode(payload)) ?? []).compactMap(sync.unshield)
             if RelayInbox.isReplayedCopy(packets, record: record) {
                 self?.showGeneric(content)
                 return
@@ -97,7 +99,7 @@ final class NotificationService: UNNotificationServiceExtension {
                 return
             }
             // Group QR codes: someone asking to join, or the group key arriving for us.
-            if RelayInbox.containsJoinRequest(payload) {
+            if RelayInbox.containsJoinRequest(payload, with: sync) {
                 content.title = "NXTPTT"
                 content.body = "Someone scanned your talk group code. Open NXTPTT to let them in."
                 return
