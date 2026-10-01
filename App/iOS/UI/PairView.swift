@@ -174,7 +174,13 @@ struct ContactRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(contact.name).font(NX.label(16, .bold)).foregroundStyle(NX.text)
-                    if !contact.isVerified {
+                    if model.snapshot.legacyContacts.contains(contact.id) {
+                        Text("OLDER APP")
+                            .font(NX.label(10, .bold))
+                            .foregroundStyle(.orange)
+                            .padding(.horizontal, 5).padding(.vertical, 1)
+                            .overlay(Capsule().stroke(.orange.opacity(0.7), lineWidth: 1))
+                    } else if !contact.isVerified {
                         Text("UNVERIFIED")
                             .font(NX.label(10, .bold))
                             .foregroundStyle(.orange)
@@ -227,17 +233,24 @@ struct ContactDetailView: View {
             .nxRows()
             Section {
                 let session = model.directChannel(for: contact)?.session
-                LabeledContent("Link", value: session?.isQuantumSafe == true ? "Post-quantum" : "Securing…")
-                if let session, session.isQuantumSafe {
+                let older = model.snapshot.legacyContacts.contains(contact.id)
+                LabeledContent("Link", value: older ? "Older app · classical" : session?.isQuantumSafe == true ? "Post-quantum" : "Securing…")
+                if older {
+                    LabeledContent("Protocol", value: "1 · X25519 · ChaCha20-Poly1305")
+                } else if let session, session.isQuantumSafe {
                     LabeledContent("Key exchange", value: "ML-KEM-1024 + X25519")
                     LabeledContent("Session key", value: "#\(session.epoch) · \(session.epochStarted.formatted(.relative(presentation: .named)))")
                 }
-                LabeledContent("Cipher", value: "AES-256-GCM · HKDF-SHA-384")
-                LabeledContent("Their one-time keys held", value: "\(contact.availableOneTimeKeys)")
+                if !older {
+                    LabeledContent("Cipher", value: "AES-256-GCM · HKDF-SHA-384")
+                    LabeledContent("Their one-time keys held", value: "\(contact.availableOneTimeKeys)")
+                }
             } header: {
                 SectionCaption(text: "Encryption")
             } footer: {
-                Text("Nothing is sent to \(contact.name) until the link is post-quantum. Session keys renew every hour; every message also gets its own key, deleted after use.")
+                Text(model.snapshot.legacyContacts.contains(contact.id)
+                     ? "\(contact.name) is on an older NXTPTT. You can talk, but with the older encryption: end-to-end and forward-secret, not post-quantum, and without hidden packet headers. It upgrades on its own, for good, once they update."
+                     : "Nothing is sent to \(contact.name) until the link is post-quantum. Session keys renew every hour; every message also gets its own key, deleted after use.")
                     .font(NX.body(13))
             }
             .nxRows()

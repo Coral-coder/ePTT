@@ -7,6 +7,7 @@ import UIKit
 import UserNotifications
 import os
 import EPTTCore
+import EPTTCompat
 
 /// What the UI renders. Published to the main thread after every state change.
 struct EngineSnapshot {
@@ -52,6 +53,8 @@ struct EngineSnapshot {
     var pendingJoins: [PendingJoin] = []
     /// People who scanned our group codes, waiting for us to let them in or not.
     var joinRequests: [JoinRequest] = []
+    /// Contacts on an older build: protocol 1, not post-quantum (PROTOCOL.md §10.1).
+    var legacyContacts: Set<IdentityID> = []
 }
 
 struct JoinRequest: Identifiable, Equatable {
@@ -122,6 +125,12 @@ final class PTTEngine {
     private var state: PersistedState
     /// Session prekeys for forward secrecy. A class so the packet processor can read the
     /// current store through a closure without capturing `self` during init.
+    /// Protocol 1, for contacts still on a build from before protocol 2 (PROTOCOL.md §10.1).
+    private var legacy: LegacyLink?
+    /// Protocol-1 twins of protocol-2 packets, by the protocol-2 packet, for those contacts.
+    private var twins: [Data: Data] = [:]
+    private var twinOrder: [Data] = []
+
     private final class PrekeyBox {
         var store = PrekeyKeychain.load()
         var signed: SignedPrekey?
@@ -195,6 +204,8 @@ final class PTTEngine {
         /// Members left out because our session with them isn't post-quantum yet (or we have no
         /// key of theirs to seal to). Nothing is sent to them, not even through the relay.
         var unsecured: [String] = []
+        /// The protocol-1 burst key, when members on older builds get a protocol-1 copy.
+        var legacyKey: Data?
     }
     private var tx: Transmission?
     /// Channel requested from our UI while we wait for PushToTalk to grant the transmission.
@@ -250,6 +261,10 @@ final class PTTEngine {
         processor = PacketProcessor(local: identity, agreement: identity.keyAgreement(prekeys: { box.store },
                                                                                       oneTimeKeys: { box.oneTime }))
         builder = PacketBuilder(local: identity)
+        let me = identity
+        legacy = try? LegacyLink(signingSeed: identity.signingSeed, keyAgreementSeed: identity.keyAgreementSeed) { id, publicKey in
+            id == 0 ? try me.sharedSecret(withPublicKey: publicKey) : try box.store.agreement(id: id, with: publicKey)
+        }
         floor = FloorControl(localSender: identity.senderID)
         transport = UDPTransport(queue: queue)
         nearby = NearbyTransport(queue: queue)
@@ -599,9 +614,13 @@ final class PTTEngine {
             var targets: [SealTarget] = []
             var secured: [IdentityID] = []
             var unsecured: [String] = []
+            // Members still on an older build get a protocol-1 copy (PROTOCOL.md §10.1).
+            var legacyMembers: [Contact] = []
             for member in channel.members {
                 guard let i = contactsBySender[member.senderID] else { continue }
-                if let target = sealTarget(forContactAt: i) {
+                if peerProtocol(member.senderID) == .legacy {
+                    legacyMembers.append(state.contacts[i])
+                } else if let target = sealTarget(forContactAt: i) {
                     targets.append(target)
                     secured.append(member)
                 } else {
@@ -609,7 +628,7 @@ final class PTTEngine {
                     rekeyIfDue(state.contacts[i])
                 }
             }
-            guard !targets.isEmpty else {
+            guard !targets.isEmpty || !legacyMembers.isEmpty else {
                 emit(.message("Securing the link with \(unsecured.joined(separator: ", ")). Try again in a moment."))
                 _ = floor.releaseTalk()
                 if usesPushToTalk { ptt.stopTransmitting() }
@@ -619,7 +638,8 @@ final class PTTEngine {
                 emit(.message("Not sent to \(unsecured.joined(separator: ", ")) yet: securing the link"))
             }
             save()   // one-time keys were used up
-            channel.members = secured
+            let peer = legacyPeer(channel)
+            channel.members = secured + legacyMembers.map(\.id)
             let outgoing = try OutgoingBurst(identity: identity, channelID: channel.id, burstID: burst,
                                              timestamp: timestamp, targets: targets,
                                              codec: audio.captureCodec.codec,
@@ -631,6 +651,17 @@ final class PTTEngine {
             var t = Transmission(channel: channel, burst: burst, burstKey: outgoing.burstKey, startPacket: packet,
                                  backlog: BurstBacklog(burst: burst))
             t.unsecured = unsecured
+            if !legacyMembers.isEmpty, var link = legacy {
+                let codec = audio.captureCodec
+                let start = try link.startBurst(channel: channel, peer: peer, burstID: burst, timestamp: timestamp,
+                                                recipients: legacyMembers.map { ($0.identity, $0.reachability.prekey) },
+                                                codec: codec.codec.rawValue, sampleRate: codec.sampleRate,
+                                                frameMilliseconds: codec.frameMilliseconds,
+                                                allowsReplay: state.settings.allowReplay)
+                legacy = link
+                registerTwin(packet, start.packet)
+                t.legacyKey = start.burstKey
+            }
             t.backlog.append(packet)
             tx = t
             for member in channel.members {
@@ -667,6 +698,12 @@ final class PTTEngine {
             let packet = try builder.sealBurst(.voice, plaintext: VoiceBody.encode(t.pending), keys: t.channel.keys,
                                                burstID: t.burst, burstKey: t.burstKey, seq: t.nextFrameIndex,
                                                group: t.channel.kind == .group)
+            if let key = t.legacyKey, var link = legacy {
+                registerTwin(packet, try? link.sealBurst(.voice, plaintext: VoiceBody.encode(t.pending), channel: t.channel,
+                                                         peer: legacyPeer(t.channel), burstID: t.burst, burstKey: key,
+                                                         seq: t.nextFrameIndex))
+                legacy = link
+            }
             t.nextFrameIndex += UInt32(t.pending.count)
             t.pending.removeAll()
             t.backlog.append(packet)
@@ -688,6 +725,12 @@ final class PTTEngine {
         let endPacket = try? builder.sealBurst(.burstEnd, plaintext: end.encoded, keys: t.channel.keys,
                                                burstID: t.burst, burstKey: t.burstKey, seq: t.nextFrameIndex,
                                                group: t.channel.kind == .group)
+        if let endPacket, let key = t.legacyKey, var link = legacy {
+            registerTwin(endPacket, try? link.sealBurst(.burstEnd, plaintext: end.encoded, channel: t.channel,
+                                                        peer: legacyPeer(t.channel), burstID: t.burst, burstKey: key,
+                                                        seq: t.nextFrameIndex))
+            legacy = link
+        }
         if let endPacket {
             // Three copies 40 ms apart; receivers drop the duplicates.
             for i in 0..<3 {
@@ -813,11 +856,14 @@ final class PTTEngine {
             guard let sealed = try? builder.seal(.wake, plaintext: wake.encoded, keys: t.channel.keys, messageID: t.burst,
                                                  group: t.channel.kind == .group)
             else { return }
+            if t.legacyKey != nil {
+                registerTwin(sealed, legacyTwin(.wake, plaintext: wake.encoded, channel: t.channel, messageID: t.burst))
+            }
             packet = sealed
             if tx?.burst == t.burst { tx?.wakePacket = sealed }
         }
         noteWake(contact, "sending…")
-        guard let wire = shield(packet) else { return }
+        guard let wire = singleWire(packet, for: contact.senderID) else { return }
         apns.sendWake(wire, to: contact) { [weak self] failure in
             self?.queue.async {
                 guard let self else { return }
@@ -852,7 +898,16 @@ final class PTTEngine {
             let alert = CallAlert(name: state.settings.displayName, timestamp: currentTimestamp(), text: text)
             let messageID = MessageID.random()
             let plaintext: Data
-            if let text, !text.isEmpty {
+            if peerProtocol(contact.senderID) == .legacy {
+                // An older build: protocol 1, text and all, under its classical channel key.
+                guard var link = legacy,
+                      let packet = legacyOnly(try? link.sealCallAlert(name: alert.name, timestamp: alert.timestamp, text: text,
+                                                                     channel: channel, peer: contact.identity,
+                                                                     messageID: messageID)) else { return }
+                legacy = link
+                deliverCallAlert(packet, to: contact)
+                return
+            } else if let text, !text.isEmpty {
                 // Typed text is content: sealed like a burst, so only post-quantum and per message.
                 guard let target = sealTarget(forContactAt: i),
                       let sealed = try? alert.encoded(sealingTextFor: target, channelID: channel.id, messageID: messageID)
@@ -868,6 +923,14 @@ final class PTTEngine {
             }
             guard let packet = try? builder.seal(.callAlert, plaintext: plaintext, keys: channel.keys,
                                                  messageID: messageID) else { return }
+            if text?.isEmpty ?? true {
+                registerTwin(packet, legacyTwin(.callAlert, plaintext: alert.encoded, channel: channel, messageID: messageID))
+            }
+            deliverCallAlert(packet, to: contact)
+        }
+    }
+
+    private func deliverCallAlert(_ packet: Data, to contact: Contact) {
             if isLinked(contact.senderID) {
                 send(packet, to: [contact.senderID])
                 emit(.message("Call alert sent to \(contact.name)"))
@@ -875,12 +938,12 @@ final class PTTEngine {
             }
             // Not connected: try their last known address, then a push notification (shows at
             // once, with the alert sound), falling back to the relay.
-            sendToCandidates(packet, contact.reachability.candidates)
+            sendToCandidates(packet, for: contact.senderID, contact.reachability.candidates)
             guard let apns, contact.reachability.apnsDeviceToken != nil else {
                 relayCallAlert(packet, to: contact)
                 return
             }
-            guard let wire = shield(packet) else { return }
+            guard let wire = singleWire(packet, for: contact.senderID) else { return }
             apns.sendAlert(wire, to: contact) { [weak self] failure in
                 self?.queue.async {
                     guard let self else { return }
@@ -891,12 +954,11 @@ final class PTTEngine {
                     }
                 }
             }
-        }
     }
 
     private func relayCallAlert(_ packet: Data, to contact: Contact, pushFailure: String? = nil) {
             guard let relay, state.settings.relayEnabled, let mailbox = contact.reachability.relayMailbox,
-                  let payload = Relay.encode(packets: shieldAll([packet])) else {
+                  let payload = Relay.encode(packets: wireForms(packet, for: contact.senderID)) else {
                 emit(.message("Call alert to \(contact.name) may not arrive: "
                               + (pushFailure.map { "push \($0), and " } ?? "")
                               + "the iCloud relay isn't available"))
@@ -924,28 +986,25 @@ final class PTTEngine {
         queue.async { self.handleDatagram(packet, from: nil) }
     }
 
-    /// A packet as it arrived on the wire: shielded (PROTOCOL.md §6.6).
+    /// A packet as it arrived on the wire: shielded (PROTOCOL.md §6.6), or a bare protocol-1
+    /// packet from a contact on an older build (§10.1).
     private func handleDatagram(_ wire: Data, from endpoint: PeerPath?, relayed: Bool = false) {
-        guard let inner = unshield(wire) else {
-            noteUnreadable(wire)
-            return
-        }
+        guard let inner = innerPacket(wire) else { return }
         handleInner(inner, from: endpoint, relayed: relayed)
     }
 
-    /// Nothing of ours opens it. If it's a protocol-1 packet from a contact (unshielded, so its
-    /// header is readable), tell the user they need to update, at most hourly per contact.
-    private var updateNagged: [SenderID: Date] = [:]
-
-    private func noteUnreadable(_ wire: Data) {
-        guard wire.count >= 56, wire.first == 1, wire.count > 28 else { return }
-        guard let sender = try? SenderID(bytes: Data(wire[20..<28])), let contact = self.contact(sender),
-              Date().timeIntervalSince(updateNagged[sender] ?? .distantPast) > 3600 else { return }
-        updateNagged[sender] = Date()
-        emit(.message("\(contact.name) is on an older NXTPTT. Ask them to update: older versions can't talk to this one."))
+    /// The protocol-2 inner packet, or the packet itself if it may be protocol 1 (which carries
+    /// no shield; it still has to authenticate).
+    private func innerPacket(_ wire: Data) -> Data? {
+        unshield(wire) ?? (LegacyLink.looksLegacy(wire) ? wire : nil)
     }
 
     private func handleInner(_ data: Data, from endpoint: PeerPath?, relayed: Bool = false) {
+        // Protocol 1 (version byte 1); protocol-2 inner packets carry version 2.
+        if data.first == 1 {
+            handleLegacy(data, from: endpoint, relayed: relayed)
+            return
+        }
         // Someone who scanned one of our group codes: not a contact yet, so not for the processor.
         if (try? PacketHeader(packet: data))?.type == .groupJoin {
             // A push can sit a while before it's seen: allow it the relay's age.
@@ -980,6 +1039,12 @@ final class PTTEngine {
             return
         }
 
+        noteProtocol(2, from: inbound.header.senderID)
+        handleInbound(inbound, from: endpoint, relayed: relayed)
+    }
+
+    /// An authenticated message, whichever protocol it came in.
+    private func handleInbound(_ inbound: InboundPacket, from endpoint: PeerPath?, relayed: Bool) {
         let sender = inbound.header.senderID
         // They sealed this under a newer epoch of our session: they hold it, so we switch to it.
         if inbound.channel.kind == .direct, let i = channelIndex[inbound.channel.id],
@@ -1147,10 +1212,10 @@ final class PTTEngine {
     /// (once per message) through the relay.
     private func deliverRekey(_ packets: [Data], relayKey: String, to contact: Contact) {
         if isLinked(contact.senderID), let link = links[contact.senderID] {
-            for packet in packets { send(packet, via: link.endpoint) }
+            for packet in packets { send(packet, to: contact.senderID, via: link.endpoint) }
             return
         }
-        for packet in packets { sendToCandidates(packet, contact.reachability.candidates) }
+        for packet in packets { sendToCandidates(packet, for: contact.senderID, contact.reachability.candidates) }
         guard !offersRelayed.contains(relayKey), let relay, state.settings.relayEnabled,
               let mailbox = contact.reachability.relayMailbox,
               let payload = Relay.encode(packets: shieldAll(packets)) else { return }
@@ -1168,7 +1233,7 @@ final class PTTEngine {
     /// Starts (or re-sends) a rekey with a contact when it's due: right away while the session is
     /// still at the classical epoch 0, then hourly while they're reachable.
     private func rekeyIfDue(_ contact: Contact, now: Date = Date()) {
-        guard !state.watchPrimary, let i = channelIndex[directChannel(for: contact.id)?.id ?? .random()],
+        guard !state.watchPrimary, peerProtocol(contact.senderID) != .legacy, let i = channelIndex[directChannel(for: contact.id)?.id ?? .random()],
               var session = state.channels[i].session,
               session.sendEpoch == session.epoch else { return }   // wait out an unconfirmed one
         let due = !session.isQuantumSafe || now.timeIntervalSince(session.epochStarted) > PTTEngine.rekeyInterval
@@ -1362,6 +1427,7 @@ final class PTTEngine {
             return
         }
         processor.forgetBurst(sender: finished.sender, burst: finished.burst)
+        legacy?.forgetBurst(sender: finished.sender, burst: finished.burst)
         if finished.held {
             playoutTimer?.cancel()
             playoutTimer = nil
@@ -1694,10 +1760,7 @@ final class PTTEngine {
             return nil
         }
         transport.start()
-        guard let wire = APNsRequest.packet(fromPayload: payload), let packet = unshield(wire),
-              let inbound = try? processor.process(packet, channelLookup: { [self] in channel($0) },
-                                                   memberLookup: { [self] in contact($0)?.identity },
-                                                   pairSecret: pairSecrets),
+        guard let wire = APNsRequest.packet(fromPayload: payload), let inbound = openWakePush(wire),
               case .wake(let wake) = inbound.message,
               let contact = self.contact(inbound.header.senderID) else {
             log.notice("Rejected an unauthenticated wake push")
@@ -1721,10 +1784,28 @@ final class PTTEngine {
         return talker
     }
 
+    /// A pushed WAKE: protocol 2, or protocol 1 from a contact on an older build.
+    private func openWakePush(_ wire: Data) -> InboundPacket? {
+        if let packet = unshield(wire) {
+            return try? processor.process(packet, channelLookup: { [self] in channel($0) },
+                                          memberLookup: { [self] in contact($0)?.identity },
+                                          pairSecret: pairSecrets)
+        }
+        guard LegacyLink.looksLegacy(wire), var link = legacy else { return nil }
+        defer { legacy = link }
+        guard let inbound = try? link.open(wire, maxAge: ReplayGuard.maxClockSkew,
+                                           channelLookup: { [self] in channel($0) },
+                                           identityLookup: { [self] in contact(id: $0)?.identity }),
+              peerProtocol(inbound.header.senderID) != .current else { return nil }
+        noteProtocol(1, from: inbound.header.senderID)
+        return inbound
+    }
+
     /// Punch towards the talker and tell them where we are (PROTOCOL.md §8.2).
     private func respondToWake(_ wake: Wake, from contact: Contact) {
         if let apns, let channel = self.directChannel(for: contact.id),
-           let packet = helloPacket(replyRequested: true, keys: channel.keys, to: contact), let wire = shield(packet) {
+           let packet = helloPacket(replyRequested: true, keys: channel.keys, to: contact),
+           let wire = singleWire(packet, for: contact.senderID) {
             apns.sendBackground(wire, to: contact)
         }
         for attempt in 0..<20 {
@@ -1787,6 +1868,7 @@ final class PTTEngine {
             for member in channel.members {
                 guard let contact = self.contact(id: member), let direct = self.directChannel(for: member),
                       let packet = try? builder.seal(.groupLeave, plaintext: leave.encoded, keys: direct.keys) else { continue }
+                registerTwin(packet, legacyTwin(.groupLeave, plaintext: leave.encoded, channel: direct, messageID: .random()))
                 sendAnyway(packet, to: contact)
             }
             state.channels.removeAll { $0.id == id }
@@ -1836,6 +1918,17 @@ final class PTTEngine {
         }
         let invite = GroupInvite(timestamp: currentTimestamp(), name: channel.name, keys: channel.keys, memberCards: cards)
         let messageID = MessageID.random()
+        if peerProtocol(contact.senderID) == .legacy {
+            // An older build: the group key goes to them in protocol 1 (classical), the only
+            // way they can read it.
+            guard var link = legacy,
+                  let packet = legacyOnly(try? link.sealInvite(invite, direct: direct, peer: contact.identity,
+                                                              prekey: contact.reachability.prekey, messageID: messageID))
+            else { return }
+            legacy = link
+            if links[contact.senderID] != nil { sendAnyway(packet, to: contact) } else { deliverAnyway(packet, to: contact) }
+            return
+        }
         // The group key only ever travels under a post-quantum session; until ours with this
         // contact is ready, the invite waits (it's re-sent once the exchange completes).
         guard let session = direct.session, session.isQuantumSafe,
@@ -2293,6 +2386,7 @@ final class PTTEngine {
     private func sendCard(to contact: Contact) {
         guard let direct = directChannel(for: contact.id), let card = try? myCard(for: contact),
               let packet = try? builder.seal(.card, plaintext: card.encoded, keys: direct.keys) else { return }
+        registerTwin(packet, legacyTwin(.card, plaintext: card.encoded, channel: direct, messageID: .random()))
         deliverAnyway(packet, to: contact)
     }
 
@@ -2301,7 +2395,7 @@ final class PTTEngine {
     private func deliverAnyway(_ packet: Data, to contact: Contact) {
         sendAnyway(packet, to: contact)
         guard let relay, state.settings.relayEnabled, let mailbox = contact.reachability.relayMailbox,
-              let payload = Relay.encode(packets: shieldAll([packet])) else { return }
+              let payload = Relay.encode(packets: wireForms(packet, for: contact.senderID)) else { return }
         Task { [weak self] in
             if let name = try? await relay.upload(payload: payload, tag: Relay.tag(mailbox: mailbox)) {
                 self?.queue.async {
@@ -2329,7 +2423,11 @@ final class PTTEngine {
         let hello = Hello(name: state.settings.displayName, timestamp: currentTimestamp(),
                           reachability: myReachability(for: contact),
                           flags: flags, heldOneTimeKeys: UInt16(clamping: contact.availableOneTimeKeys))
-        return try? builder.seal(.hello, plaintext: hello.encoded, keys: keys)
+        guard let packet = try? builder.seal(.hello, plaintext: hello.encoded, keys: keys) else { return nil }
+        if let direct = directChannel(for: contact.id) {
+            registerTwin(packet, legacyTwin(.hello, plaintext: hello.encoded, channel: direct, messageID: .random()))
+        }
+        return packet
     }
 
     private func sendHello(to contact: Contact, replyRequested: Bool = false, endpoints: [PeerPath],
@@ -2338,29 +2436,30 @@ final class PTTEngine {
               let packet = helloPacket(replyRequested: replyRequested, keys: channel.keys, to: contact, away: away,
                                        receipt: receipt)
         else { return }
-        for endpoint in endpoints { send(packet, via: endpoint) }
-        sendToCandidates(packet, candidates)
+        for endpoint in endpoints { send(packet, to: contact.senderID, via: endpoint) }
+        sendToCandidates(packet, for: contact.senderID, candidates)
     }
 
-    private func sendToCandidates(_ packet: Data, _ candidates: [Candidate]) {
+    private func sendToCandidates(_ packet: Data, for sender: SenderID, _ candidates: [Candidate]) {
+        let wires = wireForms(packet, for: sender)
         for candidate in candidates where candidate.isRoutable {
-            if let wire = shield(packet) { transport.send(wire, to: candidate) }
+            for wire in wires { transport.send(wire, to: candidate) }
         }
     }
 
     /// Sends over live links only.
     private func send(_ packet: Data, to senders: Set<SenderID>) {
         for sender in senders {
-            if let link = links[sender] { send(packet, via: link.endpoint) }
+            if let link = links[sender] { send(packet, to: sender, via: link.endpoint) }
         }
     }
 
     /// Control messages: use the live link if there is one, otherwise the last known candidates.
     private func sendAnyway(_ packet: Data, to contact: Contact) {
         if let link = links[contact.senderID] {
-            send(packet, via: link.endpoint)
+            send(packet, to: contact.senderID, via: link.endpoint)
         } else {
-            sendToCandidates(packet, contact.reachability.candidates)
+            sendToCandidates(packet, for: contact.senderID, contact.reachability.candidates)
         }
     }
 
@@ -2409,8 +2508,17 @@ final class PTTEngine {
         let channelID = t.channel.id
 
         // Anyone we couldn't reach directly goes to the relay, or gets a reason why not.
-        var relayable: [(Contact, Data)] = []
-        let payload = t.nextFrameIndex > 0 ? Relay.encode(packets: shieldAll(packets)) : nil
+        var relayable: [(contact: Contact, mailbox: Data, payload: Data)] = []
+        // Each member's copy in the protocol they speak (an older build gets protocol 1).
+        var shared: Data??
+        func relayPayload(for contact: Contact) -> Data? {
+            guard t.nextFrameIndex > 0 else { return nil }
+            if peerProtocol(contact.senderID) == .current {
+                if shared == nil { shared = .some(Relay.encode(packets: shieldAll(packets))) }
+                return shared ?? nil
+            }
+            return Relay.encode(packets: packets.flatMap { wireForms($0, for: contact.senderID) })
+        }
         for name in t.unsecured {
             legs.append(.init(peer: name, route: .failed,
                               reason: "not sent: the post-quantum link with them isn't set up yet (it sets itself up "
@@ -2418,6 +2526,7 @@ final class PTTEngine {
         }
         for contact in missed {
             let reason: String?
+            let payload = relayPayload(for: contact)
             if t.nextFrameIndex == 0 || payload == nil {
                 reason = "nothing was recorded"
             } else if relay == nil {
@@ -2432,12 +2541,12 @@ final class PTTEngine {
             if var reason {
                 if let wake = wakeOutcomes[contact.senderID] { reason += "; wake \(wake)" }
                 legs.append(.init(peer: contact.name, route: .failed, reason: reason))
-            } else if let mailbox = contact.reachability.relayMailbox {
-                relayable.append((contact, mailbox))
+            } else if let mailbox = contact.reachability.relayMailbox, let payload {
+                relayable.append((contact, mailbox, payload))
             }
         }
 
-        guard let relay, let payload, !relayable.isEmpty else {
+        guard let relay, !relayable.isEmpty else {
             if !legs.isEmpty {
                 logTransfer(TransferRecord(date: Date(), outgoing: true, channel: channelName, seconds: seconds, legs: legs,
                                            channelID: t.channel.id))
@@ -2447,12 +2556,12 @@ final class PTTEngine {
         }
         let directLegs = legs
         var notes: [IdentityID: String] = [:]
-        for (contact, _) in relayable { notes[contact.id] = heldNote(contact) }
+        for (contact, _, _) in relayable { notes[contact.id] = heldNote(contact) }
         let pusher = apns   // read on our queue, used from the task
         Task { [weak self] in
             var relayedLegs: [TransferRecord.Leg] = []
             var uploads: [String: Date] = [:]
-            for (contact, mailbox) in relayable {
+            for (contact, mailbox, payload) in relayable {
                 do {
                     let name = try await relay.upload(payload: payload, tag: Relay.tag(mailbox: mailbox))
                     uploads[name] = Date().addingTimeInterval(Relay.lifetime)
@@ -2584,7 +2693,7 @@ final class PTTEngine {
     private func playNextRelayed() {
         guard rx == nil, tx == nil, !relayQueue.isEmpty else { return }
         let next = relayQueue.removeFirst()
-        let inner = next.packets.compactMap(unshield)
+        let inner = next.packets.compactMap(innerPacket)
         if RelayInbox.isReplayedCopy(inner, record: next.record) {
             // An old message posted again under a new record: don't play it twice.
             log.notice("Skipped a replayed relay record")
@@ -2688,12 +2797,129 @@ final class PTTEngine {
 
     // MARK: - Helpers
 
-    private func send(_ packet: Data, via path: PeerPath) {
-        guard let wire = shield(packet) else { return }
+    private func sendWire(_ wire: Data, via path: PeerPath) {
         switch path {
         case .udp(let endpoint): transport.send(wire, to: endpoint)
         case .nearby(let peer): nearby.send(wire, to: peer)
         }
+    }
+
+    /// Sends a packet to one contact on one path, in the protocol they speak.
+    private func send(_ packet: Data, to sender: SenderID, via path: PeerPath) {
+        for wire in wireForms(packet, for: sender) { sendWire(wire, via: path) }
+    }
+
+    // MARK: - Contacts on older builds (protocol 1, PROTOCOL.md §10.1)
+
+    private enum PeerProtocol { case unknown, legacy, current }
+
+    private func peerProtocol(_ sender: SenderID) -> PeerProtocol {
+        guard let contact = self.contact(sender) else { return .unknown }
+        switch state.contactProtocols[contact.id] {
+        case 2: return .current
+        case 1: return .legacy
+        default: return .unknown
+        }
+    }
+
+    /// Records the protocol a contact just spoke (authenticated). Protocol 2 is final.
+    private func noteProtocol(_ version: UInt8, from sender: SenderID) {
+        guard let contact = self.contact(sender) else { return }
+        let was = state.contactProtocols[contact.id]
+        guard was != 2, was != version else { return }
+        state.contactProtocols[contact.id] = version
+        save()
+        publish()
+        if version == 1 {
+            emit(.message("\(contact.name) is on an older NXTPTT. You can talk, but not post-quantum until they update."))
+        } else if was == 1 {
+            emit(.message("\(contact.name) updated: your link is post-quantum from now on"))
+        }
+    }
+
+    /// Keeps the protocol-1 copy of a protocol-2 packet, for contacts who haven't updated.
+    private func registerTwin(_ packet: Data, _ twin: Data?) {
+        guard let twin, twins[packet] == nil else { return }
+        twins[packet] = twin
+        twinOrder.append(packet)
+        // A burst is at most ~1000 packets; keep a few bursts' worth.
+        while twinOrder.count > 4096 { twins[twinOrder.removeFirst()] = nil }
+    }
+
+    /// Protocol-1 only: sent as is to contacts on older builds, never to anyone else.
+    private func legacyOnly(_ packet: Data?) -> Data? {
+        guard let packet else { return nil }
+        registerTwin(packet, packet)
+        return packet
+    }
+
+    /// A contact on protocol 2 gets the shielded packet. One on an older build gets its
+    /// protocol-1 twin, if it has one. One we haven't heard from since updating gets both, so
+    /// whichever build they run understands.
+    private func wireForms(_ packet: Data, for sender: SenderID) -> [Data] {
+        let isLegacyOnly = twins[packet] == packet
+        switch peerProtocol(sender) {
+        case .current: return isLegacyOnly ? [] : shield(packet).map { [$0] } ?? []
+        case .legacy: return twins[packet].map { [$0] } ?? []
+        case .unknown: return (isLegacyOnly ? [] : shield(packet).map { [$0] } ?? []) + (twins[packet].map { [$0] } ?? [])
+        }
+    }
+
+    /// One wire packet (a push or a relay record carries one form): protocol 1 for a contact
+    /// on an older build, protocol 2 otherwise.
+    private func singleWire(_ packet: Data, for sender: SenderID) -> Data? {
+        peerProtocol(sender) == .legacy ? twins[packet] : (twins[packet] == packet ? nil : shield(packet))
+    }
+
+    /// For a protocol-1 copy: the peer of a direct channel (talk groups don't need one).
+    private func legacyPeer(_ channel: Channel) -> PublicIdentity? {
+        channel.kind == .direct ? channel.members.first.flatMap { contact(id: $0)?.identity } : nil
+    }
+
+    /// Whether anyone in `channel` might need a protocol-1 copy.
+    private func needsTwin(_ channel: Channel) -> Bool {
+        channel.members.contains { peerProtocol($0.senderID) != .current }
+    }
+
+    /// The protocol-1 twin of a control message, if anyone in the channel may need it.
+    private func legacyTwin(_ type: PacketType, plaintext: Data, channel: Channel, messageID: MessageID) -> Data? {
+        guard needsTwin(channel), var link = legacy else { return nil }
+        let twin = try? link.seal(type, plaintext: plaintext, channel: channel, peer: legacyPeer(channel), messageID: messageID)
+        legacy = link
+        return twin
+    }
+
+    private func handleLegacy(_ data: Data, from endpoint: PeerPath?, relayed: Bool) {
+        guard var link = legacy else { return }
+        let inbound: InboundPacket
+        do {
+            inbound = try link.open(data, maxAge: relayed ? Relay.lifetime : ReplayGuard.maxClockSkew,
+                                    channelLookup: { [self] in channel($0) },
+                                    identityLookup: { [self] in contact(id: $0)?.identity })
+            legacy = link
+        } catch InboundError.unknownBurst {
+            legacy = link
+            if !relayed, let burst = LegacyLink.messageID(of: data) { earlyPackets.append((data, endpoint), for: burst) }
+            return
+        } catch InboundError.replay {
+            legacy = link
+            if let endpoint, let sender = LegacyLink.senderID(of: data), peerProtocol(sender) == .legacy {
+                noteHeard(sender, at: endpoint)
+            }
+            return
+        } catch {
+            legacy = link
+            log.debug("Dropped protocol-1 packet: \(String(describing: error), privacy: .public)")
+            return
+        }
+        let sender = inbound.header.senderID
+        // Downgrade lock: a contact who has spoken protocol 2 is never believed in protocol 1.
+        guard peerProtocol(sender) != .current else {
+            log.notice("Dropped a protocol-1 packet from a contact on protocol 2")
+            return
+        }
+        noteProtocol(1, from: sender)
+        handleInbound(inbound, from: endpoint, relayed: relayed)
     }
 
     // MARK: - Packet shield (PROTOCOL.md §6.6)
@@ -2782,7 +3008,7 @@ final class PTTEngine {
                                  prekeys: prekeys.store, displayName: state.settings.displayName,
                                  contacts: state.contacts, channels: state.channels,
                                  selectedChannel: state.settings.selectedChannel,
-                                 relayMailbox: state.relayMailbox, pushKey: nil, oneTimeKeys: prekeys.oneTime)
+                                 relayMailbox: state.relayMailbox, pushKey: nil, oneTimeKeys: prekeys.oneTime, contactProtocols: state.contactProtocols)
         guard snapshot != lastInboxSnapshot else { return }
         lastInboxSnapshot = snapshot
         RelayInbox.saveSnapshot(snapshot)
@@ -2799,7 +3025,7 @@ final class PTTEngine {
                              // A key shared by link, else the one bundled into this build: without it
                              // the watch can leave messages in the relay but wake nobody.
                              pushKey: PushKeyKeychain.load() ?? PushKey.fromBundle(),
-                             oneTimeKeys: prekeys.oneTime)
+                             oneTimeKeys: prekeys.oneTime, contactProtocols: state.contactProtocols)
         guard sync != lastWatchSync else { return }
         lastWatchSync = sync
         onWatchSync?(sync)
@@ -2900,6 +3126,7 @@ final class PTTEngine {
     private func publish() {
         var snapshot = EngineSnapshot()
         snapshot.contacts = state.contacts
+        snapshot.legacyContacts = Set(state.contactProtocols.filter { $0.value == 1 }.keys)
         snapshot.channels = state.channels
         snapshot.settings = state.settings
         if let t = tx {

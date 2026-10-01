@@ -6,7 +6,7 @@ reference, and `Packages/EPTTCore/Tests/EPTTCoreTests/Fixtures/vectors.json`
 holds the test vectors every implementation must reproduce. The threat model
 is in `docs/SECURITY.md`.
 
-Protocol 2 replaces protocol 1 on the wire. The two do not interoperate (§10).
+Protocol 2 replaces protocol 1 on the wire. Devices still speak protocol 1 to contacts who haven't updated, and never again once a contact has spoken protocol 2 (§10.1).
 
 ## 0. Conventions
 
@@ -782,24 +782,60 @@ Any byte-level change bumps the header `version` and the derivation labels
 (`"NXTPTT/<n>"`). New TLV tags are backward-compatible, because unknown tags are
 ignored.
 
-**Protocol 1 and protocol 2 do not interoperate.** Protocol 2 changed the suite
-(§0), the header version (0x02), every content-protecting derivation and the
-envelope format, and it shields every packet (§6.6). A protocol-1 device cannot
-parse protocol-2 packets, and a protocol-2 device cannot open protocol-1 packets.
+**Protocol 1 and protocol 2 are different wire formats.** Protocol 2 changed the suite
+(§0), the header version (0x02), every content-protecting derivation and the envelope
+format, and it shields every packet (§6.6). A protocol-1 device cannot parse protocol-2
+packets.
 
-- A protocol-2 device drops any datagram it cannot unshield. If that datagram looks
-  like an unshielded protocol-1 packet from a contact (at least 56 bytes, first byte
-  0x01, bytes 20..28 a known `sender_id`), it tells the user that the contact is on an
-  older NXTPTT and needs to update. It does this at most once an hour per contact.
 - Identities, contact cards (`card_version` 1), signed prekeys, safety numbers and
   direct channel IDs are unchanged, so pairings survive the upgrade. On upgrade,
   each direct channel gets a fresh session at epoch 0 (§5.3). The first post-quantum
   exchange runs as soon as the contact is reachable, and nothing with content is sent
-  before it completes.
+  in protocol 2 before it completes.
 - Talk groups keep their group ID, key and epoch across the upgrade until their next
   rekey (§5.2).
-- The relay payload format (§11) is unchanged (`version` 1). The packets inside are
-  protocol-2 wire packets.
+- The relay payload format (§11) is unchanged (`version` 1).
+
+### 10.1 Talking to protocol-1 devices
+
+A protocol-2 device also speaks protocol 1, unchanged, to contacts who haven't updated.
+It tracks one state per contact:
+
+| State | Meaning | Sends | Accepts |
+| --- | --- | --- | --- |
+| unknown | not heard from since updating | protocol 2, plus a protocol-1 copy of each control message (HELLO, CARD, bare CALL_ALERT, GROUP_LEAVE) | both |
+| 1 | an authenticated protocol-1 packet arrived, and never protocol 2 | protocol 1 only | both (a protocol-2 packet moves them to 2) |
+| 2 | an authenticated protocol-2 packet arrived | protocol 2 only | protocol 2 only |
+
+**State 2 is final (downgrade lock).** Once a contact has spoken protocol 2, every
+protocol-1 packet that claims to be from them is dropped, and nothing is sent to them in
+protocol 1 again. No one can talk a pair back down to the classical protocol by
+suppressing protocol-2 traffic.
+
+Receiving: a datagram that doesn't unshield, starts with 0x01 and is at least 56 bytes is
+processed as a protocol-1 packet (protocol 1, §6). Only after it authenticates under the
+protocol-1 channel key, from a member, is it handled, exactly like the same message in
+protocol 2.
+
+Sending to a contact in state 1:
+
+- **Bursts.** The talker makes a second, protocol-1 burst with the same `burst_id`: its own
+  random burst key, wrapped in 60-byte protocol-1 envelopes to each such member's signed
+  prekey, and a protocol-1 BURST_START, VOICE and BURST_END. In a talk group with members on
+  both protocols, each member gets the copy in its own protocol. The protocol-2 copy carries
+  envelopes only for protocol-2 members, and the protocol-1 copy only for protocol-1 members.
+- **Wake pushes, call alerts, cards, group invites, leaves, receipts** go in protocol 1,
+  under the protocol-1 direct channel key (static X25519). Call-alert text is sealed only by
+  that key.
+- **Relay records** hold the protocol-1 packets, unshielded.
+- **No PQ_OFFER, PQ_ACCEPT or ONE_TIME_KEYS** are sent.
+
+What a protocol-1 link lacks: post-quantum protection, header shielding and padding,
+one-time prekeys, hourly rekeys, and group sender signatures. Group keys sent to a
+protocol-1 member travel under classical cryptography, so anyone who later breaks it can
+recover that group key. Apps show these contacts as on an older app, and the link becomes
+protocol 2, for good, the first time they're heard on it. Not supported across protocols:
+talk-group QR codes (§6.5) and the standalone Apple Watch, which speak protocol 2 only.
 
 ## 11. Store-and-forward relay
 

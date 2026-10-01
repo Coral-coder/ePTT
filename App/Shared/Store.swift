@@ -148,6 +148,10 @@ struct PersistedState: Codable {
     var watchPrimary = false
     /// When this phone last took over; a watch claim older than this is stale.
     var lastPhoneClaim: Date?
+    /// The protocol each contact was last heard on: 1 (an older build), or 2, which is final:
+    /// once a contact has spoken protocol 2 they never get or are believed in protocol 1 again
+    /// (PROTOCOL.md §10.1). Absent: not heard from since updating.
+    var contactProtocols: [IdentityID: UInt8] = [:]
 }
 
 struct PeerQuiet: Codable, Equatable {
@@ -274,6 +278,7 @@ extension PersistedState {
         pendingJoins = (try? c.decodeIfPresent([Data].self, forKey: .pendingJoins)) ?? []
         deniedJoins = (try? c.decodeIfPresent([Data].self, forKey: .deniedJoins)) ?? []
         peerQuiet = (try? c.decodeIfPresent([PeerQuiet].self, forKey: .peerQuiet)) ?? []
+        contactProtocols = (try? c.decodeIfPresent([IdentityID: UInt8].self, forKey: .contactProtocols)) ?? [:]
     }
 }
 

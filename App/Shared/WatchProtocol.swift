@@ -1,5 +1,6 @@
 import Foundation
 import EPTTCore
+import EPTTCompat
 
 /// Keys and framing shared by the iPhone app and the watch app over WatchConnectivity.
 enum WatchProtocol {
@@ -63,6 +64,8 @@ struct WatchSync: Codable, Equatable {
     var pushKey: PushKey?
     /// One-time prekeys (protocol 2). Optional so older snapshots still decode.
     var oneTimeKeys: OneTimeKeyStore?
+    /// The protocol each contact was last heard on (1: an older build; 2 is final).
+    var contactProtocols: [IdentityID: UInt8]?
 }
 
 extension WatchSync {
@@ -92,5 +95,39 @@ extension WatchSync {
     /// The inner packet of a shielded one, if it is for one of our channels.
     func unshield(_ wire: Data) -> Data? {
         PacketShield.unshield(wire, candidates: shieldCandidates)?.inner
+    }
+
+    /// Protocol 1, for contacts on an older build (PROTOCOL.md §10.1).
+    func legacyLink() -> LegacyLink? {
+        guard let local = localIdentity else { return nil }
+        let prekeys = self.prekeys
+        return try? LegacyLink(signingSeed: signingSeed, keyAgreementSeed: keyAgreementSeed) { id, publicKey in
+            id == 0 ? try local.sharedSecret(withPublicKey: publicKey) : try prekeys.agreement(id: id, with: publicKey)
+        }
+    }
+
+    /// A bare protocol-1 packet from one of our contacts not known to be on protocol 2 (so worth
+    /// trying with `legacyLink`, and never mistaken for a talk-group request).
+    func isLegacyFromContact(_ wire: Data) -> Bool {
+        guard LegacyLink.looksLegacy(wire), let sender = LegacyLink.senderID(of: wire),
+              let contact = contacts.first(where: { $0.senderID == sender }) else { return false }
+        return contactProtocols?[contact.id] != 2
+    }
+
+    /// Opens a relayed or pushed packet in either protocol. Nil if it isn't for us.
+    func open(_ wire: Data, processor: inout PacketProcessor, legacy: inout LegacyLink?,
+              maxAge: TimeInterval = Relay.lifetime) -> InboundPacket? {
+        let channels = self.channels, contacts = self.contacts
+        if let inner = unshield(wire) {
+            return try? processor.process(inner, maxAge: maxAge,
+                                          channelLookup: { id in channels.first { $0.id == id } },
+                                          memberLookup: { id in contacts.first { $0.senderID == id }?.identity },
+                                          pairSecret: pairSecrets)
+        }
+        guard isLegacyFromContact(wire), var link = legacy else { return nil }
+        defer { legacy = link }
+        return try? link.open(wire, maxAge: maxAge,
+                              channelLookup: { id in channels.first { $0.id == id } },
+                              identityLookup: { id in contacts.first { $0.id == id }?.identity })
     }
 }

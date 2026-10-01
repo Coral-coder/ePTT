@@ -11,9 +11,6 @@ public enum InboundMessage: Equatable {
     case groupInvite(GroupInvite)
     case groupLeave(GroupLeave)
     case card(ContactCard)
-    case pqOffer(PQOffer)
-    case pqAccept(PQAccept)
-    case oneTimeKeys(OneTimeKeyBatch)
 }
 
 public struct InboundPacket: Equatable {
@@ -21,20 +18,6 @@ public struct InboundPacket: Equatable {
     public let channel: Channel
     public let sender: PublicIdentity
     public let message: InboundMessage
-    /// For a BURST_START or a call alert with text: the local key its envelope was sealed to.
-    public var openedKeyID: UInt32? = nil
-    /// Arrived in protocol 1 (classical), from a contact who hasn't updated (PROTOCOL.md §10.1).
-    public var isLegacy = false
-
-    public init(header: PacketHeader, channel: Channel, sender: PublicIdentity, message: InboundMessage,
-                openedKeyID: UInt32? = nil, isLegacy: Bool = false) {
-        self.header = header
-        self.channel = channel
-        self.sender = sender
-        self.message = message
-        self.openedKeyID = openedKeyID
-        self.isLegacy = isLegacy
-    }
 }
 
 public enum InboundError: Error, Equatable {
@@ -54,8 +37,6 @@ public enum InboundError: Error, Equatable {
     /// A BURST_START that carries no envelope we can open (not addressed to us, or sealed to a
     /// prekey we have already deleted).
     case notARecipient
-    /// One fragment of a larger message; the rest hasn't arrived yet.
-    case incomplete
 }
 
 /// Remembers recently seen control messages to drop replays (PROTOCOL.md §6.4).
@@ -107,38 +88,27 @@ public struct PacketProcessor {
     private var burstOrder: [BurstRef] = []
     private static let maxBurstKeys = 64
 
-    private struct FragmentRef: Hashable {
-        let sender: SenderID
-        let message: MessageID
-        let type: PacketType
-    }
-    private var fragments: [FragmentRef: (total: Int, parts: [Int: Data], first: Date)] = [:]
-    private static let maxFragmentSets = 16
-
     /// - Parameter agreement: X25519 with our static key (prekey 0) or a held prekey.
     public init(local: LocalIdentity, agreement: LocalKeyAgreement? = nil) {
         self.local = local
         let identity = local
-        self.agreement = agreement ?? { id, publicKey, _ in
+        self.agreement = agreement ?? { id, publicKey in
             guard id == 0 else { throw DecodingError.invalid("no prekeys configured") }
             return try identity.sharedSecret(withPublicKey: publicKey)
         }
     }
 
-    /// Opens an inner packet (already unshielded, PROTOCOL.md §6.6).
     /// - Parameters:
     ///   - maxAge: how old a timestamp may be. Live traffic uses the default; relayed
     ///     (store-and-forward) bursts pass a longer window.
     ///   - channelLookup: returns the channel for an ID, if we are in it.
     ///   - memberLookup: returns a known peer's identity for a sender ID.
-    ///   - pairSecret: the burst secret of our pairwise session with a sender at an epoch.
     public mutating func process(
         _ packet: Data,
         now: Date = Date(),
         maxAge: TimeInterval = ReplayGuard.maxClockSkew,
         channelLookup: (ChannelID) -> Channel?,
-        memberLookup: (SenderID) -> PublicIdentity?,
-        pairSecret: PairSecretLookup = { _, _ in nil }
+        memberLookup: (SenderID) -> PublicIdentity?
     ) throws -> InboundPacket {
         guard let header = try? PacketHeader(packet: packet) else { throw InboundError.malformed }
         guard header.senderID != local.senderID else { throw InboundError.ownPacket }
@@ -147,15 +117,8 @@ public struct PacketProcessor {
         guard let sender = memberLookup(header.senderID), channel.members.contains(sender.id) else {
             throw InboundError.notAMember
         }
-        var packet = packet
-        if channel.kind == .group, PacketCrypto.needsGroupSignature(header.type) {
-            guard let body = PacketCrypto.verifyGroupSignature(packet, sender: sender) else {
-                throw InboundError.badSignature
-            }
-            packet = body
-        }
 
-        var plaintext: Data
+        let plaintext: Data
         if PacketCrypto.usesBurstKey(header.type) {
             guard let burstKey = burstKeys[BurstRef(sender: header.senderID, burst: header.messageID)] else {
                 throw InboundError.unknownBurst
@@ -171,35 +134,18 @@ public struct PacketProcessor {
             plaintext = opened
         }
 
-        switch header.type {
-        case .hello, .groupInvite, .groupLeave, .pqOffer, .pqAccept, .oneTimeKeys, .card:
+        let message: InboundMessage
+        do {
+            message = try decode(header: header, plaintext: plaintext)
+        } catch {
+            throw InboundError.malformed
+        }
+
+        switch message {
+        case .hello, .groupInvite, .groupLeave:
             guard channel.kind == .direct else { throw InboundError.wrongChannelKind }
         default:
             break
-        }
-        // A direct channel's epoch 0 is classical (static keys only): it carries the rekey and
-        // self-authenticating messages (signed cards and prekeys), never anything that could be
-        // forged by someone who later breaks or steals a static key.
-        if channel.kind == .direct, header.epoch == 0 {
-            switch header.type {
-            case .hello, .card, .pqOffer, .pqAccept: break
-            default: throw InboundError.unknownEpoch
-            }
-        }
-
-        if header.type == .pqOffer || header.type == .pqAccept {
-            plaintext = try reassemble(header: header, fragment: plaintext, now: now)
-        }
-
-        var opened: UInt32?
-        let message: InboundMessage
-        do {
-            message = try decode(header: header, plaintext: plaintext, channel: channel, sender: sender,
-                                 pairSecret: pairSecret, opened: &opened)
-        } catch let error as InboundError {
-            throw error
-        } catch {
-            throw InboundError.malformed
         }
 
         if let timestamp = message.timestamp {
@@ -217,46 +163,20 @@ public struct PacketProcessor {
             }
             let ref = BurstRef(sender: header.senderID, burst: header.messageID)
             if burstKeys[ref] == nil {
-                guard let result = try? BurstKeying.open(envelopes: start.envelopes,
-                                                         ephemeralPublicKey: start.ephemeralPublicKey,
-                                                         channelID: channel.id, burstID: header.messageID,
-                                                         recipient: local.senderID, sender: sender,
-                                                         agreement: agreement, pairSecret: pairSecret) else {
+                guard let key = try? BurstKeying.open(envelopes: start.envelopes,
+                                                      ephemeralPublicKey: start.ephemeralPublicKey,
+                                                      channelID: channel.id, burstID: header.messageID,
+                                                      recipient: local.senderID, agreement: agreement) else {
                     throw InboundError.notARecipient
                 }
-                remember(ref, result.burstKey)
-                opened = result.keyID
+                remember(ref, key)
             }
         }
         if message.isReplayTracked,
            !replay.accept(sender: header.senderID, message: header.messageID, type: header.type, now: now) {
             throw InboundError.replay
         }
-        return InboundPacket(header: header, channel: channel, sender: sender, message: message, openedKeyID: opened)
-    }
-
-    /// Collects the fragments of a PQ_OFFER / PQ_ACCEPT. Each is "index(1) ‖ total(1) ‖ bytes",
-    /// with seq = index (so every fragment has its own nonce).
-    private mutating func reassemble(header: PacketHeader, fragment: Data, now: Date) throws -> Data {
-        guard fragment.count >= 2 else { throw InboundError.malformed }
-        let bytes = [UInt8](fragment)
-        let index = Int(bytes[0]), total = Int(bytes[1])
-        guard total >= 1, total <= 8, index < total, UInt32(index) == header.seq else { throw InboundError.malformed }
-        if total == 1 { return Data(bytes[2...]) }
-        fragments = fragments.filter { now.timeIntervalSince($0.value.first) < 60 }
-        let ref = FragmentRef(sender: header.senderID, message: header.messageID, type: header.type)
-        var entry = fragments[ref] ?? (total, [:], now)
-        guard entry.total == total else { throw InboundError.malformed }
-        entry.parts[index] = Data(bytes[2...])
-        guard entry.parts.count == total else {
-            if fragments[ref] == nil, fragments.count >= Self.maxFragmentSets {
-                fragments.remove(at: fragments.startIndex)
-            }
-            fragments[ref] = entry
-            throw InboundError.incomplete
-        }
-        fragments[ref] = nil
-        return (0..<total).reduce(Data()) { $0 + (entry.parts[$1] ?? Data()) }
+        return InboundPacket(header: header, channel: channel, sender: sender, message: message)
     }
 
     /// Forgets a finished burst's key (forward secrecy: keys should not outlive their use).
@@ -278,8 +198,7 @@ public struct PacketProcessor {
         }
     }
 
-    private func decode(header: PacketHeader, plaintext: Data, channel: Channel, sender: PublicIdentity,
-                        pairSecret: PairSecretLookup, opened: inout UInt32?) throws -> InboundMessage {
+    private func decode(header: PacketHeader, plaintext: Data) throws -> InboundMessage {
         switch header.type {
         case .hello: return .hello(try Hello(decoding: plaintext))
         case .burstStart: return .burstStart(try BurstStart(decoding: plaintext))
@@ -292,22 +211,13 @@ public struct PacketProcessor {
             }
             return .voice(firstFrameIndex: header.seq, frames: frames)
         case .burstEnd: return .burstEnd(try BurstEnd(decoding: plaintext))
-        case .callAlert:
-            let alert = try CallAlert(decoding: plaintext, channelID: channel.id, messageID: header.messageID,
-                                      recipient: local.senderID, sender: sender, agreement: agreement,
-                                      pairSecret: pairSecret)
-            opened = alert.openedWith
-            return .callAlert(alert)
+        case .callAlert: return .callAlert(try CallAlert(decoding: plaintext))
         case .wake: return .wake(try Wake(decoding: plaintext))
         case .groupInvite:
             return .groupInvite(try GroupInvite(decoding: plaintext, messageID: header.messageID,
-                                                recipient: local.senderID, sender: sender, agreement: agreement,
-                                                pairSecret: pairSecret))
+                                                recipient: local.senderID, agreement: agreement))
         case .groupLeave: return .groupLeave(try GroupLeave(decoding: plaintext))
         case .card: return .card(try ContactCard(encoded: plaintext))
-        case .pqOffer: return .pqOffer(try PQOffer(decoding: plaintext))
-        case .pqAccept: return .pqAccept(try PQAccept(decoding: plaintext))
-        case .oneTimeKeys: return .oneTimeKeys(try OneTimeKeyBatch(decoding: plaintext))
         case .groupJoin: throw DecodingError.invalid("GROUP_JOIN is opened with GroupJoin.open")
         }
     }
@@ -324,9 +234,6 @@ extension InboundMessage {
         case .groupInvite(let m): return m.timestamp
         case .groupLeave(let m): return m.timestamp
         case .card(let m): return m.timestamp
-        case .pqOffer(let m): return m.timestamp
-        case .pqAccept(let m): return m.timestamp
-        case .oneTimeKeys(let m): return m.timestamp
         case .voice: return nil
         }
     }
@@ -339,43 +246,24 @@ extension InboundMessage {
     }
 }
 
-/// Builds outbound (inner) packets for the local identity. Shield them before sending.
+/// Builds outbound packets for the local identity.
 public struct PacketBuilder {
     public let local: LocalIdentity
 
     public init(local: LocalIdentity) { self.local = local }
 
-    /// - Parameter group: a talk-group packet; it gets the sender's signature (§6.7).
     public func seal(_ type: PacketType, plaintext: Data, keys: ChannelKeys,
-                     messageID: MessageID = .random(), seq: UInt32 = 0, group: Bool = false) throws -> Data {
+                     messageID: MessageID = .random(), seq: UInt32 = 0) throws -> Data {
         precondition(!PacketCrypto.usesBurstKey(type), "VOICE/BURST_END must use sealBurst")
-        let packet = try PacketCrypto.seal(plaintext, header: header(type, keys: keys, messageID: messageID, seq: seq),
-                                           keys: keys)
-        return group && PacketCrypto.needsGroupSignature(type) ? try PacketCrypto.signForGroup(packet, identity: local) : packet
+        return try PacketCrypto.seal(plaintext, header: header(type, keys: keys, messageID: messageID, seq: seq), keys: keys)
     }
 
     /// VOICE and BURST_END: sealed under the burst key (forward secrecy).
     public func sealBurst(_ type: PacketType, plaintext: Data, keys: ChannelKeys, burstID: MessageID,
-                          burstKey: Data, seq: UInt32, group: Bool = false) throws -> Data {
+                          burstKey: Data, seq: UInt32) throws -> Data {
         precondition(PacketCrypto.usesBurstKey(type))
-        let packet = try PacketCrypto.seal(plaintext, header: header(type, keys: keys, messageID: burstID, seq: seq),
-                                           burstKey: burstKey)
-        return group ? try PacketCrypto.signForGroup(packet, identity: local) : packet
-    }
-
-    /// PQ_OFFER / PQ_ACCEPT: split so each packet fits a datagram.
-    /// Every transmission takes a fresh `messageID` (the default): a re-sent offer or accept is
-    /// a new message on the wire, never the same nonce over different bytes.
-    public func sealFragmented(_ type: PacketType, plaintext: Data, keys: ChannelKeys, messageID: MessageID = .random(),
-                               chunk: Int = 880) throws -> [Data] {
-        precondition(type == .pqOffer || type == .pqAccept)
-        let total = max(1, (plaintext.count + chunk - 1) / chunk)
-        precondition(total <= 8)
-        return try (0..<total).map { i in
-            let part = plaintext.dropFirst(i * chunk).prefix(chunk)
-            return try seal(type, plaintext: Data([UInt8(i), UInt8(total)]) + part, keys: keys,
-                            messageID: messageID, seq: UInt32(i))
-        }
+        return try PacketCrypto.seal(plaintext, header: header(type, keys: keys, messageID: burstID, seq: seq),
+                                     burstKey: burstKey)
     }
 
     private func header(_ type: PacketType, keys: ChannelKeys, messageID: MessageID, seq: UInt32) -> PacketHeader {

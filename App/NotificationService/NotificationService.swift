@@ -23,7 +23,7 @@ final class NotificationService: UNNotificationServiceExtension {
             let sync = RelayInbox.loadSnapshot()
             // Someone scanned our talk group code: shielded with the code's key, which only the
             // app holds, so nothing here opens it. The app sorts it out when it next runs.
-            if sync.map({ $0.unshield(packet) == nil }) ?? true {
+            if sync.map({ $0.unshield(packet) == nil && !$0.isLegacyFromContact(packet) }) ?? true {
                 RelayInbox.keepPushed(packet)
                 content.title = "Talk group request"
                 content.body = "Someone scanned your talk group code. Open NXTPTT to let them in."

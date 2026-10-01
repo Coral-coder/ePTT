@@ -226,6 +226,21 @@ the only defence.
   channels. It leaves out groups, the shield, the relay and APNs. It has not yet been
   run (see `tools/proverif/README.md`).
 
+### 5.1 Contacts on an older build
+
+To let old and new builds talk during a rollout, the app still speaks protocol 1 to a contact
+it has only ever heard in protocol 1 (PROTOCOL.md §10.1). Those conversations, and talk groups
+that include such a contact, get protocol 1's protection only: end-to-end encryption and
+per-burst forward secrecy under classical X25519, but no post-quantum layer, no hidden headers
+or padding, and no group sender signatures. A group key sent to such a member travels under
+classical cryptography. The app marks these contacts "OLDER APP".
+
+A downgrade lock bounds the damage. The first authenticated protocol-2 packet from a contact
+moves them to protocol 2 permanently: from then on, protocol-1 packets claiming to be from them
+are dropped and nothing goes to them in protocol 1. An attacker who suppresses protocol-2
+traffic can delay that upgrade, but can't undo it, and can't forge protocol-1 traffic without
+the static keys.
+
 ## 6. Comparison
 
 ### 6.1 With Signal-class messengers
