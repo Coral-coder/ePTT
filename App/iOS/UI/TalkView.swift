@@ -371,7 +371,9 @@ struct TalkView: View {
     // MARK: Orb
 
     private func orb(diameter: CGFloat) -> some View {
-        TalkOrb(mode: orbMode, diameter: diameter, pressed: pressed)
+        TalkOrb(mode: orbMode, diameter: diameter, pressed: pressed,
+                quantumSafe: (orbTarget.flatMap { id in model.snapshot.channels.first { $0.id == id } } ?? model.selectedChannel)
+                    .map(model.isQuantumSafe) ?? false)
             .contentShape(Circle())
             .modifier(HoldToTalk(onPress: {
                 guard model.selectedChannel != nil || orbTarget != nil else { return }

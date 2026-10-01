@@ -220,6 +220,16 @@ final class AppModel: ObservableObject {
 
     // MARK: - Derived data
 
+    /// Whether everyone on `channel` has a post-quantum link with us (protocol 2, session past
+    /// its classical epoch 0), so anything said there is post-quantum end to end.
+    func isQuantumSafe(_ channel: Channel) -> Bool {
+        guard !channel.members.isEmpty else { return false }
+        return channel.members.allSatisfy { member in
+            !snapshot.legacyContacts.contains(member)
+                && snapshot.channels.first { $0.kind == .direct && $0.members == [member] }?.session?.isQuantumSafe == true
+        }
+    }
+
     var selectedChannel: Channel? {
         snapshot.settings.selectedChannel.flatMap { id in snapshot.channels.first { $0.id == id } }
     }

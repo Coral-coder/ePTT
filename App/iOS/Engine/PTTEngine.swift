@@ -236,6 +236,9 @@ final class PTTEngine {
         var held = false
         /// Playing this held message; delete it once it has played to the end.
         var heldID: String?
+        /// The receive tone is still to play: it goes right before the first audio, not when the
+        /// start arrives (after a wake, the start can land seconds before the voice does).
+        var toneDue = false
     }
     private var rx: Reception?
     /// Held messages still to play in this run ("play held").
@@ -406,11 +409,13 @@ final class PTTEngine {
             }
         }
 
+        if isLingering, now > lingerUntil, tx == nil, rx == nil { endLinger(sayAway: true) }
+
         if now.timeIntervalSince(lastKeepalive) >= 15 {
             lastKeepalive = now
             // Not from the background: we told peers we're away, and a keep-alive would re-link us
             // just before iOS freezes our sockets.
-            if (isForeground || tx != nil || rx != nil) && !state.watchPrimary {
+            if (isForeground || isLingering || tx != nil || rx != nil) && !state.watchPrimary {
                 for (sender, link) in links where now.timeIntervalSince(link.lastHeard) < 120 {
                     if let contact = self.contact(sender) { sendHello(to: contact, endpoints: [link.endpoint]) }
                 }
@@ -521,6 +526,8 @@ final class PTTEngine {
         if tx != nil {
             audio.play(.talkPermit)
             audio.startCapture()
+        } else if rx != nil, rx?.pcm == nil, rx?.isReplay == false {
+            rx?.toneDue = true   // played by playoutTick once there's voice to follow it
         } else if rx != nil {
             playIncomingTone()
         }
@@ -751,6 +758,8 @@ final class PTTEngine {
                 UIApplication.shared.endBackgroundTask(background)
                 return
             }
+            // Stay reachable for their reply before letting this task go.
+            if !self.isForeground { self.startLinger() }
             self.finishOutgoing(t, endPacket: endPacket, endedAt: endedAt) {
                 UIApplication.shared.endBackgroundTask(background)
             }
@@ -814,9 +823,52 @@ final class PTTEngine {
     func goingToBackground() {
         queue.async { [self] in
             guard tx == nil, rx == nil else { return }
-            for (sender, link) in links where isLinked(sender) {
-                if let contact = self.contact(sender) { sendHello(to: contact, endpoints: [link.endpoint], away: true) }
+            startLinger()
+        }
+    }
+
+    // MARK: - Staying reachable for a while in the background
+
+    /// After going to the background, or after a conversation in the background, the app keeps
+    /// its live links up for as long as iOS lets it (it asks for this long; iOS usually allows
+    /// about 30 s), so a quick reply goes straight through instead of by push and relay.
+    static let lingerWanted: TimeInterval = 180
+    private var lingerTask = UIBackgroundTaskIdentifier.invalid
+    private var lingerUntil = Date.distantPast
+    private var isLingering: Bool { lingerTask != .invalid }
+
+    private func startLinger() {
+        guard !isForeground, !state.watchPrimary else { return }
+        lingerUntil = Date().addingTimeInterval(PTTEngine.lingerWanted)
+        guard lingerTask == .invalid else { return }
+        var task = UIBackgroundTaskIdentifier.invalid
+        task = UIApplication.shared.beginBackgroundTask(withName: "Stay reachable") { [weak self] in
+            // iOS is about to suspend us: tell live peers now, so they wake us instead. (The
+            // task must end right here, on the main thread, or iOS kills the app.)
+            self?.queue.async {
+                guard let self, self.lingerTask == task else { return }
+                if self.tx == nil, self.rx == nil { self.sayAway() }
+                self.lingerTask = .invalid
             }
+            UIApplication.shared.endBackgroundTask(task)
+        }
+        lingerTask = task
+        if task == .invalid { sayAway() }
+    }
+
+    private func endLinger(sayAway away: Bool) {
+        guard lingerTask != .invalid else { return }
+        if away, tx == nil, rx == nil { sayAway() }
+        let task = lingerTask
+        lingerTask = .invalid
+        UIApplication.shared.endBackgroundTask(task)
+    }
+
+    /// Tells live peers we're going quiet, so they reach us by push or relay instead of
+    /// streaming into sockets iOS is about to freeze.
+    private func sayAway() {
+        for (sender, link) in links where isLinked(sender) {
+            if let contact = self.contact(sender) { sendHello(to: contact, endpoints: [link.endpoint], away: true) }
         }
     }
 
@@ -1399,13 +1451,11 @@ final class PTTEngine {
                             frameMilliseconds: start?.frameMilliseconds ?? 20)
         if usesPushToTalk {
             ptt.setActiveRemoteParticipant(talker)   // iOS then activates audio → audioDidActivate
-            // Already active (e.g. a wake is holding the session open): audioDidActivate won't
-            // run again, so play the receive tone here.
-            if audioActive { playIncomingTone() }
-        } else {
-            if !audioActive { startManualAudio() }
-            playIncomingTone()
+        } else if !audioActive {
+            startManualAudio()
         }
+        // The receive tone plays when the voice is ready to follow it (playoutTick).
+        rx?.toneDue = true
         startPlayout()
         publish()
     }
@@ -1478,6 +1528,8 @@ final class PTTEngine {
         playoutTimer = nil
         audio.endPlayback()
         if playEndTone && audioActive && state.settings.rogerBeep { audio.play(.endOfTransmission) }
+        // In the background, a reply is likely: stay reachable for a while.
+        if !isForeground && tx == nil { startLinger() }
         if usesPushToTalk && tx == nil {
             // Give any end tone a moment before iOS tears the audio session down.
             queue.asyncAfter(deadline: .now() + 0.4) { [weak self] in
@@ -1524,6 +1576,14 @@ final class PTTEngine {
             return
         }
         guard audioActive, Date() >= playoutHold, var r = rx else { return }
+        if r.toneDue {
+            // Tone, then voice, with no silence between: wait until enough audio is buffered
+            // to play straight through (or the message has ended).
+            guard r.jitter.bufferedCount >= r.jitter.targetFrames || r.draining else { return }
+            rx?.toneDue = false
+            playIncomingTone()
+            return
+        }
         if let pcm = r.pcm {
             if let ends = r.pcmEnds {
                 if Date() >= ends { stopReception() }
@@ -2599,6 +2659,7 @@ final class PTTEngine {
         queue.async { [self] in
             isForeground = foreground
             if foreground {
+                endLinger(sayAway: false)
                 takeOverNow()
                 fetchRelay()
                 quietChanged()

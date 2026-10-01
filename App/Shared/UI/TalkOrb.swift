@@ -11,6 +11,8 @@ struct TalkOrb: View {
     /// Outer diameter, rings included.
     var diameter: CGFloat = 300
     var pressed = false
+    /// Everyone on the channel has a post-quantum link (protocol 2): the mic becomes a quantum lock.
+    var quantumSafe = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var spin = SpinClock()
@@ -123,8 +125,12 @@ struct TalkOrb: View {
 
     private var label: some View {
         VStack(spacing: orbSize * 0.04) {
-            Image(systemName: iconName)
-                .font(.system(size: orbSize * 0.2, weight: .medium))
+            if quantumSafe && mode != .receiving {
+                QuantumLock(size: orbSize * 0.2, filled: mode == .transmitting)
+            } else {
+                Image(systemName: iconName)
+                    .font(.system(size: orbSize * 0.2, weight: .medium))
+            }
             Text(caption)
                 .font(NX.label(max(10, orbSize * 0.065), .bold))
                 .tracking(orbSize * 0.016)
@@ -195,5 +201,26 @@ final class SpinClock {
         }
         last = now
         return turns
+    }
+}
+
+/// A padlock with two electron orbits around it: the link is post-quantum.
+struct QuantumLock: View {
+    var size: CGFloat
+    var filled = false
+
+    var body: some View {
+        ZStack {
+            Image(systemName: filled ? "lock.fill" : "lock")
+                .font(.system(size: size * 0.62, weight: .semibold))
+            ForEach([-35.0, 35.0], id: \.self) { angle in
+                Ellipse()
+                    .stroke(lineWidth: max(1, size * 0.055))
+                    .frame(width: size * 1.35, height: size * 0.5)
+                    .rotationEffect(.degrees(angle))
+            }
+        }
+        .frame(width: size * 1.35, height: size * 1.1)
+        .accessibilityLabel("Post-quantum link")
     }
 }
