@@ -26,18 +26,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         NXAppearance.apply()
-        // Start before anything else: a PushToTalk wake may be what launched us. But not before
-        // the phone's first unlock since it started: keys and contacts can't be read until then.
-        if application.isProtectedDataAvailable {
-            AppModel.shared.start()
-            application.registerForRemoteNotifications()
-        } else {
-            NotificationCenter.default.addObserver(forName: UIApplication.protectedDataDidBecomeAvailableNotification,
-                                                   object: nil, queue: .main) { _ in
-                AppModel.shared.start()
-                application.registerForRemoteNotifications()
-            }
-        }
+        // Start before anything else: a PushToTalk wake may be what launched us. (Not gated on
+        // isProtectedDataAvailable: that is false whenever the phone is locked, exactly when a
+        // wake arrives. Our keys and state are readable after the first unlock; before it, the
+        // engine sees they can't be read and stays dormant.)
+        AppModel.shared.start()
+        application.registerForRemoteNotifications()
         UNUserNotificationCenter.current().delegate = self
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
         return true

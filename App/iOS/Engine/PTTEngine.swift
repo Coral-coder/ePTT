@@ -435,7 +435,22 @@ final class PTTEngine {
         }
         ptt.onIncomingPush = { [weak self] payload in
             guard let self else { return nil }
-            return self.queue.sync { self.handleWakePush(payload) }
+            // iOS needs an answer right away. The engine queue may be busy (at launch it is
+            // starting sockets, which can block for seconds), so wait for it only briefly; if it
+            // doesn't answer in time, show a placeholder and fill in the name when it does.
+            let done = DispatchSemaphore(value: 0)
+            let answer = WakeAnswer()
+            self.queue.async {
+                let name = self.handleWakePush(payload)
+                let late = answer.finish(name)
+                done.signal()
+                if late, let name { self.ptt.setActiveRemoteParticipant(name) }
+            }
+            if done.wait(timeout: .now() + 1.5) == .timedOut {
+                let result = answer.timeOut()
+                return result.finished ? result.name : nil
+            }
+            return answer.name
         }
     }
 
@@ -2498,5 +2513,33 @@ final class PTTEngine {
 
     private func emit(_ event: EngineEvent) {
         DispatchQueue.main.async { [weak self] in self?.onEvent?(event) }
+    }
+}
+
+/// The result of handling a wake push, handed from the engine queue to PushToTalk's thread.
+private final class WakeAnswer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _name: String?
+    private var finished = false
+    private var late = false
+
+    var name: String? { lock.withLock { _name } }
+
+    /// Engine side: records the answer; true if PushToTalk already gave up waiting for it.
+    func finish(_ name: String?) -> Bool {
+        lock.withLock {
+            _name = name
+            finished = true
+            return late
+        }
+    }
+
+    /// PushToTalk side, after waiting too long: the answer if it arrived just now, else marks it late.
+    func timeOut() -> (finished: Bool, name: String?) {
+        lock.withLock {
+            if finished { return (true, _name) }
+            late = true
+            return (false, nil)
+        }
     }
 }
