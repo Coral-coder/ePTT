@@ -3,13 +3,14 @@ import PackageDescription
 
 let package = Package(
     name: "EPTTCore",
-    platforms: [.iOS(.v16), .watchOS(.v9), .macOS(.v13)],
+    // Protocol 2 needs CryptoKit's ML-KEM-1024 (iOS / watchOS / macOS 26).
+    platforms: [.iOS("26.0"), .watchOS("26.0"), .macOS("26.0")],
     products: [
         .library(name: "EPTTCore", targets: ["EPTTCore"]),
     ],
     dependencies: [
         // CryptoKit on Apple platforms; swift-crypto provides the same API on Linux (CI).
-        .package(url: "https://github.com/apple/swift-crypto.git", "3.0.0"..<"4.0.0"),
+        .package(url: "https://github.com/apple/swift-crypto.git", "4.0.0"..<"5.0.0"),
     ],
     targets: [
         .target(

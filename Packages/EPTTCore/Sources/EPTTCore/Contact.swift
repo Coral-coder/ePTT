@@ -10,6 +10,13 @@ public struct Contact: Identifiable, Equatable, Codable {
     public var platform: Platform?
     /// The newest signed card, forwarded verbatim in group invites.
     public var cardData: Data
+    /// Their one-time prekeys we haven't used yet (optional so older saved state decodes).
+    private var oneTimeKeys: [OneTimeKey]?
+    /// When we confirmed this is really them (optical handshake, or safety number compared).
+    /// Nil: unverified, e.g. added from a link that could have been swapped in transit.
+    public var verifiedAt: Date?
+
+    public var isVerified: Bool { verifiedAt != nil }
 
     public var id: IdentityID { identity.id }
     public var senderID: SenderID { identity.senderID }
@@ -55,6 +62,30 @@ public struct Contact: Identifiable, Equatable, Codable {
         updatedAt = hello.timestamp
         return true
     }
+
+    /// Unused one-time keys of theirs, oldest first.
+    public var availableOneTimeKeys: Int { oneTimeKeys?.count ?? 0 }
+
+    /// Stores one-time keys they sent us. Keeps at most 64; ignores duplicates.
+    public mutating func add(oneTimeKeys batch: [(id: UInt32, publicKey: Data)], now: Date = Date()) {
+        var keys = oneTimeKeys ?? []
+        for key in batch where !keys.contains(where: { $0.id == key.id }) {
+            keys.append(OneTimeKey(id: key.id, publicKey: key.publicKey, received: now))
+        }
+        oneTimeKeys = Array(keys.suffix(64))
+    }
+
+    /// Takes (removes) the oldest one-time key still fresh enough. Each is used exactly once.
+    public mutating func takeOneTimeKey(now: Date = Date()) -> OneTimeKey? {
+        guard var keys = oneTimeKeys else { return nil }
+        keys.removeAll { now.timeIntervalSince($0.received) > OneTimeKeyStore.peerLifetime }
+        let key = keys.isEmpty ? nil : keys.removeFirst()
+        oneTimeKeys = keys
+        return key
+    }
+
+    /// Their keys can't be trusted any more (new identity, or reset): drop them.
+    public mutating func dropOneTimeKeys() { oneTimeKeys = [] }
 
     /// Whether we can wake this contact through APNs.
     public var isWakeable: Bool {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Executable reference for the NXTPTT v1 wire protocol (docs/PROTOCOL.md).
+"""Executable reference for the NXTPTT protocol 2 wire format (docs/PROTOCOL.md).
 
 Run it directly to regenerate the shared test vectors:
 
@@ -23,16 +23,17 @@ from dataclasses import dataclass
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
-from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
-VERSION = 1
+VERSION = 2
 HEADER_LEN = 40
 TAG_LEN = 16
 
 # Packet types
 HELLO, BURST_START, VOICE, BURST_END, CALL_ALERT, WAKE = 0x01, 0x02, 0x03, 0x04, 0x05, 0x06
-GROUP_INVITE, GROUP_LEAVE = 0x10, 0x11
+PQ_OFFER, PQ_ACCEPT = 0x07, 0x08
+GROUP_INVITE, GROUP_LEAVE, ONE_TIME_KEYS = 0x10, 0x11, 0x14
 
 # TLV tags
 T_NAME, T_TIMESTAMP, T_PTT_TOKEN, T_DEVICE_TOKEN, T_APNS_ENV = 0x01, 0x02, 0x03, 0x04, 0x05
@@ -41,6 +42,7 @@ T_CODEC, T_SAMPLE_RATE, T_FRAME_MS, T_SIGNATURE, T_FRAME_COUNT, T_TEXT = 0x10, 0
 T_EPHEMERAL, T_ENVELOPE = 0x16, 0x17
 T_GROUP_ID, T_GROUP_NAME, T_GROUP_KEY, T_GROUP_EPOCH, T_MEMBER_CARD, T_SEALED_INVITE = 0x20, 0x21, 0x22, 0x23, 0x24, 0x25
 T_CARD_VERSION, T_SIGN_PK, T_KX_PK, T_PREKEY, T_CARD_SIGNATURE = 0x40, 0x41, 0x42, 0x43, 0x4F
+T_KEM_PK, T_KEM_CT, T_OFFER_ID, T_BASE_EPOCH, T_ONE_TIME_KEY, T_SEALED_TEXT = 0x50, 0x51, 0x52, 0x53, 0x54, 0x55
 
 
 # ---------------------------------------------------------------- primitives
@@ -52,8 +54,29 @@ def sha256(*parts: bytes) -> bytes:
     return h.digest()
 
 
+def sha384(*parts: bytes) -> bytes:
+    h = hashlib.sha384()
+    for p in parts:
+        h.update(p)
+    return h.digest()
+
+
 def hkdf(ikm: bytes, salt: bytes, info: bytes, length: int = 32) -> bytes:
-    return HKDF(algorithm=hashes.SHA256(), length=length, salt=salt, info=info).derive(ikm)
+    """HKDF-SHA-384 (protocol 2)."""
+    return HKDF(algorithm=hashes.SHA384(), length=length, salt=salt or None, info=info).derive(ikm)
+
+
+def v2(label: str) -> bytes:
+    return b"NXTPTT/2 " + label.encode()
+
+
+def aead_seal(key: bytes, nonce_: bytes, plaintext: bytes, aad: bytes) -> bytes:
+    """AES-256-GCM: ciphertext || 16-byte tag."""
+    return AESGCM(key).encrypt(nonce_, plaintext, aad)
+
+
+def aead_open(key: bytes, nonce_: bytes, data: bytes, aad: bytes) -> bytes:
+    return AESGCM(key).decrypt(nonce_, data, aad)
 
 
 def b64url(b: bytes) -> str:
@@ -151,14 +174,31 @@ def safety_number(pk_a: bytes, pk_b: bytes) -> str:
 
 
 def direct_channel(me: Identity, peer_kx_pk: bytes, peer_identity_id: bytes) -> tuple[bytes, bytes, bytes]:
-    """Returns (shared_secret, channel_key, channel_id)."""
+    """Returns (shared_secret, root_0, channel_id) for a pair's session (PROTOCOL.md §5.1, §5.3)."""
     shared = me.kx_sk.exchange(X25519PublicKey.from_public_bytes(peer_kx_pk))
     if shared == bytes(32):
         raise ValueError("degenerate X25519 output")
     lo, hi = sorted([me.identity_id, peer_identity_id])
-    key = hkdf(shared, b"ePTT/1 direct", lo + hi)
+    root0 = hkdf(shared, v2("root0"), lo + hi)
     cid = sha256(b"ePTT/1 direct-id", lo, hi)[:16]
-    return shared, key, cid
+    return shared, root0, cid
+
+
+def epoch_keys(root: bytes, epoch: int, channel_id: bytes) -> tuple[bytes, bytes]:
+    """(channel key, burst secret) for one epoch of a pairwise session."""
+    info = channel_id + u16(epoch)
+    return hkdf(root, b"", v2("chan") + info), hkdf(root, b"", v2("burst") + info)
+
+
+def rekey_transcript(id_a: bytes, id_b: bytes, offer_id: bytes, base_epoch: int, kem_pk: bytes, dh_i: bytes,
+                     kem_ct: bytes, dh_r: bytes) -> bytes:
+    lo, hi = sorted([id_a, id_b])
+    return sha384(v2("transcript"), lo, hi, offer_id, u16(base_epoch), kem_pk, dh_i, kem_ct, dh_r)
+
+
+def ratchet(root: bytes, kem_secret: bytes, dh_secret: bytes, transcript: bytes) -> bytes:
+    """root_{e+1} = HKDF(ikm = ML-KEM secret || X25519 secret, salt = root_e, info = label || transcript)."""
+    return hkdf(kem_secret + dh_secret, root, v2("ratchet") + transcript)
 
 
 # ---------------------------------------------------------------- contact card
@@ -198,7 +238,7 @@ def header(ptype: int, epoch: int, channel_id: bytes, sender_id: bytes, message_
 
 
 def message_key(channel_key: bytes, message_id: bytes, sender_id: bytes, epoch: int) -> bytes:
-    return hkdf(channel_key, message_id, b"ePTT/1 msg" + sender_id + u16(epoch))
+    return hkdf(channel_key, message_id, v2("msg") + sender_id + u16(epoch))
 
 
 def nonce(ptype: int, seq: int) -> bytes:
@@ -209,7 +249,7 @@ def seal(channel_key: bytes, ptype: int, epoch: int, channel_id: bytes, sender_i
          message_id: bytes, seq: int, plaintext: bytes) -> bytes:
     hdr = header(ptype, epoch, channel_id, sender_id, message_id, seq)
     key = message_key(channel_key, message_id, sender_id, epoch)
-    return hdr + ChaCha20Poly1305(key).encrypt(nonce(ptype, seq), plaintext, hdr)
+    return hdr + aead_seal(key, nonce(ptype, seq), plaintext, hdr)
 
 
 def open_packet(channel_key: bytes, packet: bytes) -> tuple[dict, bytes]:
@@ -220,7 +260,7 @@ def open_packet(channel_key: bytes, packet: bytes) -> tuple[dict, bytes]:
     channel_id, sender_id, message_id = packet[4:20], packet[20:28], packet[28:36]
     seq = struct.unpack_from(">I", packet, 36)[0]
     key = message_key(channel_key, message_id, sender_id, epoch)
-    pt = ChaCha20Poly1305(key).decrypt(nonce(ptype, seq), packet[HEADER_LEN:], hdr)
+    pt = aead_open(key, nonce(ptype, seq), packet[HEADER_LEN:], hdr)
     return dict(type=ptype, epoch=epoch, channel_id=channel_id, sender_id=sender_id,
                 message_id=message_id, seq=seq), pt
 
@@ -231,7 +271,7 @@ def voice_body(frames: list[bytes]) -> bytes:
 
 def burst_signature_input(channel_id: bytes, sender_id: bytes, burst_id: bytes, timestamp: int,
                           ephemeral_pk: bytes, envelopes: list[bytes]) -> bytes:
-    return (b"ePTT/1 burst" + channel_id + sender_id + burst_id + u64(timestamp) + ephemeral_pk
+    return (v2("burst") + channel_id + sender_id + burst_id + u64(timestamp) + ephemeral_pk
             + sha256(b"".join(envelopes)))
 
 
@@ -264,40 +304,73 @@ def dh(sk: X25519PrivateKey, pk: bytes) -> bytes:
 
 
 def wrap_burst_key(burst_key: bytes, eph_sk: X25519PrivateKey, channel_id: bytes, burst_id: bytes,
-                   recipient_sender_id: bytes, prekey_id: int, recipient_pk: bytes) -> bytes:
-    """Envelope: recipient sender_id (8) || prekey_id u32 || AEAD(wrap_key, 0^12, burst_key).
+                   recipient_sender_id: bytes, key_id: int, recipient_pk: bytes, pair_epoch: int,
+                   pair_secret: bytes) -> bytes:
+    """Envelope: recipient sender_id (8) || key_id u32 || pair_epoch u16 || AES-GCM(wrap_key, 0^12, burst_key).
 
-    `recipient_pk` is the recipient's prekey, or their static kx_pk when prekey_id is 0."""
-    info = b"ePTT/1 wrap" + channel_id + recipient_sender_id + u32(prekey_id)
-    wrap_key = hkdf(dh(eph_sk, recipient_pk), burst_id, info)
-    aad = recipient_sender_id + u32(prekey_id)
-    return aad + ChaCha20Poly1305(wrap_key).encrypt(bytes(12), burst_key, aad)
+    `recipient_pk` is a one-time prekey (key_id top bit set) or the signed prekey. `pair_secret`
+    is the burst secret of the sender's pairwise session with the recipient at `pair_epoch` (>= 1)."""
+    aad = recipient_sender_id + u32(key_id) + u16(pair_epoch)
+    wrap_key = hkdf(dh(eph_sk, recipient_pk) + pair_secret, burst_id, v2("wrap") + channel_id + aad)
+    return aad + aead_seal(wrap_key, bytes(12), burst_key, aad)
 
 
 def unwrap_burst_key(envelope: bytes, recipient_sk: X25519PrivateKey, eph_pk: bytes, channel_id: bytes,
-                     burst_id: bytes) -> bytes:
-    aad = envelope[:12]
-    info = b"ePTT/1 wrap" + channel_id + envelope[:8] + envelope[8:12]
-    wrap_key = hkdf(dh(recipient_sk, eph_pk), burst_id, info)
-    return ChaCha20Poly1305(wrap_key).decrypt(bytes(12), envelope[12:], aad)
+                     burst_id: bytes, pair_secret: bytes) -> bytes:
+    aad = envelope[:14]
+    wrap_key = hkdf(dh(recipient_sk, eph_pk) + pair_secret, burst_id, v2("wrap") + channel_id + aad)
+    return aead_open(wrap_key, bytes(12), envelope[14:], aad)
 
 
 def burst_message_key(burst_key: bytes, burst_id: bytes, sender_id: bytes, epoch: int) -> bytes:
-    return hkdf(burst_key, burst_id, b"ePTT/1 burst-msg" + sender_id + u16(epoch))
+    return hkdf(burst_key, burst_id, v2("burst-msg") + sender_id + u16(epoch))
 
 
 def seal_with_key(msg_key: bytes, ptype: int, epoch: int, channel_id: bytes, sender_id: bytes,
                   message_id: bytes, seq: int, plaintext: bytes) -> bytes:
     hdr = header(ptype, epoch, channel_id, sender_id, message_id, seq)
-    return hdr + ChaCha20Poly1305(msg_key).encrypt(nonce(ptype, seq), plaintext, hdr)
+    return hdr + aead_seal(msg_key, nonce(ptype, seq), plaintext, hdr)
+
+
+def group_sign(ident: Identity, packet: bytes) -> bytes:
+    """Group packets (all but BURST_START) end with the sender's Ed25519 signature (§6.7)."""
+    return packet + ident.sign_sk.sign(v2("group-packet") + packet)
 
 
 def seal_invite(inner: bytes, eph_sk: X25519PrivateKey, message_id: bytes, recipient_sender_id: bytes,
-                prekey_id: int, recipient_pk: bytes) -> bytes:
-    """Value of the sealed_invite TLV: prekey_id u32 || AEAD(invite_key, 0^12, inner)."""
-    key = hkdf(dh(eph_sk, recipient_pk), message_id, b"ePTT/1 invite" + recipient_sender_id + u32(prekey_id))
-    aad = recipient_sender_id + u32(prekey_id)
-    return u32(prekey_id) + ChaCha20Poly1305(key).encrypt(bytes(12), inner, aad)
+                prekey_id: int, recipient_pk: bytes, pair_epoch: int, pair_secret: bytes) -> bytes:
+    """Value of the sealed_invite TLV: prekey_id u32 || pair_epoch u16 || AES-GCM(invite_key, 0^12, inner)."""
+    aad = recipient_sender_id + u32(prekey_id) + u16(pair_epoch)
+    key = hkdf(dh(eph_sk, recipient_pk) + pair_secret, message_id, v2("invite") + aad)
+    return u32(prekey_id) + u16(pair_epoch) + aead_seal(key, bytes(12), inner, aad)
+
+
+def alert_text_key(text_key: bytes) -> bytes:
+    return hkdf(text_key, b"", v2("alert-text"))
+
+
+# ---------------------------------------------------------------- packet shield (§6.6)
+
+SHIELD_BUCKETS = [160, 320, 480, 640, 800, 960, 1120, 1280]
+
+
+def shield_key(channel_key: bytes, channel_id: bytes, epoch: int) -> bytes:
+    return hkdf(channel_key, channel_id, v2("shield") + u16(epoch))
+
+
+def padded_length(n: int) -> int:
+    for b in SHIELD_BUCKETS:
+        if b >= n:
+            return b
+    return (n + 1023) // 1024 * 1024
+
+
+def shield(inner: bytes, channel_key: bytes, nonce_: bytes) -> bytes:
+    """Wire form without its random padding: nonce || AES-GCM(shield key, header || len) || body."""
+    hdr, body = inner[:HEADER_LEN], inner[HEADER_LEN:]
+    channel_id, epoch = inner[4:20], struct.unpack_from(">H", inner, 2)[0]
+    sealed = aead_seal(shield_key(channel_key, channel_id, epoch), nonce_, hdr + u16(len(body)), v2("shield"))
+    return nonce_ + sealed + body
 
 
 # ---------------------------------------------------------------- relay (store and forward)
@@ -367,10 +440,33 @@ def build_vectors() -> dict:
 
     v["safety_number_alice_bob"] = safety_number(alice.sign_pk, bob.sign_pk)
 
-    shared, key_ab, cid_ab = direct_channel(alice, bob.kx_pk, bob.identity_id)
-    _, key_ba, cid_ba = direct_channel(bob, alice.kx_pk, alice.identity_id)
-    assert (key_ab, cid_ab) == (key_ba, cid_ba)
-    v["direct_alice_bob"] = {"shared": h(shared), "channel_key": h(key_ab), "channel_id": h(cid_ab)}
+    shared, root0_ab, cid_ab = direct_channel(alice, bob.kx_pk, bob.identity_id)
+    _, root0_ba, cid_ba = direct_channel(bob, alice.kx_pk, alice.identity_id)
+    assert (root0_ab, cid_ab) == (root0_ba, cid_ba)
+    key_ab, burst0_ab = epoch_keys(root0_ab, 0, cid_ab)
+    v["direct_alice_bob"] = {"shared": h(shared), "root0": h(root0_ab), "channel_id": h(cid_ab),
+                             "channel_key": h(key_ab), "burst_secret": h(burst0_ab)}
+
+    # One rekey step (PROTOCOL.md §5.3). ML-KEM itself is randomized, so its public key,
+    # ciphertext and shared secret are fixed inputs here; the derivation around them is checked.
+    offer_id = bytes.fromhex("5a5b5c5d5e5f6061")
+    kem_pk = bytes([0x71]) * 1568
+    kem_ct = bytes([0x72]) * 1568
+    kem_ss = bytes([0x73]) * 32
+    dh_i_sk = X25519PrivateKey.from_private_bytes(bytes(range(0x30, 0x50)))
+    dh_r_sk = X25519PrivateKey.from_private_bytes(bytes(range(0x50, 0x70)))
+    dh_secret = dh(dh_i_sk, x25519_pub(dh_r_sk))
+    assert dh_secret == dh(dh_r_sk, x25519_pub(dh_i_sk))
+    transcript = rekey_transcript(alice.identity_id, bob.identity_id, offer_id, 0, kem_pk, x25519_pub(dh_i_sk),
+                                  kem_ct, x25519_pub(dh_r_sk))
+    root1 = ratchet(root0_ab, kem_ss, dh_secret, transcript)
+    key1_ab, burst1_ab = epoch_keys(root1, 1, cid_ab)
+    v["rekey_alice_bob"] = {
+        "offer_id": h(offer_id), "base_epoch": 0, "kem_public_key": h(kem_pk), "kem_ciphertext": h(kem_ct),
+        "kem_secret": h(kem_ss), "dh_initiator_seed": h(bytes(range(0x30, 0x50))),
+        "dh_responder_seed": h(bytes(range(0x50, 0x70))), "dh_secret": h(dh_secret),
+        "transcript": h(transcript), "root1": h(root1), "channel_key1": h(key1_ab), "burst_secret1": h(burst1_ab),
+    }
 
     v["tlv"] = {
         "records": [[0x06, "0a0b"], [0x01, h(b"hi")], [0x06, "0c"], [0x02, h(u64(1))]],
@@ -406,20 +502,25 @@ def build_vectors() -> dict:
         "prekey_id": 7, "prekey": h(alice_prekey),
     }
 
-    # HELLO alice -> bob on their direct channel.
+    # HELLO alice -> bob on their direct channel, epoch 1, and its shielded wire form.
     hello_pt = tlv_encode([(T_NAME, b"Alice"), (T_TIMESTAMP, u64(ts)),
                            (T_CANDIDATE, candidate_ipv4("192.0.2.10", 40000)), (T_FLAGS, u8(1))])
     mid = bytes.fromhex("0102030405060708")
-    hello = seal(key_ab, HELLO, 0, cid_ab, alice.sender_id, mid, 0, hello_pt)
-    assert open_packet(key_ab, hello)[1] == hello_pt
+    hello = seal(key1_ab, HELLO, 1, cid_ab, alice.sender_id, mid, 0, hello_pt)
+    assert open_packet(key1_ab, hello)[1] == hello_pt
+    shield_nonce = bytes.fromhex("0c" * 12)
+    shielded = shield(hello, key1_ab, shield_nonce)
     v["packet_hello"] = {
-        "channel_key": h(key_ab), "channel_id": h(cid_ab), "sender_id": h(alice.sender_id), "epoch": 0,
+        "channel_key": h(key1_ab), "channel_id": h(cid_ab), "sender_id": h(alice.sender_id), "epoch": 1,
         "type": HELLO, "message_id": h(mid), "seq": 0,
-        "message_key": h(message_key(key_ab, mid, alice.sender_id, 0)),
+        "message_key": h(message_key(key1_ab, mid, alice.sender_id, 1)),
         "nonce": h(nonce(HELLO, 0)), "plaintext": h(hello_pt), "packet": h(hello),
+        "shield_key": h(shield_key(key1_ab, cid_ab, 1)), "shield_nonce": h(shield_nonce),
+        "shielded": h(shielded), "shielded_length": padded_length(len(shielded)),
     }
 
-    # Group burst by carol to alice (who has a prekey) and bob (no prekey known: static fallback).
+    # Group burst by carol to alice (one-time prekey) and bob (signed prekey), each envelope mixed
+    # with carol's pairwise post-quantum secret for that member.
     group_id = bytes.fromhex("11" * 16)
     group_key = bytes.fromhex("22" * 32)
     epoch = 3
@@ -427,10 +528,16 @@ def build_vectors() -> dict:
     burst_key = bytes.fromhex("33" * 32)
     eph_sk = X25519PrivateKey.from_private_bytes(bytes(range(0xE0, 0x100)))
     eph_pk = x25519_pub(eph_sk)
-    env_alice = wrap_burst_key(burst_key, eph_sk, group_id, burst_id, alice.sender_id, 7, x25519_pub(alice_prekey_sk))
-    env_bob = wrap_burst_key(burst_key, eph_sk, group_id, burst_id, bob.sender_id, 0, bob.kx_pk)
-    assert unwrap_burst_key(env_alice, alice_prekey_sk, eph_pk, group_id, burst_id) == burst_key
-    assert unwrap_burst_key(env_bob, bob.kx_sk, eph_pk, group_id, burst_id) == burst_key
+    alice_otk_sk = X25519PrivateKey.from_private_bytes(bytes([0x81]) * 32)
+    alice_otk_id = 0x80000001
+    bob_prekey_sk = X25519PrivateKey.from_private_bytes(bytes([0x91]) * 32)
+    pair_ca, pair_cb = bytes.fromhex("55" * 32), bytes.fromhex("66" * 32)
+    env_alice = wrap_burst_key(burst_key, eph_sk, group_id, burst_id, alice.sender_id, alice_otk_id,
+                               x25519_pub(alice_otk_sk), 2, pair_ca)
+    env_bob = wrap_burst_key(burst_key, eph_sk, group_id, burst_id, bob.sender_id, 5, x25519_pub(bob_prekey_sk),
+                             1, pair_cb)
+    assert unwrap_burst_key(env_alice, alice_otk_sk, eph_pk, group_id, burst_id, pair_ca) == burst_key
+    assert unwrap_burst_key(env_bob, bob_prekey_sk, eph_pk, group_id, burst_id, pair_cb) == burst_key
     envelopes = [env_alice, env_bob]
     sig_input = burst_signature_input(group_id, carol.sender_id, burst_id, ts, eph_pk, envelopes)
     sig = carol.sign_sk.sign(sig_input)
@@ -441,15 +548,20 @@ def build_vectors() -> dict:
     bkey = burst_message_key(burst_key, burst_id, carol.sender_id, epoch)
     frames = [b"\x01\x02\x03", b"\x04", b"\x05\x06"]
     voice_pt = voice_body(frames)
-    voice = seal_with_key(bkey, VOICE, epoch, group_id, carol.sender_id, burst_id, 6, voice_pt)
+    voice = group_sign(carol, seal_with_key(bkey, VOICE, epoch, group_id, carol.sender_id, burst_id, 6, voice_pt))
     end_pt = tlv_encode([(T_TIMESTAMP, u64(ts + 900)), (T_FRAME_COUNT, u32(9))])
-    end = seal_with_key(bkey, BURST_END, epoch, group_id, carol.sender_id, burst_id, 9, end_pt)
+    end = group_sign(carol, seal_with_key(bkey, BURST_END, epoch, group_id, carol.sender_id, burst_id, 9, end_pt))
     v["group_burst"] = {
         "group_id": h(group_id), "group_key": h(group_key), "epoch": epoch, "sender_id": h(carol.sender_id),
         "burst_id": h(burst_id), "timestamp": ts, "burst_key": h(burst_key),
         "ephemeral_seed": h(eph_sk.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw,
                                                  serialization.NoEncryption())),
-        "ephemeral_pk": h(eph_pk), "envelope_alice": h(env_alice), "envelope_bob": h(env_bob),
+        "ephemeral_pk": h(eph_pk),
+        "alice_one_time_seed": h(bytes([0x81]) * 32), "alice_one_time_id": alice_otk_id,
+        "bob_prekey_seed": h(bytes([0x91]) * 32), "bob_prekey_id": 5,
+        "pair_secret_carol_alice": h(pair_ca), "pair_epoch_carol_alice": 2,
+        "pair_secret_carol_bob": h(pair_cb), "pair_epoch_carol_bob": 1,
+        "envelope_alice": h(env_alice), "envelope_bob": h(env_bob),
         "burst_message_key": h(bkey),
         "signature_input": h(sig_input), "signature": h(sig),
         "start_plaintext": h(start_pt), "start_packet": h(start),
@@ -457,21 +569,29 @@ def build_vectors() -> dict:
         "end_seq": 9, "end_plaintext": h(end_pt), "end_packet": h(end),
     }
 
-    # GROUP_INVITE alice -> bob... sealed to bob's static key (prekey_id 0) inside their direct channel.
+    # GROUP_INVITE alice -> bob, sealed to bob's signed prekey and their epoch-1 pair secret.
     invite_mid = bytes.fromhex("0a0b0c0d0e0f1011")
     invite_eph = X25519PrivateKey.from_private_bytes(bytes(range(0x10, 0x30)))
     inner = tlv_encode([(T_GROUP_ID, group_id), (T_GROUP_NAME, b"Crew"), (T_GROUP_KEY, group_key),
                         (T_GROUP_EPOCH, u16(epoch)), (T_MEMBER_CARD, card)])
-    sealed_inner = seal_invite(inner, invite_eph, invite_mid, bob.sender_id, 0, bob.kx_pk)
+    sealed_inner = seal_invite(inner, invite_eph, invite_mid, bob.sender_id, 5, x25519_pub(bob_prekey_sk),
+                               1, burst1_ab)
     invite_pt = tlv_encode([(T_TIMESTAMP, u64(ts)), (T_EPHEMERAL, x25519_pub(invite_eph)),
                             (T_SEALED_INVITE, sealed_inner)])
-    invite = seal(key_ab, GROUP_INVITE, 0, cid_ab, alice.sender_id, invite_mid, 0, invite_pt)
+    invite = seal(key1_ab, GROUP_INVITE, 1, cid_ab, alice.sender_id, invite_mid, 0, invite_pt)
     v["group_invite"] = {
         "message_id": h(invite_mid),
         "ephemeral_seed": h(invite_eph.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw,
                                                      serialization.NoEncryption())),
         "inner": h(inner), "sealed_inner": h(sealed_inner), "plaintext": h(invite_pt), "packet": h(invite),
     }
+
+    # ONE_TIME_KEYS: bob hands alice two one-time keys.
+    otk_pt = tlv_encode([(T_TIMESTAMP, u64(ts))] + [
+        (T_ONE_TIME_KEY, u32(0x80000000 | i) + x25519_pub(X25519PrivateKey.from_private_bytes(bytes([0xA0 + i]) * 32)))
+        for i in (1, 2)])
+    v["one_time_keys"] = {"plaintext": h(otk_pt), "ids": [0x80000001, 0x80000002],
+                          "seeds": [h(bytes([0xA1]) * 32), h(bytes([0xA2]) * 32)]}
 
     mailbox = bytes.fromhex("44" * 16)
     v["relay"] = {

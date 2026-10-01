@@ -28,6 +28,13 @@ public enum Tag: UInt8, CaseIterable {
     case memberCard = 0x24
     case sealedInvite = 0x25
     case inviteSecret = 0x26
+    case kemPublicKey = 0x50
+    case kemCiphertext = 0x51
+    case offerID = 0x52
+    case baseEpoch = 0x53
+    case oneTimeKey = 0x54
+    case sealedText = 0x55
+    case fragment = 0x56
     case cardVersion = 0x40
     case signPublicKey = 0x41
     case kxPublicKey = 0x42

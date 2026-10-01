@@ -95,7 +95,7 @@ public struct BurstStart: Equatable {
 
     public static func signatureInput(channelID: ChannelID, senderID: SenderID, burstID: MessageID,
                                       timestamp: UInt64, ephemeralPublicKey: Data, envelopes: [Data]) -> Data {
-        var d = Primitives.label("ePTT/1 burst")
+        var d = Primitives.v2("burst")
         d.append(channelID.bytes)
         d.append(senderID.bytes)
         d.append(burstID.bytes)
@@ -202,11 +202,15 @@ public struct BurstEnd: Equatable {
     }
 }
 
-/// CALL_ALERT (0x05): the Nextel "call alert" page.
+/// CALL_ALERT (0x05): the Nextel "call alert" page. Any typed text is sealed separately to the
+/// recipient's one-time prekey and the pair's post-quantum epoch secret, like a burst key, so it
+/// gets per-message forward secrecy (PROTOCOL.md §6.1).
 public struct CallAlert: Equatable {
     public var name: String
     public var timestamp: UInt64
     public var text: String?
+    /// The local key the text was sealed to, once opened (a one-time key is deleted after use).
+    public var openedWith: UInt32?
 
     public init(name: String, timestamp: UInt64, text: String? = nil) {
         self.name = name
@@ -214,19 +218,58 @@ public struct CallAlert: Equatable {
         self.text = text
     }
 
+    /// Plaintext without text (a bare page).
     public var encoded: Data {
         var b = TLVBuilder()
         b.add(.name, name)
         b.add(.timestamp, integer: timestamp)
-        if let text { b.add(.text, text, maxBytes: 256) }
         return b.encoded
     }
 
-    public init(decoding data: Data) throws {
+    /// Plaintext with `text` sealed for `target`. `messageID` must be the packet's message ID.
+    public func encoded(sealingTextFor target: SealTarget, channelID: ChannelID, messageID: MessageID) throws -> Data {
+        var b = TLVBuilder()
+        b.add(.name, name)
+        b.add(.timestamp, integer: timestamp)
+        if let text, !text.isEmpty {
+            let textKey = Data.random(count: 32)
+            let keying = try BurstKeying.makeEnvelopes(burstKey: textKey, channelID: channelID, burstID: messageID,
+                                                       targets: [target])
+            let plain = Data(String(text.prefix(256)).utf8.prefix(256))
+            let sealed = try Primitives.aeadSeal(key: Self.textKey(textKey), nonce: Data(count: 12), plaintext: plain,
+                                                 aad: messageID.bytes)
+            b.add(.ephemeralKey, keying.ephemeralPublicKey)
+            for envelope in keying.envelopes { b.add(.envelope, envelope) }
+            b.add(.sealedText, sealed)
+        }
+        return b.encoded
+    }
+
+    static func textKey(_ key: Data) -> Data {
+        Primitives.hkdf(ikm: key, salt: Data(), info: Primitives.v2("alert-text"))
+    }
+
+    /// Decodes and, if there is sealed text, opens it.
+    public init(decoding data: Data, channelID: ChannelID, messageID: MessageID, recipient: SenderID,
+                sender: PublicIdentity, agreement: LocalKeyAgreement, pairSecret: PairSecretLookup) throws {
         let f = try TLVFields(data)
         name = f.string(.name) ?? ""
         timestamp = try f.requireUInt(.timestamp)
-        text = f.string(.text)
+        guard let sealed = f.first(.sealedText) else { return }
+        let opened = try BurstKeying.open(envelopes: f.all(.envelope), ephemeralPublicKey: try f.require(.ephemeralKey),
+                                          channelID: channelID, burstID: messageID, recipient: recipient,
+                                          sender: sender, agreement: agreement, pairSecret: pairSecret)
+        let plain = try Primitives.aeadOpen(key: Self.textKey(opened.burstKey), nonce: Data(count: 12),
+                                            ciphertextAndTag: sealed, aad: messageID.bytes)
+        text = String(data: plain, encoding: .utf8)
+        openedWith = opened.keyID
+    }
+
+    /// Decodes a page without opening any text (for code that only needs the name).
+    public init(decodingUnopened data: Data) throws {
+        let f = try TLVFields(data)
+        name = f.string(.name) ?? ""
+        timestamp = try f.requireUInt(.timestamp)
     }
 }
 
@@ -297,12 +340,14 @@ public struct GroupInvite: Equatable {
         return b.encoded
     }
 
-    public init(decoding data: Data, messageID: MessageID, recipient: SenderID, agreement: LocalKeyAgreement) throws {
+    public init(decoding data: Data, messageID: MessageID, recipient: SenderID, sender: PublicIdentity,
+                agreement: LocalKeyAgreement, pairSecret: PairSecretLookup) throws {
         let outer = try TLVFields(data)
         timestamp = try outer.requireUInt(.timestamp)
         let inner = try InviteSealing.open(try outer.require(.sealedInvite),
                                            ephemeralPublicKey: try outer.require(.ephemeralKey),
-                                           messageID: messageID, recipient: recipient, agreement: agreement)
+                                           messageID: messageID, recipient: recipient, sender: sender,
+                                           agreement: agreement, pairSecret: pairSecret)
         let f = try TLVFields(inner)
         name = f.string(.groupName) ?? "Talk group"
         keys = try ChannelKeys(channelID: try ChannelID(bytes: try f.require(.groupID)),

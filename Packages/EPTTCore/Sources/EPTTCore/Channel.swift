@@ -36,14 +36,6 @@ public struct ChannelKeys: Equatable, Codable {
         self.key = Data(key)
     }
 
-    /// Direct (1:1) channel keys between the local identity and a peer (PROTOCOL.md §5.1).
-    public static func direct(local: LocalIdentity, peer: PublicIdentity) throws -> ChannelKeys {
-        let shared = try local.sharedSecret(with: peer)
-        let (lo, hi) = local.id < peer.id ? (local.id, peer.id) : (peer.id, local.id)
-        let key = Primitives.hkdf(ikm: shared, salt: Primitives.label("ePTT/1 direct"), info: lo.bytes + hi.bytes)
-        return try ChannelKeys(channelID: directChannelID(local.id, peer.id), epoch: 0, key: key)
-    }
-
     /// Both peers compute the same ID without communicating.
     public static func directChannelID(_ a: IdentityID, _ b: IdentityID) -> ChannelID {
         let (lo, hi) = a < b ? (a, b) : (b, a)
@@ -72,8 +64,10 @@ public struct Channel: Identifiable, Equatable, Codable {
     public var kind: ChannelKind
     public var name: String
     public var keys: ChannelKeys
-    /// Keys from the previous epoch, accepted briefly after a rekey.
+    /// Keys from the previous epoch, accepted briefly after a rekey (talk groups).
     public var previousKeys: ChannelKeys?
+    /// Direct channels: the pairwise session ratchet that supplies `keys` (PROTOCOL.md §5.3).
+    public var session: PairSession?
     /// Members other than the local user.
     public var members: [IdentityID]
     /// Whether incoming traffic on this channel should be played (Nextel "scan").
@@ -91,14 +85,33 @@ public struct Channel: Identifiable, Equatable, Codable {
         try direct(local: local, peer: peer.identity, name: peer.name)
     }
 
+    /// A direct channel at epoch 0 of a fresh session (PROTOCOL.md §5.1, §5.3).
     public static func direct(local: LocalIdentity, peer: PublicIdentity, name: String) throws -> Channel {
-        Channel(kind: .direct, name: name, keys: try .direct(local: local, peer: peer), members: [peer.id])
+        let id = ChannelKeys.directChannelID(local.id, peer.id)
+        let session = try PairSession.bootstrap(local: local, peer: peer, channelID: id)
+        var channel = Channel(kind: .direct, name: name, keys: session.sendingKeys(channelID: id), members: [peer.id])
+        channel.session = session
+        return channel
+    }
+
+    /// Replaces a direct channel's session and points `keys` at the epoch to send with.
+    public mutating func apply(session: PairSession) {
+        self.session = session
+        keys = session.sendingKeys(channelID: id)
+        previousKeys = nil
     }
 
     /// Keys matching a received packet's epoch, if we still have them.
     public func keys(forEpoch epoch: UInt16) -> ChannelKeys? {
+        if let session { return session.channelKeys(channelID: id, epoch: epoch) }
         if keys.epoch == epoch { return keys }
         if let previous = previousKeys, previous.epoch == epoch { return previous }
         return nil
+    }
+
+    /// Every key a packet on this channel might be shielded with.
+    public var shieldCandidates: [ChannelKeys] {
+        if let session { return session.allChannelKeys(channelID: id) }
+        return [keys] + (previousKeys.map { [$0] } ?? [])
     }
 }

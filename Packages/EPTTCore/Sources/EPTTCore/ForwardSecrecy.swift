@@ -5,8 +5,9 @@ import CryptoKit
 import Crypto
 #endif
 
-// Forward secrecy (PROTOCOL.md §3.1, §6.2, §6.3): rotating signed prekeys, a random key per
-// burst wrapped to each recipient with a one-time ephemeral key, and sealed group invites.
+// Forward secrecy (PROTOCOL.md §3.1, §6.2, §6.3): rotating signed prekeys, one-time prekeys, a
+// random key per burst wrapped to each recipient with a one-time ephemeral key and the pair's
+// post-quantum epoch secret, and sealed group invites.
 
 extension Primitives {
     /// X25519 with raw keys; rejects the all-zero output.
@@ -62,9 +63,10 @@ public struct SignedPrekey: Equatable, Codable {
 
 /// This device's prekeys. Persist it in the Keychain; it contains private keys.
 public struct PrekeyStore: Codable, Equatable {
-    public static let rotationInterval: TimeInterval = 24 * 3600
-    /// How long a replaced prekey stays usable before its private key is deleted.
-    public static let retention: TimeInterval = 7 * 24 * 3600
+    public static let rotationInterval: TimeInterval = 6 * 3600
+    /// How long a replaced prekey stays usable before its private key is deleted: the relay's
+    /// lifetime plus margin, no more. Only bursts sent when no one-time key was left use it.
+    public static let retention: TimeInterval = 30 * 3600
 
     struct Entry: Codable, Equatable {
         let id: UInt32
@@ -120,48 +122,75 @@ public struct PrekeyStore: Codable, Equatable {
     }
 }
 
-/// Key agreement for the local device: prekey `0` means the static identity key.
-public typealias LocalKeyAgreement = (_ prekeyID: UInt32, _ peerPublicKey: Data) throws -> Data
+/// Key agreement for the local device: key `0` is the static identity key, ids with the top bit
+/// set are one-time prekeys (only for the peer they were issued to), others signed prekeys.
+public typealias LocalKeyAgreement = (_ keyID: UInt32, _ peerPublicKey: Data, _ sender: IdentityID?) throws -> Data
 
 extension LocalIdentity {
-    /// Combines the identity's static key (id 0) with the prekey store.
-    public func keyAgreement(prekeys: @escaping () -> PrekeyStore) -> LocalKeyAgreement {
+    /// Combines the identity's static key (id 0), the signed prekeys and the one-time prekeys.
+    public func keyAgreement(prekeys: @escaping () -> PrekeyStore,
+                             oneTimeKeys: @escaping () -> OneTimeKeyStore = { OneTimeKeyStore() }) -> LocalKeyAgreement {
         let identity = self
-        return { id, publicKey in
+        return { id, publicKey, sender in
             if id == 0 { return try identity.sharedSecret(withPublicKey: publicKey) }
+            if OneTimeKeyStore.isOneTime(id) {
+                guard let sender else { throw DecodingError.invalid("one-time key needs a sender") }
+                return try oneTimeKeys().agreement(id: id, with: publicKey, from: sender)
+            }
             return try prekeys().agreement(id: id, with: publicKey)
         }
     }
 }
 
-/// Where to seal something for a recipient: their prekey if known, else their static key.
+/// Where to seal something for a recipient: a one-time prekey of theirs, else their signed
+/// prekey (else, for group invites only, their static key), mixed with the pair's epoch secret.
 public struct SealTarget: Equatable {
     public let recipient: SenderID
     public let prekeyID: UInt32
     public let publicKey: Data
+    /// The pairwise session epoch whose burst secret is mixed in.
+    public let pairEpoch: UInt16
+    public let pairSecret: Data
 
-    public init(recipient: SenderID, prekeyID: UInt32, publicKey: Data) {
+    public init(recipient: SenderID, prekeyID: UInt32, publicKey: Data, pairEpoch: UInt16, pairSecret: Data) {
         self.recipient = recipient
         self.prekeyID = prekeyID
         self.publicKey = publicKey
+        self.pairEpoch = pairEpoch
+        self.pairSecret = pairSecret
     }
 
-    public init(identity: PublicIdentity, prekey: SignedPrekey?) {
+    /// Prefers a one-time prekey, then the signed prekey, then (only if `allowStatic`) the
+    /// static key. Nil if no acceptable key is known.
+    public init?(identity: PublicIdentity, oneTimeKey: OneTimeKey?, prekey: SignedPrekey?, epoch: EpochKeys,
+                 allowStatic: Bool = false) {
         recipient = identity.senderID
-        if let prekey {
+        pairEpoch = epoch.epoch
+        pairSecret = epoch.burstSecret
+        if let oneTimeKey {
+            prekeyID = oneTimeKey.id
+            publicKey = oneTimeKey.publicKey
+        } else if let prekey {
             prekeyID = prekey.id
             publicKey = prekey.publicKey
-        } else {
+        } else if allowStatic {
             prekeyID = 0
             publicKey = identity.keyAgreementPublicKey
+        } else {
+            return nil
         }
     }
 
-    var aad: Data { recipient.bytes + Data.be(prekeyID) }
+    /// recipient(8) ‖ key id(4) ‖ pair epoch(2).
+    var aad: Data { recipient.bytes + Data.be(prekeyID) + Data.be(pairEpoch) }
 }
 
+/// Finds the pair secret for (sender, pair epoch) when opening an envelope.
+public typealias PairSecretLookup = (_ sender: SenderID, _ pairEpoch: UInt16) -> Data?
+
 public enum BurstKeying {
-    public static let envelopeLength = 60
+    /// aad(14) ‖ AES-256-GCM(burst key) (32 + 16).
+    public static let envelopeLength = 62
 
     /// Fresh burst key plus one envelope per recipient. The ephemeral private key never
     /// leaves this function.
@@ -174,35 +203,51 @@ public enum BurstKeying {
     static func makeEnvelopes(burstKey: Data, ephemeral: Curve25519.KeyAgreement.PrivateKey, channelID: ChannelID,
                               burstID: MessageID, targets: [SealTarget]) throws -> (ephemeralPublicKey: Data, envelopes: [Data]) {
         let envelopes = try targets.map { target -> Data in
-            let wrapKey = Primitives.hkdf(ikm: try Primitives.x25519(privateKey: ephemeral, publicKey: target.publicKey),
-                                          salt: burstID.bytes, info: wrapInfo(channelID: channelID, aad: target.aad))
+            let dh = try Primitives.x25519(privateKey: ephemeral, publicKey: target.publicKey)
             let aad = target.aad
+            let wrapKey = wrapKey(dh: dh, pairSecret: target.pairSecret, channelID: channelID, burstID: burstID, aad: aad)
             let sealed = try Primitives.aeadSeal(key: wrapKey, nonce: Data(count: 12), plaintext: burstKey, aad: aad)
             return aad + sealed
         }
         return (ephemeral.publicKey.rawRepresentation, envelopes)
     }
 
+    public struct Opened: Equatable {
+        public let burstKey: Data
+        /// The local key the envelope was sealed to (a one-time prekey is deleted after use).
+        public let keyID: UInt32
+        public let pairEpoch: UInt16
+    }
+
     /// Finds our envelope and recovers the burst key.
     public static func open(envelopes: [Data], ephemeralPublicKey: Data, channelID: ChannelID, burstID: MessageID,
-                            recipient: SenderID, agreement: LocalKeyAgreement) throws -> Data {
+                            recipient: SenderID, sender: PublicIdentity, agreement: LocalKeyAgreement,
+                            pairSecret: PairSecretLookup) throws -> Opened {
         guard let envelope = envelopes.first(where: { $0.count == envelopeLength && $0.prefix(8) == recipient.bytes }) else {
             throw DecodingError.invalid("no envelope for us")
         }
-        let aad = Data(envelope.prefix(12))
-        let prekeyID = try UInt32(bigEndianBytes: aad.suffix(4))
-        let wrapKey = Primitives.hkdf(ikm: try agreement(prekeyID, ephemeralPublicKey), salt: burstID.bytes,
-                                      info: wrapInfo(channelID: channelID, aad: aad))
-        return try Primitives.aeadOpen(key: wrapKey, nonce: Data(count: 12),
-                                       ciphertextAndTag: Data(envelope.dropFirst(12)), aad: aad)
+        let aad = Data(envelope.prefix(14))
+        let keyID = try UInt32(bigEndianBytes: aad.subdata(in: aad.startIndex + 8 ..< aad.startIndex + 12))
+        let pairEpoch = try UInt16(bigEndianBytes: aad.suffix(2))
+        // Voice and text are never sealed to the static key, nor under the classical epoch 0.
+        guard keyID != 0, pairEpoch >= 1 else { throw DecodingError.invalid("envelope not post-quantum") }
+        guard let secret = pairSecret(sender.senderID, pairEpoch) else {
+            throw DecodingError.invalid("pair epoch \(pairEpoch) not held")
+        }
+        let dh = try agreement(keyID, ephemeralPublicKey, sender.id)
+        let key = wrapKey(dh: dh, pairSecret: secret, channelID: channelID, burstID: burstID, aad: aad)
+        let burstKey = try Primitives.aeadOpen(key: key, nonce: Data(count: 12),
+                                               ciphertextAndTag: Data(envelope.dropFirst(14)), aad: aad)
+        return Opened(burstKey: burstKey, keyID: keyID, pairEpoch: pairEpoch)
     }
 
-    static func wrapInfo(channelID: ChannelID, aad: Data) -> Data {
-        Primitives.label("ePTT/1 wrap") + channelID.bytes + aad
+    /// wrap = HKDF(ikm = X25519(eph, recipient key) ‖ pair burst secret, salt = burst ID, info = label ‖ channel ‖ aad)
+    static func wrapKey(dh: Data, pairSecret: Data, channelID: ChannelID, burstID: MessageID, aad: Data) -> Data {
+        Primitives.hkdf(ikm: dh + pairSecret, salt: burstID.bytes, info: Primitives.v2("wrap") + channelID.bytes + aad)
     }
 
     public static func messageKey(burstKey: Data, burstID: MessageID, senderID: SenderID, epoch: UInt16) -> Data {
-        var info = Primitives.label("ePTT/1 burst-msg")
+        var info = Primitives.v2("burst-msg")
         info.append(senderID.bytes)
         info.appendBE(epoch)
         return Primitives.hkdf(ikm: burstKey, salt: burstID.bytes, info: info)
@@ -210,22 +255,27 @@ public enum BurstKeying {
 }
 
 enum InviteSealing {
+    /// Group invites carry the group key: sealed to the invitee's prekey (static key only before
+    /// they have published one) and the pair's current epoch secret.
     static func seal(_ inner: Data, ephemeral: Curve25519.KeyAgreement.PrivateKey, messageID: MessageID,
                      target: SealTarget) throws -> Data {
-        let key = Primitives.hkdf(ikm: try Primitives.x25519(privateKey: ephemeral, publicKey: target.publicKey),
-                                  salt: messageID.bytes, info: Primitives.label("ePTT/1 invite") + target.aad)
+        let dh = try Primitives.x25519(privateKey: ephemeral, publicKey: target.publicKey)
+        let key = Primitives.hkdf(ikm: dh + target.pairSecret, salt: messageID.bytes,
+                                  info: Primitives.v2("invite") + target.aad)
         let sealed = try Primitives.aeadSeal(key: key, nonce: Data(count: 12), plaintext: inner, aad: target.aad)
-        return Data.be(target.prekeyID) + sealed
+        return Data.be(target.prekeyID) + Data.be(target.pairEpoch) + sealed
     }
 
     static func open(_ sealed: Data, ephemeralPublicKey: Data, messageID: MessageID, recipient: SenderID,
-                     agreement: LocalKeyAgreement) throws -> Data {
-        guard sealed.count > 4 + 16 else { throw DecodingError.truncated }
+                     sender: PublicIdentity, agreement: LocalKeyAgreement, pairSecret: PairSecretLookup) throws -> Data {
+        guard sealed.count > 6 + 16 else { throw DecodingError.truncated }
         let prekeyID = try UInt32(bigEndianBytes: Data(sealed.prefix(4)))
-        let aad = recipient.bytes + Data.be(prekeyID)
-        let key = Primitives.hkdf(ikm: try agreement(prekeyID, ephemeralPublicKey), salt: messageID.bytes,
-                                  info: Primitives.label("ePTT/1 invite") + aad)
-        return try Primitives.aeadOpen(key: key, nonce: Data(count: 12), ciphertextAndTag: Data(sealed.dropFirst(4)),
+        let pairEpoch = try UInt16(bigEndianBytes: Data(sealed.dropFirst(4).prefix(2)))
+        guard let secret = pairSecret(sender.senderID, pairEpoch) else { throw DecodingError.invalid("pair epoch") }
+        let aad = recipient.bytes + Data.be(prekeyID) + Data.be(pairEpoch)
+        let key = Primitives.hkdf(ikm: try agreement(prekeyID, ephemeralPublicKey, sender.id) + secret,
+                                  salt: messageID.bytes, info: Primitives.v2("invite") + aad)
+        return try Primitives.aeadOpen(key: key, nonce: Data(count: 12), ciphertextAndTag: Data(sealed.dropFirst(6)),
                                        aad: aad)
     }
 }

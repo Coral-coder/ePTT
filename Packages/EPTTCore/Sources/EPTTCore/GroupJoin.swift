@@ -37,8 +37,8 @@ public struct GroupJoinCode: Equatable {
     public var joinKeys: ChannelKeys { GroupJoinCode.joinKeys(secret: secret) }
 
     public static func joinKeys(secret: Data) -> ChannelKeys {
-        let id = Primitives.sha256(Primitives.label("ePTT/1 join-id"), secret).prefix(16)
-        let key = Primitives.hkdf(ikm: secret, salt: Primitives.label("ePTT/1 join"), info: Data(id))
+        let id = Primitives.sha256(Primitives.v2("join-id"), secret).prefix(16)
+        let key = Primitives.hkdf(ikm: secret, salt: Primitives.v2("join"), info: Data(id))
         return try! ChannelKeys(channelID: ChannelID(unchecked: Data(id)), epoch: 0, key: key)
     }
 
