@@ -377,6 +377,11 @@ def shield(inner: bytes, channel_key: bytes, nonce_: bytes) -> bytes:
 
 # ---------------------------------------------------------------- relay (store and forward)
 
+def pair_mailbox(master: bytes, peer_identity_id: bytes) -> bytes:
+    """Our relay inbox for one contact (PROTOCOL.md §11.1)."""
+    return hkdf(master, b"", v2("pair-inbox") + peer_identity_id, 16)
+
+
 def mailbox_tag(mailbox_secret: bytes, unix_seconds: int) -> str:
     """Daily-rotating lookup tag for a relay mailbox (PROTOCOL.md §11)."""
     import hmac
@@ -602,6 +607,8 @@ def build_vectors() -> dict:
         "tag": mailbox_tag(mailbox, 1_790_000_000),
         "tag_next_day": mailbox_tag(mailbox, 1_790_000_000 + 86400),
         "payload": h(relay_payload([start, voice, end])),
+        "peer_identity_id": h(bytes.fromhex("55" * 16)),
+        "pair_mailbox": h(pair_mailbox(mailbox, bytes.fromhex("55" * 16))),
     }
 
     txn = bytes.fromhex("000102030405060708090a0b")

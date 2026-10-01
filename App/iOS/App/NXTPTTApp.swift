@@ -7,12 +7,17 @@ import EPTTCore
 struct NXTPTTApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.scenePhase) private var scenePhase
+    @StateObject private var capture = ScreenCaptureWatcher()
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environmentObject(AppModel.shared)
                 .onOpenURL { url in AppModel.shared.openFromOutside(url.absoluteString) }
+                // Nothing on screen when it isn't ours alone (PrivacyCover.swift).
+                .overlay {
+                    if scenePhase != .active || capture.isCaptured { PrivacyCover().transition(.identity) }
+                }
         }
         .onChange(of: scenePhase) { phase in
             AppModel.shared.engine.setForeground(phase == .active)

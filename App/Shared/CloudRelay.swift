@@ -34,9 +34,14 @@ final class CloudRelay {
 
     /// Records waiting under any of our inbox tags, oldest first.
     func fetch(tags: [String]) async throws -> [(name: String, payload: Data, created: Date)] {
-        let query = CKQuery(recordType: CloudRelay.recordType, predicate: NSPredicate(format: "mailbox IN %@", tags))
-        let (results, _) = try await database.records(matching: query, resultsLimit: 50)
-        let records = results.compactMap { try? $0.1.get() }
+        // One inbox per contact (§11.1): ask in batches so no single query gets unwieldy.
+        var records: [CKRecord] = []
+        for start in stride(from: 0, to: tags.count, by: 60) {
+            let batch = Array(tags[start..<min(start + 60, tags.count)])
+            let query = CKQuery(recordType: CloudRelay.recordType, predicate: NSPredicate(format: "mailbox IN %@", batch))
+            let (results, _) = try await database.records(matching: query, resultsLimit: 50)
+            records += results.compactMap { try? $0.1.get() }
+        }
         return records.compactMap { record -> (name: String, payload: Data, created: Date)? in
             guard let payload = record["payload"] as? Data else { return nil }
             if let expires = record["expires"] as? Date, expires < Date() { return nil }
@@ -87,10 +92,15 @@ final class CloudRelay {
         let keep = Set(subscriptions.map(\.subscriptionID))
         // Includes the old single "relay-inbox" subscription from earlier versions.
         let stale = existing.map(\.subscriptionID).filter { $0.hasPrefix(CloudRelay.subscriptionID) && !keep.contains($0) }
-        let (saved, _) = try await database.modifySubscriptions(saving: subscriptions, deleting: stale)
-        for case let (_, .failure(error)) in saved {
-            log.error("Relay subscription failed: \(String(describing: error), privacy: .public)")
-            throw error
+        // In batches: iCloud limits how many changes one request may carry.
+        for start in stride(from: 0, to: max(subscriptions.count, stale.count), by: 150) {
+            let saving = Array(subscriptions.dropFirst(start).prefix(150))
+            let deleting = Array(stale.dropFirst(start).prefix(150))
+            let (saved, _) = try await database.modifySubscriptions(saving: saving, deleting: deleting)
+            for case let (_, .failure(error)) in saved {
+                log.error("Relay subscription failed: \(String(describing: error), privacy: .public)")
+                throw error
+            }
         }
     }
 

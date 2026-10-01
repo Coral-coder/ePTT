@@ -809,8 +809,10 @@ app's CloudKit public database, which Apple hosts. The relay only ever sees
 shielded packets (§6.6). Their audio is protected by the burst key, which only
 recipients can unwrap (§6.2).
 
-- **Mailbox.** Each device picks a random 16-byte `relay_mailbox` and shares it
-  in its contact card and HELLOs. It is a secret known only to contacts.
+- **Mailbox.** Each device picks a random 16-byte master `relay_mailbox`. It gives
+  each contact its **own** inbox (§11.1) and gives the master out only where it
+  can't know who will read it: contact links and QR codes, group codes, and
+  face-to-face pairing.
 - **Lookup tag.** Records are filed under a tag that rotates daily, so
   records cannot be linked to a person or across days:
 
@@ -819,7 +821,19 @@ recipients can unwrap (§6.2).
   tag = lowercase_hex( HMAC-SHA256(relay_mailbox, "ePTT/1 mailbox" || day_u32)[0..16] )
   ```
 
-  Recipients look up today's and yesterday's tags.
+  Recipients look up today's and yesterday's tags, for the master and for every
+  contact's inbox, and subscribe to tomorrow's too.
+- **Per-contact inboxes (§11.1).**
+
+  ```
+  pair_mailbox(C) = HKDF(ikm=relay_mailbox, salt="", info=v2("pair-inbox") || C.identity_id, L=16)
+  ```
+
+  This goes in the `relay_mailbox` of every HELLO and CARD sealed to contact C, and in
+  the card in a GROUP_INVITE to C or a GROUP_JOIN to C. A contact who learned the master
+  from a link uses it until our first HELLO, which replaces it. So no contact can compute
+  another contact's tags, and the relay sees unrelated inboxes rather than one per
+  person. (The relay still sees which iCloud account subscribes to which tags.)
 - **Payload.** `version: u8 = 1`, then each wire (shielded) packet of the burst in order
   (BURST_START first) as `len: u16 | packet`. The talker uploads one record per
   recipient. The total must stay under 900 KB, which a 60-second burst does.

@@ -24,6 +24,20 @@ public enum Relay {
         [tag(mailbox: mailbox, at: date), tag(mailbox: mailbox, at: date.addingTimeInterval(-86400))]
     }
 
+    /// Our inbox for one contact (PROTOCOL.md §11.1). Each contact learns only its own, in the
+    /// HELLOs and cards we seal to them, so nobody holding one can watch what else we receive,
+    /// and the relay sees unrelated inboxes rather than one per person. `master` (our public
+    /// mailbox) is only given out where we don't yet know who will read it: links, QR codes,
+    /// face-to-face pairing.
+    public static func pairMailbox(master: Data, peer: IdentityID) -> Data {
+        Primitives.hkdf(ikm: master, salt: Data(), info: Primitives.v2("pair-inbox") + peer.bytes, length: 16)
+    }
+
+    /// Every tag to look under: the public mailbox and each contact's, today and yesterday.
+    public static func inboxTags(master: Data, peers: [IdentityID], at date: Date = Date()) -> [String] {
+        ([master] + peers.map { pairMailbox(master: master, peer: $0) }).flatMap { inboxTags(mailbox: $0, at: date) }
+    }
+
     public static func encode(packets: [Data]) -> Data? {
         var out = Data([1])
         for packet in packets {

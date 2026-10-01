@@ -75,6 +75,15 @@ struct SettingsView: View {
                 .nxRows()
 
                 Section {
+                    Button("Erase received audio now", role: .destructive) { model.engine.burnReceivedAudio() }
+                } header: {
+                    Text("Privacy")
+                } footer: {
+                    Text("Messages are decrypted only to play. Lock-screen sounds are deleted 10 minutes after they arrive, and a replayable message after an hour; this erases both now. The app hides its screen in the app switcher and while the screen is recorded or mirrored.")
+                }
+                .nxRows()
+
+                Section {
                     NavigationLink("Push key") { PushKeyView() }
                 } footer: {
                     Text("The push key lets NXTPTT wake your friends' phones when you key up. Everyone in your group needs the same key; share it in person.")

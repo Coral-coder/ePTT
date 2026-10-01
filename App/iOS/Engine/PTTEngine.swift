@@ -418,6 +418,9 @@ final class PTTEngine {
                 fetchRelay()
                 refreshRelaySubscription()
                 purgeExpiredRelayUploads()
+                // Decoded audio and replay copies don't outlive their purpose.
+                RelayInbox.purgeOldSounds()
+                RelayInbox.purgeExpiredReplay()
             }
             publishIfOnlineChanged()
         }
@@ -1495,6 +1498,17 @@ final class PTTEngine {
         }
     }
 
+    /// Erases received audio still on this device now: decoded notification sounds and the
+    /// replay copy.
+    func burnReceivedAudio() {
+        queue.async { [self] in
+            RelayInbox.burnReceivedAudio()
+            diskCache = nil
+            publish()
+            emit(.message("Received audio erased from this iPhone"))
+        }
+    }
+
     // MARK: - Do Not Disturb
 
     /// Whether a message from this sender is held rather than played right now.
@@ -1815,7 +1829,7 @@ final class PTTEngine {
     }
 
     private func sendInvite(_ channel: Channel, to contact: Contact) {
-        guard let direct = self.directChannel(for: contact.id), let mine = try? myCard() else { return }
+        guard let direct = self.directChannel(for: contact.id), let mine = try? myCard(for: contact) else { return }
         var cards = [mine]
         for member in channel.members {
             if let c = self.contact(id: member), let card = try? ContactCard(encoded: c.cardData) { cards.append(card) }
@@ -1946,7 +1960,7 @@ final class PTTEngine {
     /// the inviter's phone as a notification and leaves it in the relay; otherwise only their
     /// last known addresses (cheap, for retries).
     private func sendJoin(_ code: GroupJoinCode, loud: Bool) {
-        guard let inviter = contact(id: code.inviter.id), let mine = try? myCard(),
+        guard let inviter = contact(id: code.inviter.id), let mine = try? myCard(for: inviter),
               let packet = try? GroupJoin.seal(card: mine, for: code, timestamp: currentTimestamp(),
                                                builder: builder) else { return }
         guard loud else {
@@ -2187,13 +2201,24 @@ final class PTTEngine {
 
     // MARK: - Sending
 
-    private var myReachability: Reachability {
+    private var myReachability: Reachability { myReachability(for: nil) }
+
+    /// What we tell `contact` about reaching us. Their relay inbox is theirs alone (§11.1);
+    /// with no contact (links, QR codes, group codes) it's the public one.
+    private func myReachability(for contact: Contact?) -> Reachability {
         let env = APNsClient.environment(of: .main)
+        let mailbox = relay != nil && state.settings.relayEnabled ? state.relayMailbox : nil
         return Reachability(apnsPTTToken: state.pttToken, apnsDeviceToken: state.deviceToken, apnsEnvironment: env,
                             apnsTopic: Bundle.main.bundleIdentifier, candidates: transport.localCandidates,
                             prekey: prekeys.signed,
-                            relayMailbox: relay != nil && state.settings.relayEnabled ? state.relayMailbox : nil,
+                            relayMailbox: mailbox.map { m in contact.map { Relay.pairMailbox(master: m, peer: $0.id) } ?? m },
                             apnsWatchToken: state.settings.standaloneWatch ? state.watchToken : nil)
+    }
+
+    /// Every relay tag we receive under: the public inbox and each contact's.
+    private func inboxTags(at date: Date = Date()) -> [String] {
+        guard let mailbox = state.relayMailbox else { return [] }
+        return Relay.inboxTags(master: mailbox, peers: state.contacts.map(\.id), at: date)
     }
 
     // MARK: - Face-to-face pairing
@@ -2266,7 +2291,7 @@ final class PTTEngine {
     }
 
     private func sendCard(to contact: Contact) {
-        guard let direct = directChannel(for: contact.id), let card = try? myCard(),
+        guard let direct = directChannel(for: contact.id), let card = try? myCard(for: contact),
               let packet = try? builder.seal(.card, plaintext: card.encoded, keys: direct.keys) else { return }
         deliverAnyway(packet, to: contact)
     }
@@ -2287,9 +2312,9 @@ final class PTTEngine {
         }
     }
 
-    private func myCard() throws -> ContactCard {
+    private func myCard(for contact: Contact? = nil) throws -> ContactCard {
         try ContactCard(signing: identity, name: state.settings.displayName, timestamp: currentTimestamp(),
-                        reachability: myReachability)
+                        reachability: myReachability(for: contact))
     }
 
     private func helloPacket(replyRequested: Bool, keys: ChannelKeys, to contact: Contact, away: Bool = false,
@@ -2301,7 +2326,8 @@ final class PTTEngine {
             flags |= Hello.doNotDisturb
             if state.settings.priorityContacts.contains(contact.id) { flags |= Hello.breaksThrough }
         }
-        let hello = Hello(name: state.settings.displayName, timestamp: currentTimestamp(), reachability: myReachability,
+        let hello = Hello(name: state.settings.displayName, timestamp: currentTimestamp(),
+                          reachability: myReachability(for: contact),
                           flags: flags, heldOneTimeKeys: UInt16(clamping: contact.availableOneTimeKeys))
         return try? builder.seal(.hello, plaintext: hello.encoded, keys: keys)
     }
@@ -2504,7 +2530,7 @@ final class PTTEngine {
             // In the background the notification extension handles the relay, except while a wake
             // keeps us running: then we play relayed audio live through PushToTalk.
             guard isForeground || pendingWake != nil, let relay, state.settings.relayEnabled,
-                  let mailbox = state.relayMailbox else { return }
+                  state.relayMailbox != nil else { return }
             guard !relayFetchInFlight else {
                 if force { relayRefetchPending = true }
                 return
@@ -2512,7 +2538,7 @@ final class PTTEngine {
             guard force || Date().timeIntervalSince(lastRelayFetch) > 5 else { return }
             relayFetchInFlight = true
             lastRelayFetch = Date()
-            let tags = Relay.inboxTags(mailbox: mailbox)
+            let tags = inboxTags()
             Task { [weak self] in
                 let records = (try? await relay.fetch(tags: tags)) ?? []
                 self?.queue.async {
@@ -2573,8 +2599,10 @@ final class PTTEngine {
     }
 
     private func refreshRelaySubscription() {
-        guard let relay, state.settings.relayEnabled, let mailbox = state.relayMailbox else { return }
-        let tags = Relay.inboxTags(mailbox: mailbox) + [Relay.tag(mailbox: mailbox, at: Date().addingTimeInterval(86400))]
+        guard let relay, state.settings.relayEnabled, state.relayMailbox != nil else { return }
+        // Today's and yesterday's for every inbox, plus tomorrow's so midnight isn't missed.
+        let tomorrow = Set(inboxTags(at: Date().addingTimeInterval(86400)))
+        let tags = Array(Set(inboxTags()).union(tomorrow)).sorted()
         guard tags != subscribedTags else { return }
         subscribedTags = tags
         relayAlerts = "Setting up…"

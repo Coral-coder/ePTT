@@ -146,7 +146,14 @@ active quantum attacker who is present at bootstrap. ML-DSA is not used.
   sizes do not follow speech, and they land in the same size bucket. The PCM fallback is
   constant by nature.
 - **Relay.** Records are filed under `HMAC-SHA256(mailbox, day)`, which changes daily.
-  The mailbox secret is shared only with contacts (it is in the contact card).
+  Each contact gets its own mailbox secret, derived from ours (PROTOCOL.md §11), so one
+  contact can't watch what else we receive, and on any day the relay sees separate inboxes
+  rather than one per person.
+- **Screen.** The app covers itself when it isn't frontmost (the app-switcher snapshot
+  iOS writes to disk shows nothing) and while the screen is recorded or mirrored.
+- **Decrypted audio at rest.** A lock-screen notification sound has to be plain audio
+  on disk; it is deleted 10 minutes after arriving. A replayable message is deleted after
+  an hour. Settings › Privacy erases both at once.
 - **Bonjour.** Instance names are random per launch.
 
 ### 4.5 Group sender authentication
@@ -189,9 +196,14 @@ the only defence.
   shared with every contact. Builds that bundle the APNs provider key let anyone who
   extracts it send pushes to a token they know. Such pushes can wake the app, but their
   payloads are dropped because they don't authenticate.
-- **Relay mailbox.** The mailbox secret is in the contact card. Anyone who sees a
-  contact link can compute that user's daily tags, and watch how many relayed records
-  they receive, and when.
+- **Relay mailbox.** The master mailbox secret is in contact links and QR codes. Anyone
+  who sees one can watch the master inbox, which only receives traffic from people who
+  added us by that link and haven't heard from us since. Every other contact writes to
+  its own inbox. Apple, which runs the relay, still sees which iCloud account subscribes
+  to which inboxes, so it can link them to one person; hiding that needs a relay that
+  doesn't authenticate its users.
+- **Decrypted audio in memory.** Audio is decoded in memory to play it. Swift doesn't
+  let us guarantee those buffers are zeroed rather than just freed.
 - **Group members.** Anyone in a group can record what they hear and pass it on. Group
   trust is discussed in §6.7.
 - **Endpoints.** A compromised phone or watch exposes everything on it. The protocol

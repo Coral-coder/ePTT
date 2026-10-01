@@ -311,7 +311,7 @@ final class WatchEngine {
         let prekey = try? sync.prekeys.current(signedBy: identity)
         // Our addresses only: no push tokens, so contacts keep the iPhone's.
         let reachability = Reachability(candidates: transport.localCandidates, prekey: prekey,
-                                        relayMailbox: sync.relayMailbox)
+                                        relayMailbox: sync.relayMailbox.map { Relay.pairMailbox(master: $0, peer: contact.id) })
         let body = Hello(name: sync.displayName, timestamp: currentTimestamp(), reachability: reachability, flags: flags)
         return try? PacketShield.shield(PacketBuilder(local: identity).seal(.hello, plaintext: body.encoded,
                                                                             keys: channel.keys), keys: channel.keys)
@@ -420,7 +420,7 @@ final class WatchEngine {
         queue.async { [self] in
             guard !fetching, let relay, let mailbox = sync?.relayMailbox else { return }
             fetching = true
-            let tags = Relay.inboxTags(mailbox: mailbox)
+            let tags = Relay.inboxTags(master: mailbox, peers: sync?.contacts.map(\.id) ?? [])
             Task { [weak self] in
                 let records = (try? await relay.fetch(tags: tags)) ?? []
                 self?.queue.async {
@@ -441,7 +441,7 @@ final class WatchEngine {
     func announceWaitingMessages(unlessPhoneAround phoneAround: Bool, done: @escaping () -> Void) {
         queue.async { [self] in
             guard !phoneAround, let relay, let mailbox = sync?.relayMailbox else { done(); return }
-            let tags = Relay.inboxTags(mailbox: mailbox)
+            let tags = Relay.inboxTags(master: mailbox, peers: sync?.contacts.map(\.id) ?? [])
             Task { [weak self] in
                 let records = (try? await relay.fetch(tags: tags)) ?? []
                 self?.queue.async {

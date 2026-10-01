@@ -363,6 +363,11 @@ extension VectorTests {
         XCTAssertEqual(Relay.tag(mailbox: mailbox, at: t), r["tag"] as? String)
         XCTAssertEqual(Relay.tag(mailbox: mailbox, at: t.addingTimeInterval(86400)), r["tag_next_day"] as? String)
         XCTAssertEqual(Relay.inboxTags(mailbox: mailbox, at: t.addingTimeInterval(86400)).last, r["tag"] as? String)
+        let peer = try IdentityID(bytes: XCTUnwrap(Data(hex: r["peer_identity_id"] as! String)))
+        let pair = Relay.pairMailbox(master: mailbox, peer: peer)
+        XCTAssertEqual(pair, Data(hex: r["pair_mailbox"] as! String))
+        XCTAssertEqual(Relay.inboxTags(master: mailbox, peers: [peer], at: t),
+                       Relay.inboxTags(mailbox: mailbox, at: t) + Relay.inboxTags(mailbox: pair, at: t))
         let packets = ["start_packet", "voice_packet", "end_packet"].map { Data(hex: g[$0] as! String)! }
         let payload = try XCTUnwrap(Relay.encode(packets: packets))
         XCTAssertEqual(payload, Data(hex: r["payload"] as! String))

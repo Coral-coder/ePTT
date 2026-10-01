@@ -135,12 +135,16 @@ enum RelayInbox {
         try? data.write(to: url, options: .atomic)
     }
 
-    /// Deletes notification sounds older than the relay lifetime.
-    static func purgeOldSounds() {
+    /// How long a decoded notification sound (plain audio on disk, which iOS needs to play it)
+    /// is kept: long enough for the notification to sound, no longer.
+    static let soundLifetime: TimeInterval = 10 * 60
+
+    /// Deletes decoded notification sounds once they've played (all of them with `olderThan: 0`).
+    static func purgeOldSounds(olderThan age: TimeInterval = soundLifetime) {
         guard let dir = soundsDirectory,
               let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.creationDateKey])
         else { return }
-        let cutoff = Date().addingTimeInterval(-Relay.lifetime)
+        let cutoff = Date().addingTimeInterval(-age)
         for file in files where file.lastPathComponent.hasPrefix("rx-") {
             let created = (try? file.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? .distantPast
             if created < cutoff { try? FileManager.default.removeItem(at: file) }
@@ -278,6 +282,27 @@ enum RelayInbox {
             try? audio.write(to: dataURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         }
         if let data = try? JSONEncoder().encode(info) { try? data.write(to: infoURL, options: .atomic) }
+    }
+
+    /// Burns the replay copy now: its audio and its details.
+    static func burnLastReceived() {
+        for url in [lastDataURL, lastInfoURL].compactMap({ $0 }) { try? FileManager.default.removeItem(at: url) }
+    }
+
+    /// Deletes the replay copy once its hour is up, whether or not anyone asks for it.
+    static func purgeExpiredReplay(now: Date = Date()) {
+        guard let infoURL = lastInfoURL, let raw = try? Data(contentsOf: infoURL),
+              let info = try? JSONDecoder().decode(LastReceived.self, from: raw),
+              now.timeIntervalSince(info.date) >= replayLifetime else { return }
+        burnLastReceived()
+    }
+
+    /// Erases every received message this device still holds in the clear or could replay:
+    /// decoded notification sounds and the replay copy. (Held Do Not Disturb messages stay
+    /// sealed until they play, and are deleted as they do.)
+    static func burnReceivedAudio() {
+        purgeOldSounds(olderThan: 0)
+        burnLastReceived()
     }
 
     /// The last message's details if it can be replayed, without reading its audio (cheap).
