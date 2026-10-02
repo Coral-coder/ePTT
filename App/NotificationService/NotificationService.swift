@@ -156,6 +156,8 @@ final class NotificationService: UNNotificationServiceExtension {
             content.userInfo["eptt.record"] = record
             RelayInbox.markHeard(.init(record: record, talker: message.talker, channel: message.channel,
                                        seconds: message.seconds, sound: sound, date: Date()))
+            // Delivered: the record's job is done (the app keeps a local copy for replay).
+            await relay.delete(recordName: record)
         }
     }
 

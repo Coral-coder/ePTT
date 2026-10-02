@@ -55,14 +55,25 @@ public struct Contact: Identifiable, Equatable, Codable {
         return true
     }
 
-    /// Applies a HELLO received on this contact's direct channel.
+    /// Applies a HELLO received on this contact's direct channel. Returns true only when
+    /// something durable changed (name or reachability): a keep-alive or receipt HELLO carries a
+    /// fresh timestamp but nothing new, and must not cost a save.
     @discardableResult
     public mutating func apply(hello: Hello) -> Bool {
         guard hello.timestamp > updatedAt else { return false }
+        let before = (name, reachability)
         if !hello.name.isEmpty { name = hello.name }
         reachability.merge(hello.reachability)
         updatedAt = hello.timestamp
-        return true
+        return before != (name, reachability)
+    }
+
+    /// The same contact with the ordering timestamp zeroed: what the extension and the watch
+    /// need, compared without the per-HELLO churn.
+    public var forSync: Contact {
+        var c = self
+        c.updatedAt = 0
+        return c
     }
 
     /// Unused one-time keys of theirs.

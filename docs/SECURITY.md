@@ -88,7 +88,8 @@ all that message's layers:
   can't open it again (§3.2). The talker tries to keep 24 of each contact's keys on hand,
   and falls back to the signed prekey only when it has none left.
 - **Per epoch.** Every envelope also needs the pair's `burst_secret_e`. Epochs are
-  replaced daily, and their keys are deleted 24 h after replacement (§5.3). The root
+  replaced daily, and their keys are deleted 24 h after replacement (§5.3), except epoch 0,
+  which is derived from the static keys and so protects nothing by being deleted. The root
   chain cannot be walked back.
 
 **Window.** Someone who seizes a device at time T can read a past message only if it

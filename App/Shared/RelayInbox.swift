@@ -54,8 +54,11 @@ enum RelayInbox {
             kSecAttrAccount as String: account,
             kSecAttrAccessGroup as String: group,
         ]
-        SecItemDelete(base as CFDictionary)
         guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        // Update in place when it exists (one securityd round trip), else add it.
+        let update: [String: Any] = [kSecValueData as String: data]
+        if SecItemUpdate(base as CFDictionary, update as CFDictionary) == errSecSuccess { return }
+        SecItemDelete(base as CFDictionary)
         var item = base
         item[kSecValueData as String] = data
         // The extension runs while the phone is locked, after the first unlock since boot.

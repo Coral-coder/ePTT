@@ -19,6 +19,7 @@ struct TalkOrb: View {
 
     private var orbSize: CGFloat { diameter * 0.667 }
     private var hot: Bool { mode == .transmitting }
+    private var ringsTurning: Bool { pressed || mode == .transmitting || mode == .receiving }
 
     private var spinPeriod: Double {
         switch mode {
@@ -54,7 +55,9 @@ struct TalkOrb: View {
     }
 
     private var rings: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { timeline in
+        // The rings turn only while something is happening (pressed, talking, listening): a
+        // 30 fps redraw on an idle screen is a steady drain for nothing.
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion || !ringsTurning)) { timeline in
             // Turns so far, advanced at the current speed, so changing speed (idle → talking)
             // never makes the rings jump, and the slower inner ring never snaps back at a lap.
             let turns = reduceMotion ? 0 : spin.advance(to: timeline.date, period: spinPeriod)
@@ -221,11 +224,14 @@ struct QuantumLock: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var clock = OrbitClock()
+    /// The electrons have coasted back to rest: stop redrawing until the next transmission.
+    @State private var settled = false
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 60, paused: reduceMotion)) { timeline in
+        TimelineView(.animation(minimumInterval: charging ? 1 / 60 : 1 / 30, paused: reduceMotion || settled)) { timeline in
             let state = reduceMotion ? (phase: 0.0, energy: charging ? 1.0 : 0.0)
                                      : clock.advance(to: timeline.date, charging: charging)
+            let _ = settle(if: !charging && state.energy < 0.01)
             ZStack {
                 Image(systemName: charging ? "lock.fill" : "lock")
                     .font(.system(size: size * 0.62, weight: .bold))
@@ -240,7 +246,13 @@ struct QuantumLock: View {
             }
         }
         .frame(width: size * 1.45, height: size * 1.15)
+        .onChange(of: charging) { _, now in if now { settled = false } }
         .accessibilityLabel("Post-quantum link")
+    }
+
+    private func settle(if done: Bool) {
+        guard done, !settled else { return }
+        DispatchQueue.main.async { settled = true }
     }
 
     private func draw(in context: inout GraphicsContext, size canvas: CGSize, phase: Double, energy: Double) {

@@ -354,4 +354,16 @@ final class HelloFlagTests: XCTestCase {
         XCTAssertFalse(try Hello(decoding: Hello(name: "", timestamp: 1, reachability: .init(),
                                                  flags: Hello.replyRequested).encoded).isAway)
     }
+
+    /// A BURST_END claiming an absurd frame count: the buffer is finished once the frames it
+    /// actually has are gone, not 2^32 ticks later. (The engine also caps the count and puts a
+    /// deadline on draining.)
+    func testJitterBufferFinishesWithoutTheClaimedFrames() {
+        var j = JitterBuffer()
+        j.insert(index: 0, frame: Data([1]))
+        j.markEnded(frameCount: 3)
+        var pulls: [JitterBuffer.Pull] = []
+        for _ in 0..<10 { pulls.append(j.pull(now: Date().addingTimeInterval(5))) }
+        XCTAssertTrue(pulls.contains { if case .finished = $0 { return true } else { return false } })
+    }
 }

@@ -284,8 +284,10 @@ and `epoch` = 1. Then:
   it rekeys.
 - An invite older than the current epoch adds no one (it could bring back someone
   removed since); it still contributes its removals.
-- When a member leaves (GROUP_LEAVE), the remaining member whose `identity_id` sorts
-  lowest rekeys.
+- When a member leaves (GROUP_LEAVE), every receiver records it like a removal (at the
+  next epoch), and the remaining member whose `identity_id` sorts lowest rekeys. The
+  leaver remembers the group: it refuses later invites for it, answering each (at most
+  hourly per sender) with another GROUP_LEAVE, until its user scans the group's code again.
 - Receivers keep the key of the one previous epoch, and accept packets under it,
   until the next rekey replaces it.
 
@@ -392,7 +394,10 @@ Rules:
   made.
 - **Retention.** When an epoch is replaced, its keys are kept for **24 h** (relayed
   messages can be that old) and then deleted, except the epoch currently used for
-  sending. At most 8 old epochs are kept, however recent. Roots are never kept,
+  sending and **epoch 0**, which is kept for the life of the session: it is derived from
+  the static keys alone (deleting it protects nothing), and it is the only epoch under
+  which a peer that lost its state can send a restart offer. At most 8 old epochs are
+  kept, however recent. Roots are never kept,
   except a responder's previous root while it is unconfirmed (see Lost accept).
 - **Schedule.** A device starts a rekey as soon as a session is at epoch 0, and
   then once the current epoch is older than **86400 s** (24 h), and only while the app

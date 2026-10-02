@@ -229,13 +229,19 @@ public struct PairSession: Codable, Equatable {
     }
 
     /// Deletes expired epochs and abandoned offers.
+    /// Epoch 0 is never deleted: it is derived from the two static keys, so deleting it buys no
+    /// forward secrecy, and it is the only epoch under which a peer who lost its state (or reset
+    /// the link) can reach us with a restart offer.
     public mutating func expire(now: Date = Date()) {
         let inUse = sendEpoch
         epochs.removeAll { k in
-            guard let retired = k.retired, k.epoch != inUse else { return false }
+            guard let retired = k.retired, k.epoch != inUse, k.epoch != 0 else { return false }
             return now.timeIntervalSince(retired) > PairSession.retention
         }
-        while epochs.count > PairSession.maxRetained + 1 { epochs.removeFirst() }
+        while epochs.count > PairSession.maxRetained + 1,
+              let i = epochs.firstIndex(where: { $0.epoch != 0 && $0.epoch != inUse }) {
+            epochs.remove(at: i)
+        }
         if let p = pending, now.timeIntervalSince(p.created) > PairSession.offerLifetime { pending = nil }
     }
 

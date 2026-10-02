@@ -117,7 +117,8 @@ final class PTTEngine {
     /// Decoded playback audio for the watch (mono Int16 16 kHz), when forwarding is enabled.
     var onWatchAudio: ((Data) -> Void)?
     /// Identity, contacts and keys for a standalone watch; called when they change.
-    var onWatchSync: ((WatchSync) -> Void)?
+    /// The watch's copy, already JSON-encoded on the engine queue (it can be a few hundred KB).
+    var onWatchSync: ((Data) -> Void)?
     private var lastWatchSync: WatchSync?
 
     let queue = DispatchQueue(label: "app.eptt.engine", qos: .userInteractive)
@@ -227,6 +228,9 @@ final class PTTEngine {
         var jitter = JitterBuffer()
         /// BURST_END arrived: play out what is buffered, then stop.
         var draining = false
+        /// Draining ends by this time whatever the end packet claimed (a hostile or broken
+        /// frame count must not keep the receiver busy forever).
+        var drainDeadline: Date?
         var codec: VoiceCodecID = .opus
         var sampleRate: UInt32 = 48_000
         /// The talker allowed replay: keep the frames as played (nil = lost).
@@ -890,6 +894,7 @@ final class PTTEngine {
     /// or being sent (PushToTalk keeps us running then).
     func goingToBackground() {
         queue.async { [self] in
+            flushSyncs()   // the extension and the watch take over from here: give them the latest
             guard tx == nil, rx == nil else { return }
             startLinger()
         }
@@ -1280,8 +1285,13 @@ final class PTTEngine {
                 sendHello(to: contact, endpoints: [endpoint], receipt: true)
             }
             guard var r = rx, r.burst == burst else { return }
-            r.jitter.markEnded(frameCount: end.frameCount)
+            // The frame count is the sender's claim: cap it to the longest burst anyone can send,
+            // and give the drain a deadline, so a bogus end can't pin us in "receiving".
+            let longest = UInt32(PTTEngine.maxBurstDuration * 1000) / UInt32(max(1, r.frameMilliseconds)) + 50
+            r.jitter.markEnded(frameCount: min(end.frameCount, longest))
             r.draining = true
+            let buffered = Double(r.jitter.bufferedCount * r.frameMilliseconds) / 1000
+            r.drainDeadline = Date().addingTimeInterval(buffered + 2.5)
             rx = r
             apply(floor.remoteBurstEnded(channel: r.channel.id, burst: burst), draining: true)
         case .callAlert(let alert):
@@ -1302,6 +1312,11 @@ final class PTTEngine {
             if let i = channelIndex[leave.groupID], state.channels[i].kind == .group, let contact = self.contact(sender),
                state.channels[i].members.contains(contact.id) {
                 state.channels[i].members.removeAll { $0 == contact.id }
+                // Remembered like a removal, so an invite from a member who missed the leave
+                // doesn't put them back (PROTOCOL.md §5.2).
+                let removal = GroupRemoval(member: contact.id, epoch: state.channels[i].keys.epoch &+ 1)
+                state.channels[i].removed = Array(((state.channels[i].removed ?? []).filter { $0.member != contact.id }
+                                                   + [removal]).suffix(GroupRemoval.maxKept))
                 save()
                 // They keep the old group key: the remaining member who sorts first replaces it.
                 let remaining = state.channels[i].members + [identity.id]
@@ -1357,8 +1372,7 @@ final class PTTEngine {
 
     private func saveOneTimeKeys() {
         OneTimeKeyKeychain.save(prekeys.oneTime)
-        syncWatch()
-        syncInbox()
+        scheduleSyncs()
     }
 
     // MARK: - Post-quantum session ratchet (PROTOCOL.md §5.3)
@@ -1823,15 +1837,22 @@ final class PTTEngine {
         playoutTimer = timer
     }
 
+    /// The longest `recorded` grows: the longest burst at 20 ms frames, with slack.
+    static let maxRecordedFrames = Int(maxBurstDuration * 1000 / 20) + 500
+
     private func playoutTick() {
+        if let r = rx, r.draining, let deadline = r.drainDeadline, Date() > deadline {
+            stopReception(playEndTone: !r.held)
+            return
+        }
         // Until iOS hands us the audio session, keep buffering: the listener hears the burst
         // time-shifted rather than clipped.
         if var r = rx, r.held {
             // Held: drain the jitter buffer at the normal pace, recording instead of playing.
             let pulled = r.jitter.pull()
             switch pulled {
-            case .frame(let frame): r.recorded.append(frame)
-            case .missing: r.recorded.append(nil)
+            case .frame(let frame): if r.recorded.count < PTTEngine.maxRecordedFrames { r.recorded.append(frame) }
+            case .missing: if r.recorded.count < PTTEngine.maxRecordedFrames { r.recorded.append(nil) }
             case .waiting: break
             case .finished:
                 rx = r
@@ -1864,11 +1885,11 @@ final class PTTEngine {
         case .frame(let frame):
             audio.playFrame(frame)
             rx?.framesPlayed += 1
-            if r.allowsReplay && !r.isReplay { rx?.recorded.append(frame) }
+            if r.allowsReplay && !r.isReplay && r.recorded.count < PTTEngine.maxRecordedFrames { rx?.recorded.append(frame) }
         case .missing:
             audio.playFrame(nil)
             rx?.framesPlayed += 1
-            if r.allowsReplay && !r.isReplay { rx?.recorded.append(nil) }
+            if r.allowsReplay && !r.isReplay && r.recorded.count < PTTEngine.maxRecordedFrames { rx?.recorded.append(nil) }
         case .waiting: break
         case .finished: stopReception()
         }
@@ -2222,9 +2243,26 @@ final class PTTEngine {
                 sendAnyway(packet, to: contact)
             }
             state.channels.removeAll { $0.id == id }
+            state.leftGroups = Array((state.leftGroups.filter { $0 != id } + [id]).suffix(100))
             if state.settings.selectedChannel == id { state.settings.selectedChannel = state.channels.first?.id }
             save()
         }
+    }
+
+    private var lastLeaveReply: [String: Date] = [:]
+
+    /// An invite for a group we left: not for us. Tell the sender again (they missed it, or an
+    /// old invite was still in the relay), at most once an hour per sender and group.
+    private func refuseLeftGroup(_ id: ChannelID, from inviter: Contact) {
+        noteLink(inviter.id, "ignored an invite to a group we left")
+        let key = id.bytes.hex + inviter.id.bytes.hex
+        guard Date().timeIntervalSince(lastLeaveReply[key] ?? .distantPast) > 3600,
+              let direct = directChannel(for: inviter.id) else { return }
+        lastLeaveReply[key] = Date()
+        let leave = GroupLeave(timestamp: currentTimestamp(), groupID: id)
+        guard let packet = try? builder.seal(.groupLeave, plaintext: leave.encoded, keys: direct.keys) else { return }
+        registerTwin(packet, legacyTwin(.groupLeave, plaintext: leave.encoded, channel: direct, messageID: .random()))
+        sendAnyway(packet, to: inviter)
     }
 
     /// Removes someone from a talk group and replaces the group key, sent only to who's left.
@@ -2390,6 +2428,8 @@ final class PTTEngine {
                 emit(.message("You're already in \(code.groupName)"))
                 return
             }
+            // Scanning the code again is how someone rejoins a group they left.
+            state.leftGroups.removeAll { $0 == code.groupID }
             // The inviter becomes a contact (their phone sends us the group key), but the group,
             // not their private channel, is what we're after: keep the selection as it was.
             let selected = state.settings.selectedChannel
@@ -2554,6 +2594,10 @@ final class PTTEngine {
             return
         }
         let id = invite.keys.channelID
+        if channelIndex[id] == nil, state.leftGroups.contains(id) {
+            refuseLeftGroup(id, from: inviter)
+            return
+        }
         if let i = channelIndex[id] {
             // Only a member of an existing group may change it, and never a private channel:
             // otherwise a contact could swap in their own key for our channel with someone else.
@@ -2730,6 +2774,7 @@ final class PTTEngine {
         let key = try PushKey(uri: uri)
         queue.async { [self] in
             PushKeyKeychain.save(key)
+            cachedPushKey = nil
             if !bundlesPushKey { apns = APNsClient.fromKeychain() }
             publish()
             syncWatch()
@@ -3135,6 +3180,9 @@ final class PTTEngine {
                         self.relayRecordsSeen.insert(record.name)
                         // Already played as a notification sound: just note it in Activity.
                         if let entry = heard.first(where: { $0.record == record.name }) {
+                            // Played by the extension: take it out of the relay, or it comes back
+                            // down with every poll until it expires.
+                            Task { await relay.delete(recordName: record.name) }
                             if !entry.logged {
                                 RelayInbox.markLogged(record: record.name)
                                 self.logTransfer(TransferRecord(date: entry.date, outgoing: false, channel: entry.channel,
@@ -3512,22 +3560,56 @@ final class PTTEngine {
         channelIndex = Dictionary(state.channels.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { a, _ in a })
     }
 
+    /// Persists the state (encoded here, written off this queue) and shows it. The expensive
+    /// copies for the notification extension and the watch are coalesced: at most one every
+    /// couple of seconds, and only when something they need changed (`flushSyncs`).
     private func save() {
         rebuildIndexes()
         Store.save(state)
         publish()
+        scheduleSyncs()
+    }
+
+    private var syncsPending = false
+    private var syncTimer: DispatchSourceTimer?
+    /// How long saves are batched before the extension snapshot and watch copy are refreshed.
+    static let syncDelay: TimeInterval = 2
+
+    private func scheduleSyncs() {
+        guard !syncsPending else { return }
+        syncsPending = true
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + PTTEngine.syncDelay, leeway: .milliseconds(500))
+        timer.setEventHandler { [weak self] in self?.flushSyncs() }
+        timer.resume()
+        syncTimer = timer
+    }
+
+    /// Writes the extension snapshot and the watch copy now, if anything changed. Called by the
+    /// coalescing timer, and before the app goes quiet (background, linger end).
+    private func flushSyncs() {
+        syncTimer?.cancel()
+        syncTimer = nil
+        syncsPending = false
         syncWatch()
         syncInbox()
+    }
+
+    /// What the extension and the watch work from: the same keys, contacts and channels, with
+    /// the contacts' per-HELLO ordering timestamps zeroed so a keep-alive never looks like a change.
+    private func syncPayload(relayMailbox: Data?, pushKey: PushKey?) -> WatchSync {
+        WatchSync(signingSeed: identity.signingSeed, keyAgreementSeed: identity.keyAgreementSeed,
+                  prekeys: prekeys.store, displayName: state.settings.displayName,
+                  contacts: state.contacts.map(\.forSync), channels: state.channels,
+                  selectedChannel: state.settings.selectedChannel,
+                  relayMailbox: relayMailbox, pushKey: pushKey, oneTimeKeys: prekeys.oneTime,
+                  contactProtocols: state.contactProtocols)
     }
 
     /// Shares what the notification service extension needs to open relayed messages (our keys,
     /// contacts and channels) through the Keychain access group, only when it changed.
     private func syncInbox() {
-        let snapshot = WatchSync(signingSeed: identity.signingSeed, keyAgreementSeed: identity.keyAgreementSeed,
-                                 prekeys: prekeys.store, displayName: state.settings.displayName,
-                                 contacts: state.contacts, channels: state.channels,
-                                 selectedChannel: state.settings.selectedChannel,
-                                 relayMailbox: state.relayMailbox, pushKey: nil, oneTimeKeys: prekeys.oneTime, contactProtocols: state.contactProtocols)
+        let snapshot = syncPayload(relayMailbox: state.relayMailbox, pushKey: nil)
         guard snapshot != lastInboxSnapshot else { return }
         lastInboxSnapshot = snapshot
         RelayInbox.saveSnapshot(snapshot)
@@ -3549,19 +3631,17 @@ final class PTTEngine {
             return
         }
         watchWiped = false
-        let sync = WatchSync(signingSeed: identity.signingSeed, keyAgreementSeed: identity.keyAgreementSeed,
-                             prekeys: prekeys.store, displayName: state.settings.displayName,
-                             contacts: state.contacts, channels: state.channels,
-                             selectedChannel: state.settings.selectedChannel,
-                             relayMailbox: relay != nil && state.settings.relayEnabled ? state.relayMailbox : nil,
-                             // A key shared by link, else the one bundled into this build: without it
-                             // the watch can leave messages in the relay but wake nobody.
-                             pushKey: PushKeyKeychain.load() ?? PushKey.fromBundle(),
-                             oneTimeKeys: prekeys.oneTime, contactProtocols: state.contactProtocols)
-        guard sync != lastWatchSync else { return }
+        // A key shared by link, else the one bundled into this build: without it the watch can
+        // leave messages in the relay but wake nobody. Read once; a link install resets it.
+        if cachedPushKey == nil { cachedPushKey = PushKeyKeychain.load() ?? PushKey.fromBundle() }
+        let sync = syncPayload(relayMailbox: relay != nil && state.settings.relayEnabled ? state.relayMailbox : nil,
+                               pushKey: cachedPushKey)
+        guard sync != lastWatchSync, let data = try? JSONEncoder().encode(sync) else { return }
         lastWatchSync = sync
-        onWatchSync?(sync)
+        onWatchSync?(data)
     }
+
+    private var cachedPushKey: PushKey?
 
     // MARK: - Watch hand-off
 
@@ -3629,6 +3709,7 @@ final class PTTEngine {
     func resyncWatch() {
         queue.async { [self] in
             lastWatchSync = nil
+            cachedPushKey = nil
             watchWiped = false
             syncWatch()
         }

@@ -39,8 +39,15 @@ final class CloudRelay {
         for start in stride(from: 0, to: tags.count, by: 60) {
             let batch = Array(tags[start..<min(start + 60, tags.count)])
             let query = CKQuery(recordType: CloudRelay.recordType, predicate: NSPredicate(format: "mailbox IN %@", batch))
-            let (results, _) = try await database.records(matching: query, resultsLimit: 50)
+            var (results, cursor) = try await database.records(matching: query, resultsLimit: 50)
             records += results.compactMap { try? $0.1.get() }
+            // Follow the cursor (a few pages at most), so one busy inbox can't hide the others.
+            var pages = 1
+            while let next = cursor, pages < 6 {
+                (results, cursor) = try await database.records(continuingMatchFrom: next, resultsLimit: 50)
+                records += results.compactMap { try? $0.1.get() }
+                pages += 1
+            }
         }
         return records.compactMap { record -> (name: String, payload: Data, created: Date)? in
             guard let payload = record["payload"] as? Data else { return nil }

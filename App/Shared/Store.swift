@@ -152,6 +152,10 @@ struct PersistedState: Codable {
     /// once a contact has spoken protocol 2 they never get or are believed in protocol 1 again
     /// (PROTOCOL.md §10.1). Absent: not heard from since updating.
     var contactProtocols: [IdentityID: UInt8] = [:]
+    /// Talk groups we left. An invite for one of these is refused (and answered with another
+    /// GROUP_LEAVE) until we scan the group's code again: otherwise a member who missed the
+    /// leave, or an old invite in the relay, would quietly put us back.
+    var leftGroups: [ChannelID] = []
 }
 
 struct PeerQuiet: Codable, Equatable {
@@ -191,11 +195,17 @@ enum Store {
         }
     }
 
+    private static let writer = DispatchQueue(label: "app.eptt.store", qos: .utility)
+
+    /// Encodes now (the caller's state is consistent at this moment) and writes on a utility
+    /// queue, so the audio and engine queue never waits on the disk. Writes stay in order.
     static func save(_ state: PersistedState) {
         guard !readFailed, let data = try? JSONEncoder().encode(state) else { return }
-        // Readable after first unlock so a push can wake a locked phone and still load contacts.
-        try? data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-        excludeFromBackup(url)
+        writer.async {
+            // Readable after first unlock so a push can wake a locked phone and still load contacts.
+            try? data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            excludeFromBackup(url)
+        }
     }
 
     /// The state holds session and group keys: they stay on this device, never in an iCloud or
@@ -290,6 +300,7 @@ extension PersistedState {
         deniedJoins = (try? c.decodeIfPresent([Data].self, forKey: .deniedJoins)) ?? []
         peerQuiet = (try? c.decodeIfPresent([PeerQuiet].self, forKey: .peerQuiet)) ?? []
         contactProtocols = (try? c.decodeIfPresent([IdentityID: UInt8].self, forKey: .contactProtocols)) ?? [:]
+        leftGroups = (try? c.decodeIfPresent([ChannelID].self, forKey: .leftGroups)) ?? []
     }
 }
 

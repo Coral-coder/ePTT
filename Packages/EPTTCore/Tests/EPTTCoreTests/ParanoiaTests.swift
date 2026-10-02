@@ -71,9 +71,33 @@ final class ParanoiaTests: XCTestCase {
         var s = p.a.session!
         XCTAssertNotNil(s.keys(forEpoch: 1))
         s.expire(now: Date().addingTimeInterval(PairSession.retention + 60))
-        XCTAssertNil(s.keys(forEpoch: 0))
+        // Epoch 0 stays: it is derived from the static keys, and a peer that lost its state can
+        // only reach us under it (a signed restart offer).
+        XCTAssertNotNil(s.keys(forEpoch: 0))
         XCTAssertNil(s.keys(forEpoch: 1))
         XCTAssertNotNil(s.keys(forEpoch: 2))
+    }
+
+    /// Epoch 0 also survives the cap on retained epochs.
+    func testEpochZeroSurvivesTheRetainedCap() throws {
+        var p = try pair(alice, bob)
+        for _ in 0..<(PairSession.maxRetained + 3) { try rekey(&p, alice, bob) }
+        var s = p.a.session!
+        s.expire()
+        XCTAssertNotNil(s.keys(forEpoch: 0))
+        XCTAssertNotNil(s.keys(forEpoch: s.epoch))
+    }
+
+    /// A keep-alive or receipt HELLO (fresh timestamp, nothing new) is not a change worth saving.
+    func testKeepaliveHelloIsNotAChange() throws {
+        let card = try ContactCard(signing: alice, name: "Alice", timestamp: 1, reachability: .init())
+        var contact = Contact(card: card)
+        let t = currentTimestamp()
+        XCTAssertFalse(contact.apply(hello: Hello(name: "Alice", timestamp: t + 1, reachability: .init())))
+        XCTAssertEqual(contact.updatedAt, t + 1, "ordering still advances")
+        XCTAssertTrue(contact.apply(hello: Hello(name: "Alice B", timestamp: t + 2, reachability: .init())))
+        XCTAssertFalse(contact.apply(hello: Hello(name: "Alice B", timestamp: t + 1, reachability: .init())), "stale")
+        XCTAssertEqual(contact.forSync.updatedAt, 0)
     }
 
     func testResponderKeepsSendingOldEpochUntilConfirmed() throws {
