@@ -305,8 +305,16 @@ public struct PacketProcessor {
                                                 pairSecret: pairSecret))
         case .groupLeave: return .groupLeave(try GroupLeave(decoding: plaintext))
         case .card: return .card(try ContactCard(encoded: plaintext))
-        case .pqOffer: return .pqOffer(try PQOffer(decoding: plaintext))
-        case .pqAccept: return .pqAccept(try PQAccept(decoding: plaintext))
+        // A rekey message is sealed under its base epoch's key, so a base epoch is only believed
+        // under that epoch: otherwise anyone holding the classical epoch-0 key could claim any.
+        case .pqOffer:
+            let offer = try PQOffer(decoding: plaintext)
+            guard offer.baseEpoch == header.epoch else { throw DecodingError.invalid("offer base epoch") }
+            return .pqOffer(offer)
+        case .pqAccept:
+            let accept = try PQAccept(decoding: plaintext)
+            guard accept.baseEpoch == header.epoch else { throw DecodingError.invalid("accept base epoch") }
+            return .pqAccept(accept)
         case .oneTimeKeys: return .oneTimeKeys(try OneTimeKeyBatch(decoding: plaintext))
         case .groupJoin: throw DecodingError.invalid("GROUP_JOIN is opened with GroupJoin.open")
         }

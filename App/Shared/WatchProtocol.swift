@@ -46,6 +46,12 @@ extension WatchProtocol {
     static let sync = "sync"
     /// userInfo key carrying the watch app's push token (watch → phone, via `transferUserInfo`).
     static let watchToken = "watchToken"
+    /// userInfo key carrying IDs of our one-time prekeys the watch used ([Int], watch → phone):
+    /// the phone deletes them, as it does for its own.
+    static let usedOneTimeKeys = "usedKeys"
+    /// userInfo key telling the watch to delete everything the phone gave it (phone → watch):
+    /// "Standalone watch" was turned off.
+    static let wipe = "wipe"
 }
 
 /// Everything the watch needs to act as this user when the iPhone is out of range.

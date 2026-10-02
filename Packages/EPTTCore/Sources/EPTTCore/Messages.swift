@@ -253,7 +253,7 @@ public struct CallAlert: Equatable {
             let textKey = Data.random(count: 32)
             let keying = try BurstKeying.makeEnvelopes(burstKey: textKey, channelID: channelID, burstID: messageID,
                                                        targets: [target])
-            let plain = Data(String(text.prefix(256)).utf8.prefix(256))
+            let plain = Data(text.utf8Prefix(maxBytes: 256).utf8)
             let sealed = try Primitives.aeadSeal(key: Self.textKey(textKey), nonce: Data(count: 12), plaintext: plain,
                                                  aad: messageID.bytes)
             b.add(.ephemeralKey, keying.ephemeralPublicKey)
@@ -327,12 +327,17 @@ public struct GroupInvite: Equatable {
     public var keys: ChannelKeys
     /// Signed cards of every member, including the inviter and the invitee.
     public var memberCards: [ContactCard]
+    /// Members removed from the group, and at which epoch (PROTOCOL.md §6.7). Every member keeps
+    /// these, so a removal can't be undone by an invite that raced it.
+    public var removed: [GroupRemoval]
 
-    public init(timestamp: UInt64, name: String, keys: ChannelKeys, memberCards: [ContactCard]) {
+    public init(timestamp: UInt64, name: String, keys: ChannelKeys, memberCards: [ContactCard],
+                removed: [GroupRemoval] = []) {
         self.timestamp = timestamp
         self.name = name
         self.keys = keys
         self.memberCards = memberCards
+        self.removed = removed
     }
 
     var innerEncoded: Data {
@@ -342,6 +347,7 @@ public struct GroupInvite: Equatable {
         b.add(.groupKey, keys.key)
         b.add(.groupEpoch, integer: keys.epoch)
         for card in memberCards { b.add(.memberCard, card.encoded) }
+        for removal in removed.suffix(GroupRemoval.maxKept) { b.add(.removedMember, removal.encoded) }
         return b.encoded
     }
 
@@ -371,6 +377,29 @@ public struct GroupInvite: Equatable {
         keys = try ChannelKeys(channelID: try ChannelID(bytes: try f.require(.groupID)),
                                epoch: try f.requireUInt(.groupEpoch), key: try f.require(.groupKey))
         memberCards = try f.all(.memberCard).map { try ContactCard(encoded: $0) }
+        removed = try f.all(.removedMember).prefix(GroupRemoval.maxKept).map { try GroupRemoval(encoded: $0) }
+    }
+}
+
+/// A member removed from a talk group at `epoch` (the epoch of the rekey that removed them).
+public struct GroupRemoval: Equatable, Hashable, Codable {
+    public var member: IdentityID
+    public var epoch: UInt16
+
+    /// How many removals a group remembers (and an invite carries).
+    public static let maxKept = 64
+
+    public init(member: IdentityID, epoch: UInt16) {
+        self.member = member
+        self.epoch = epoch
+    }
+
+    var encoded: Data { member.bytes + Data.be(epoch) }
+
+    init(encoded data: Data) throws {
+        guard data.count == 18 else { throw DecodingError.invalid("removed member") }
+        member = try IdentityID(bytes: Data(data.prefix(16)))
+        epoch = UInt16(data[data.startIndex + 16]) << 8 | UInt16(data[data.startIndex + 17])
     }
 }
 

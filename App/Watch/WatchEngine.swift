@@ -25,6 +25,8 @@ final class WatchEngine {
     var onStatus: ((Status) -> Void)?
     /// Decoded audio to play, as mono Int16 16 kHz chunks. Called on the main queue.
     var onPlayback: ((Data) -> Void)?
+    /// One of our one-time prekeys opened a message here. Called on the main queue.
+    var onUsedOneTimeKey: ((UInt32) -> Void)?
 
     static let maxOpusSeconds = 60.0
     static let maxPCMSeconds = 25.0   // keeps a raw-PCM burst under the relay's size limit
@@ -74,6 +76,29 @@ final class WatchEngine {
             WatchSyncKeychain.save(newSync)
             install(newSync)
         }
+    }
+
+    /// "Standalone watch" was turned off on the phone: forget the identity and every key.
+    func wipe() {
+        queue.async { [self] in
+            WatchSyncKeychain.delete()
+            sync = nil
+            identity = nil
+            processor = nil
+            apns = nil
+            recording = nil
+            keepalive?.cancel()
+            keepalive = nil
+            let old = transport
+            transport = nil
+            links = [:]
+            old?.stop()
+        }
+    }
+
+    private func noteOpened(_ inbound: InboundPacket) {
+        guard let id = inbound.openedKeyID, id & 0x8000_0000 != 0 else { return }
+        DispatchQueue.main.async { [weak self] in self?.onUsedOneTimeKey?(id) }
     }
 
     private func install(_ newSync: WatchSync) {
@@ -361,6 +386,7 @@ final class WatchEngine {
             return
         }
         self.processor = processor
+        noteOpened(inbound)
         let sender = inbound.header.senderID
         guard let contact = contact(sender), let transport else { return }
         let burst = inbound.header.messageID
@@ -475,6 +501,7 @@ final class WatchEngine {
                 channelLookup: { id in sync.channels.first { $0.id == id } },
                 memberLookup: { id in sync.contacts.first { $0.senderID == id }?.identity },
                 pairSecret: sync.pairSecrets) else { continue }
+            noteOpened(inbound)
             switch inbound.message {
             case .burstStart(let s):
                 start = s
@@ -490,6 +517,8 @@ final class WatchEngine {
         }
         if let sender, let burst { processor.forgetBurst(sender: sender, burst: burst) }
         self.processor = processor
+        // A relay record can be re-posted under a new name: each message plays once.
+        if let sender, let burst, !Self.firstPlay(sender: sender, burst: burst) { return }
         guard let start, !frames.isEmpty,
               let decoder = VoiceCodecFactory.makeDecoder(codec: start.codec, sampleRate: start.sampleRate,
                                                           frameMilliseconds: start.frameMilliseconds),
@@ -504,6 +533,20 @@ final class WatchEngine {
         DispatchQueue.main.async { playback?(pcm) }
         let seconds = Double(frames.count * Int(start.frameMilliseconds)) / 1000
         queue.asyncAfter(deadline: .now() + seconds + 0.3) { [weak self] in self?.status(.idle) }
+    }
+
+    /// Messages played from the relay in the last day, by sender and message ID (PROTOCOL.md
+    /// §6.4), kept across launches. False if this one already played.
+    private static let playedKey = "playedRelayMessages"
+
+    private static func firstPlay(sender: SenderID, burst: MessageID, now: Date = Date()) -> Bool {
+        let key = sender.bytes.hex + burst.bytes.hex
+        var played = (UserDefaults.standard.dictionary(forKey: playedKey) as? [String: Double]) ?? [:]
+        played = played.filter { now.timeIntervalSince1970 - $0.value < Relay.lifetime + 3600 }
+        guard played[key] == nil else { return false }
+        played[key] = now.timeIntervalSince1970
+        UserDefaults.standard.set(played, forKey: playedKey)
+        return true
     }
 
     private func status(_ status: Status) {
@@ -605,6 +648,15 @@ enum WatchSyncKeychain {
             return nil
         }
         return try? JSONDecoder().decode(WatchSync.self, from: data)
+    }
+
+    static func delete() {
+        let base: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        SecItemDelete(base as CFDictionary)
     }
 
     static func save(_ sync: WatchSync) {

@@ -53,6 +53,7 @@ struct FacePairView: View {
             // phone closes before this one sees its confirmation. Group invites wait for that.
             pairing.onGotCard = { card in model.engine.addFacePaired(card) }
             pairing.onPaired = { card in
+                model.engine.faceVerified(card.id)
                 if let groupID { model.engine.addMember(card.id, toGroup: groupID) }
             }
             model.engine.faceCard { card in

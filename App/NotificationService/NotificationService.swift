@@ -78,7 +78,10 @@ final class NotificationService: UNNotificationServiceExtension {
             defer { self?.deliver() }
             guard let payload = try? await relay.fetch(recordName: record) else { return }
             // The same message already played from another record: a replay.
-            let packets = ((try? Relay.decode(payload)) ?? []).compactMap(sync.unshield)
+            // Protocol-1 packets from contacts on older builds count too (they aren't shielded).
+            let packets = ((try? Relay.decode(payload)) ?? []).compactMap { wire in
+                sync.unshield(wire) ?? (sync.isLegacyFromContact(wire) ? wire : nil)
+            }
             if RelayInbox.isReplayedCopy(packets, record: record) {
                 self?.showGeneric(content)
                 return

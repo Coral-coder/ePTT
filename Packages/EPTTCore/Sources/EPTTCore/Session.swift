@@ -47,15 +47,39 @@ public struct PQOffer: Equatable {
     public var timestamp: UInt64
     public var kemPublicKey: Data
     public var dhPublicKey: Data
+    /// Ed25519 over `restartInput`: an offer from the classical epoch 0 is signed, so a peer
+    /// whose session is already post-quantum can tell a genuine restart (they lost their state,
+    /// or reset the link) from one forged with a stolen or broken static X25519 key.
+    public var signature: Data?
 
     public var encoded: Data {
+        var b = unsignedFields
+        b.addIfPresent(.signature, signature)
+        return b.encoded
+    }
+
+    private var unsignedFields: TLVBuilder {
         var b = TLVBuilder()
         b.add(.timestamp, integer: timestamp)
         b.add(.ephemeralKey, dhPublicKey)
         b.add(.kemPublicKey, kemPublicKey)
         b.add(.offerID, offerID.bytes)
         b.add(.baseEpoch, integer: baseEpoch)
-        return b.encoded
+        return b
+    }
+
+    /// What a restart signature covers: the label, the channel, and every other field.
+    public func restartInput(channelID: ChannelID) -> Data {
+        Primitives.v2("restart") + channelID.bytes + unsignedFields.encoded
+    }
+
+    public mutating func signRestart(by identity: LocalIdentity, channelID: ChannelID) throws {
+        signature = try identity.sign(restartInput(channelID: channelID))
+    }
+
+    public func hasValidRestartSignature(from peer: PublicIdentity, channelID: ChannelID) -> Bool {
+        guard let signature else { return false }
+        return peer.isValidSignature(signature, for: restartInput(channelID: channelID))
     }
 
     public init(offerID: MessageID, baseEpoch: UInt16, timestamp: UInt64, kemPublicKey: Data, dhPublicKey: Data) {
@@ -73,6 +97,7 @@ public struct PQOffer: Equatable {
         kemPublicKey = try f.require(.kemPublicKey)
         offerID = try MessageID(bytes: try f.require(.offerID))
         baseEpoch = try f.requireUInt(.baseEpoch)
+        signature = f.first(.signature)
         guard dhPublicKey.count == 32, kemPublicKey.count == PQKEM.publicKeyLength else {
             throw DecodingError.invalid("rekey offer keys")
         }

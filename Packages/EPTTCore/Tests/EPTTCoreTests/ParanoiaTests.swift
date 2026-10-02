@@ -497,4 +497,90 @@ final class ParanoiaTests: XCTestCase {
         store.revoke(carol.id)
         XCTAssertEqual(store.count, 0)
     }
+
+    // MARK: Restarts and rekey binding
+
+    /// An offer from epoch 0 carries its sender's signature, over every field and the channel.
+    func testRestartOfferIsSigned() throws {
+        let p = try pair(alice, bob)
+        var sa = p.a.session!
+        var offer = try sa.offer()
+        XCTAssertFalse(offer.hasValidRestartSignature(from: alice.publicIdentity, channelID: p.a.id), "unsigned")
+        try offer.signRestart(by: alice, channelID: p.a.id)
+        let received = try PQOffer(decoding: offer.encoded)
+        XCTAssertTrue(received.hasValidRestartSignature(from: alice.publicIdentity, channelID: p.b.id))
+        // Not from someone else, not for another channel, not with any field changed.
+        XCTAssertFalse(received.hasValidRestartSignature(from: carol.publicIdentity, channelID: p.b.id))
+        XCTAssertFalse(received.hasValidRestartSignature(from: alice.publicIdentity, channelID: .random()))
+        var moved = received; moved.dhPublicKey = Curve25519.KeyAgreement.PrivateKey().publicKey.rawRepresentation
+        XCTAssertFalse(moved.hasValidRestartSignature(from: alice.publicIdentity, channelID: p.b.id))
+        // Carol forging one with Alice's stolen static X25519 key still can't sign as Alice.
+        var forged = try sa.offer()
+        try forged.signRestart(by: carol, channelID: p.a.id)
+        XCTAssertFalse(forged.hasValidRestartSignature(from: alice.publicIdentity, channelID: p.b.id))
+    }
+
+    /// A rekey message's base epoch must be the epoch it was sealed under: the classical epoch-0
+    /// key can't be used to claim a later base.
+    func testRekeyBaseEpochMatchesItsKey() throws {
+        var p = try pair(alice, bob)
+        try rekey(&p, alice, bob)
+        var sa = p.a.session!
+        let offer = try sa.offer()
+        XCTAssertEqual(offer.baseEpoch, 1)
+        // Sealed under epoch 0 (anyone with the static keys could compute it), claiming base 1.
+        let epochZero = try XCTUnwrap(p.a.session?.channelKeys(channelID: p.a.id, epoch: 0))
+        let parts = try PacketBuilder(local: alice).sealFragmented(.pqOffer, plaintext: offer.encoded, keys: epochZero)
+        var processor = PacketProcessor(local: bob)
+        let b = p.b
+        var errors: [Error] = []
+        for part in parts {
+            do {
+                _ = try processor.process(part, channelLookup: { _ in b }, memberLookup: { _ in self.alice.publicIdentity })
+            } catch { errors.append(error) }
+        }
+        XCTAssertTrue(errors.contains { ($0 as? InboundError) == .malformed }, "refused: \(errors)")
+    }
+
+    // MARK: One-time key replay
+
+    /// A one-time key batch delivered twice (a replayed relay record) never hands back keys
+    /// already used, so no key is ever sealed to twice.
+    func testReplayedOneTimeKeysAreNotReused() throws {
+        var issuer = OneTimeKeyStore()
+        var contact = Contact(identity: alice.publicIdentity, name: "A", relayMailbox: nil)
+        let batch = issuer.issue(to: bob.id, count: 5)
+        contact.add(oneTimeKeys: batch)
+        var used: Set<UInt32> = []
+        while let key = contact.takeOneTimeKey() { used.insert(key.id) }
+        XCTAssertEqual(used.count, 5)
+        contact.add(oneTimeKeys: batch)
+        XCTAssertEqual(contact.availableOneTimeKeys, 0)
+        contact.add(oneTimeKeys: issuer.issue(to: bob.id, count: 3))
+        while let key = contact.takeOneTimeKey() { XCTAssertFalse(used.contains(key.id)) }
+    }
+
+    // MARK: Group removals
+
+    /// Removals travel inside the sealed invite.
+    func testGroupInviteCarriesRemovals() throws {
+        let aliceCard = try ContactCard(signing: alice, name: "Alice", timestamp: 1, reachability: .init())
+        let bobCard = try ContactCard(signing: bob, name: "Bob", timestamp: 1, reachability: .init())
+        let removed = [GroupRemoval(member: carol.id, epoch: 7)]
+        let invite = GroupInvite(timestamp: currentTimestamp(), name: "Crew", keys: .newGroup(),
+                                 memberCards: [aliceCard, bobCard], removed: removed)
+        let messageID = MessageID.random()
+        var prekeys = PrekeyStore()
+        prekeys.rotateIfNeeded()
+        let secret = Data.random(count: 32)
+        let epoch = EpochKeys(epoch: 2, channelKey: .random(count: 32), burstSecret: secret, retired: nil)
+        let target = try XCTUnwrap(SealTarget(identity: bob.publicIdentity, oneTimeKey: nil,
+                                              prekey: try prekeys.current(signedBy: bob), epoch: epoch))
+        let opened = try GroupInvite(decoding: try invite.sealed(for: target, messageID: messageID), messageID: messageID,
+                                     recipient: bob.senderID, sender: alice.publicIdentity,
+                                     agreement: bob.keyAgreement(prekeys: { prekeys }),
+                                     pairSecret: { $1 == 2 ? secret : nil })
+        XCTAssertEqual(opened.removed, removed)
+        XCTAssertEqual(opened, invite)
+    }
 }

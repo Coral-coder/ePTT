@@ -12,6 +12,8 @@ public struct Contact: Identifiable, Equatable, Codable {
     public var cardData: Data
     /// Their one-time prekeys we haven't used yet (optional so older saved state decodes).
     private var oneTimeKeys: [OneTimeKey]?
+    /// IDs of their one-time keys we already used, so a replayed batch can't hand them back.
+    private var usedOneTimeKeyIDs: [UInt32]?
     /// When we confirmed this is really them (optical handshake, or safety number compared).
     /// Nil: unverified, e.g. added from a link that could have been swapped in transit.
     public var verifiedAt: Date?
@@ -70,7 +72,8 @@ public struct Contact: Identifiable, Equatable, Codable {
     /// issuer's own cap (it deletes its oldest beyond that); ignores duplicates.
     public mutating func add(oneTimeKeys batch: [(id: UInt32, publicKey: Data)], now: Date = Date()) {
         var keys = oneTimeKeys ?? []
-        for key in batch where !keys.contains(where: { $0.id == key.id }) {
+        let used = Set(usedOneTimeKeyIDs ?? [])
+        for key in batch where !used.contains(key.id) && !keys.contains(where: { $0.id == key.id }) {
             keys.append(OneTimeKey(id: key.id, publicKey: key.publicKey, received: now))
         }
         oneTimeKeys = Array(keys.suffix(OneTimeKeyStore.maxOutstanding))
@@ -83,6 +86,7 @@ public struct Contact: Identifiable, Equatable, Codable {
         keys.removeAll { now.timeIntervalSince($0.received) > OneTimeKeyStore.peerLifetime }
         let key = keys.popLast()
         oneTimeKeys = keys
+        if let key { usedOneTimeKeyIDs = Array(((usedOneTimeKeyIDs ?? []) + [key.id]).suffix(512)) }
         return key
     }
 

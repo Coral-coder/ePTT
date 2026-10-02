@@ -89,6 +89,7 @@ tag: u8 | length: u16 | value: length bytes
 | 0x24 | member_card | a complete contact card (§4), repeatable |
 | 0x25 | sealed_invite | `prekey_id: u32 | pair_epoch: u16 | AEAD ciphertext` (§6.3) |
 | 0x26 | invite_secret | 32 bytes, a group code's secret (§6.5) |
+| 0x27 | removed_member | `identity_id (16) | epoch: u16`, a member removed from a talk group (§5.2), repeatable |
 | 0x40 | card_version | u8, currently 1 |
 | 0x41 | sign_pk | 32 bytes, Ed25519 public key |
 | 0x42 | kx_pk | 32 bytes, X25519 public key |
@@ -268,10 +269,23 @@ and `epoch` = 1. Then:
 - `channel_id = group_id` and `channel_key = group_key`.
 - A rekey increments `epoch` and draws a fresh `group_key`. It goes to every
   remaining member in a GROUP_INVITE (§6.3). The rekey's member list replaces the
-  receiver's.
-- A device that **removes a member** rekeys the group at once. When a member
-  leaves (GROUP_LEAVE), the remaining member whose `identity_id` sorts lowest
-  rekeys.
+  receiver's. A receiver takes a rekey at most **16** epochs ahead of its own (a
+  member who missed a few still catches up; no one can jump far enough to make later
+  rekeys look old). Epochs never wrap: a group at epoch 65535 is not rekeyed.
+- If two rekeys arrive for the same epoch with different keys, every member keeps the
+  one whose `group_key` sorts lower bytewise, with both member lists merged.
+- A device that **removes a member** records `removed_member = (identity_id,
+  epoch of the rekey)` and rekeys the group at once. Every invite carries the group's
+  removals (at most 64), and every member keeps the union of all it has seen. A removal
+  is lifted only by a newer key, from someone other than the removed member, whose
+  member list names them again (they were added back, which always rekeys).
+- A member drops anyone its removals name from its list. If a removed member still
+  holds the key it is left with, or a kept member lacks it after a same-epoch race,
+  it rekeys.
+- An invite older than the current epoch adds no one (it could bring back someone
+  removed since); it still contributes its removals.
+- When a member leaves (GROUP_LEAVE), the remaining member whose `identity_id` sorts
+  lowest rekeys.
 - Receivers keep the key of the one previous epoch, and accept packets under it,
   until the next rekey replaces it.
 
@@ -291,10 +305,19 @@ Only the newest root is kept.
 
 ```
 PQ_OFFER  = timestamp, ephemeral_pk (dh_i, 32), kem_public_key (kem_pk, 1568), offer_id (8), base_epoch (u16)
+            [, signature (64)]
 PQ_ACCEPT = timestamp, ephemeral_pk (dh_r, 32), kem_ciphertext (kem_ct, 1568), offer_id (8), base_epoch (u16)
 ```
 
-A decoder rejects any other key or ciphertext length.
+A decoder rejects any other key or ciphertext length, and any PQ_OFFER or PQ_ACCEPT
+whose `base_epoch` differs from the epoch in its packet header: a rekey message is
+only believed under the key of the epoch it starts from.
+
+An offer with `base_epoch` 0 carries a **restart signature**:
+
+```
+signature = Ed25519(sign_sk, v2("restart") || channel_id || every other field, TLV-encoded)
+```
 
 **Sealing and fragments.** Both are sealed on the direct channel under
 `channel_key_{base_epoch}`, with a fresh random `message_id` for every transmission
@@ -354,6 +377,14 @@ Rules:
   *different* offer from base epoch `e`, then its accept never arrived. It deletes
   epoch `e+1`, returns to `root_e` (which it kept for this case only), and answers
   the new offer.
+- **Restart.** A device past epoch 0 that receives an offer from base epoch 0 it hasn't
+  answered (the peer lost its state, or reset the link) starts over at epoch 0 and
+  answers it, but only if the offer's restart signature verifies with the peer's pinned
+  `sign_pk` and the offer is newer than its current epoch. Otherwise it ignores it.
+  Epoch 0 is keyed by the static X25519 keys alone, so without the signature anyone who
+  stole or broke one could replace a post-quantum session with their own. The same
+  rule covers a lost accept from epoch 0. After a restart the device also drops the
+  peer's one-time prekeys it held.
 - **Pending offer.** An initiator re-sends its pending offer while no accept
   arrives: every 8 s while the contact is linked, otherwise every 60 s to its last
   known addresses, and once through the relay (§11). The offer's KEM and X25519
@@ -691,7 +722,9 @@ channels carry no such signature, because there only the two peers hold the keys
   haven't yet applied the rekey and still seal envelopes to it.
 
 Groups are still for people who trust each other. Outsiders, including former members
-once the rekey has reached everyone, can do none of this.
+once the rekey has reached everyone, can do none of this. A member about to be removed
+can't keep its place by rekeying first: the removal travels with every later invite,
+and whoever still finds it in a list it keeps rekeys it out (§5.2).
 
 ## 7. Bursts and floor control
 

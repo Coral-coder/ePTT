@@ -72,6 +72,10 @@ public struct Channel: Identifiable, Equatable, Codable {
     public var members: [IdentityID]
     /// Whether incoming traffic on this channel should be played (Nextel "scan").
     public var isMonitored: Bool
+    /// Talk groups: members removed, kept so an invite that raced the removal can't undo it.
+    public var removed: [GroupRemoval]?
+    /// Talk groups: who sent us the current key (nil: we made it).
+    public var keyAuthor: IdentityID?
 
     public init(kind: ChannelKind, name: String, keys: ChannelKeys, members: [IdentityID], isMonitored: Bool = true) {
         self.kind = kind

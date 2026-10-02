@@ -37,6 +37,10 @@ final class WatchModel: NSObject, ObservableObject {
             if case .playing = status { WKInterfaceDevice.current().play(.notification) }
         }
         engine.onPlayback = { [weak self] pcm in self?.audio.play(pcm) }
+        // One-time keys used here are deleted on the phone too (it holds the originals).
+        engine.onUsedOneTimeKey = { [weak self] id in
+            self?.session?.transferUserInfo([WatchProtocol.usedOneTimeKeys: [Int(id)]])
+        }
         refreshStandalone()
         // On its own, keep checking the relay while the app is open.
         pollTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
@@ -264,6 +268,14 @@ extension WatchModel: WCSessionDelegate {
     nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
         if let claim = userInfo[WatchProtocol.phoneClaim] as? Double {
             Task { @MainActor in self.phoneClaimed(at: claim) }
+        }
+        if userInfo[WatchProtocol.wipe] != nil {
+            WatchEngine.shared.wipe()
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                self.refreshStandalone()
+            }
+            return
         }
         guard let data = userInfo[WatchProtocol.sync] as? Data,
               let sync = try? JSONDecoder().decode(WatchSync.self, from: data) else { return }

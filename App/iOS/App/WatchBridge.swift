@@ -56,6 +56,15 @@ final class WatchBridge: NSObject {
         session.transferUserInfo([WatchProtocol.sync: data])
     }
 
+    /// "Standalone watch" turned off: the watch deletes what it holds. Pending syncs are dropped.
+    func sendWipe() {
+        guard let session, session.activationState == .activated, session.isWatchAppInstalled else { return }
+        for transfer in session.outstandingUserInfoTransfers where transfer.userInfo[WatchProtocol.sync] != nil {
+            transfer.cancel()
+        }
+        session.transferUserInfo([WatchProtocol.wipe: true])
+    }
+
     /// This phone took over: tell the watch now if it's reachable, and queue it otherwise.
     func sendPhoneClaim(_ date: Date) {
         guard let session, session.activationState == .activated, session.isWatchAppInstalled else { return }
@@ -117,6 +126,9 @@ extension WatchBridge: WCSessionDelegate {
             engine?.watchClaimed(at: Date(timeIntervalSince1970: at))
         }
         if userInfo[WatchProtocol.handBack] != nil { engine?.watchHandedBack() }
+        if let used = userInfo[WatchProtocol.usedOneTimeKeys] as? [Int] {
+            engine?.oneTimeKeysUsedOnWatch(used.compactMap { UInt32(exactly: $0) })
+        }
     }
 
     func session(_ session: WCSession, didReceiveMessageData messageData: Data) {

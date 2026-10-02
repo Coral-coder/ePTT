@@ -130,6 +130,12 @@ X25519, and epoch 0 is static-static X25519. So:
   content, but it does carry metadata (see the table in §3).
 - An adversary who can already break X25519 when two people pair, and who is active on
   the path before their first rekey completes, can sit in the middle of that rekey.
+- Later, going back to epoch 0 (a restart, when a peer lost its state or reset the link)
+  needs an offer signed with the peer's Ed25519 key, and the base epoch of every rekey
+  message must match the key it was sealed under. A stolen or broken X25519 key alone can
+  no longer replace a post-quantum session. An adversary who can also forge Ed25519 (a
+  quantum computer, or a stolen signing key) still can, and the app then says "<name>
+  reset your secure link".
 - In the future, contact cards, prekeys and BURST_START signatures can be forged.
 
 The protection is against "harvest now, decrypt later". It is not protection against an
@@ -152,8 +158,13 @@ active quantum attacker who is present at bootstrap. ML-DSA is not used.
 - **Screen.** The app covers itself when it isn't frontmost (the app-switcher snapshot
   iOS writes to disk shows nothing) and while the screen is recorded or mirrored.
 - **Decrypted audio at rest.** A lock-screen notification sound has to be plain audio
-  on disk; it is deleted 10 minutes after arriving. A replayable message is deleted after
-  an hour. Settings › Privacy erases both at once.
+  on disk; it is deleted 10 minutes after arriving (by the next message or the next time
+  the app runs). A replayable message is deleted after an hour. Messages held by Do Not
+  Disturb from a live link are kept decoded until played, at most a day. Settings ›
+  Privacy erases all of these at once.
+- **Backups.** The app's state file (session, epoch and group keys, contacts, relay
+  secret) is excluded from iCloud and computer backups. Keychain items are
+  this-device-only and never sync.
 - **Bonjour.** Instance names are random per launch.
 
 ### 4.5 Group sender authentication
@@ -166,7 +177,9 @@ as one another, or splice frames into another member's burst.
 
 Removing a member rekeys the group at once. The new key goes only to the remaining
 members, sealed to each one's pairwise session. When a member leaves, the remaining
-member whose identity sorts lowest rekeys. Audio is not protected by the group key in
+member whose identity sorts lowest rekeys. Removals travel with every later invite and
+every member keeps them, so a member about to be removed can't keep its place by rekeying
+first, and rekeys can't jump more than 16 epochs ahead (PROTOCOL.md §5.2). Audio is not protected by the group key in
 any case: every burst key is wrapped only to the members the talker lists.
 
 ### 4.7 Verification
@@ -194,8 +207,12 @@ the only defence.
   Apple can link the sender's IP address to the recipient's push token. CloudKit sees
   which account uploads and which device fetches each relay record. Push tokens are
   shared with every contact. Builds that bundle the APNs provider key let anyone who
-  extracts it send pushes to a token they know. Such pushes can wake the app, but their
-  payloads are dropped because they don't authenticate.
+  extracts it send pushes to a token they know. Such pushes can wake the app; their
+  packets are dropped because they don't authenticate. But an alert push sent without
+  `mutable-content` never reaches the notification extension, so iOS shows its text
+  as-is, labelled NXTPTT: treat unexpected NXTPTT notifications that don't come from a
+  contact with suspicion. A leaked provider key can usually push to the team's other
+  apps too.
 - **Relay mailbox.** The master mailbox secret is in contact links and QR codes. Anyone
   who sees one can watch the master inbox, which only receives traffic from people who
   added us by that link and haven't heard from us since. Every other contact writes to
@@ -211,7 +228,9 @@ the only defence.
 - **Apple Watch.** To work without the iPhone, the watch holds a copy of the identity
   keys, prekeys, one-time keys, sessions and group keys, sent over WatchConnectivity.
   A key deleted on the phone stays on the watch until the next sync replaces the copy.
-  Forward secrecy on the watch therefore lags the phone.
+  Forward secrecy on the watch therefore lags the phone. One-time keys the watch uses are
+  reported back to the phone, which deletes them. Turning off "Standalone watch" tells
+  the watch to delete everything it holds.
 - **Notification extension.** To play relayed messages while the app is suspended, the
   extension reads a snapshot of the same keys from a shared Keychain access group. A
   one-time key it uses is deleted by the app later, up to 24 h after use. The snapshot
@@ -235,11 +254,15 @@ per-burst forward secrecy under classical X25519, but no post-quantum layer, no 
 or padding, and no group sender signatures. A group key sent to such a member travels under
 classical cryptography. The app marks these contacts "OLDER APP".
 
-A downgrade lock bounds the damage. The first authenticated protocol-2 packet from a contact
-moves them to protocol 2 permanently: from then on, protocol-1 packets claiming to be from them
-are dropped and nothing goes to them in protocol 1. An attacker who suppresses protocol-2
-traffic can delay that upgrade, but can't undo it, and can't forge protocol-1 traffic without
-the static keys.
+A downgrade lock bounds the damage. Once the post-quantum link with a contact is up, nothing
+goes to them in protocol 1 again, and once they've been heard under a post-quantum epoch,
+protocol-1 packets claiming to be from them are dropped. The lock is never lowered, not even
+when the link restarts: a locked contact without a post-quantum session gets nothing until the
+link is back. An attacker who suppresses protocol-2 traffic can delay the first upgrade, but
+can't undo it, and can't forge protocol-1 traffic without the static keys.
+
+Group keys go out in protocol 1 only to contacts actually heard on protocol 1 (an older
+build). Anyone else gets a group key only once the post-quantum link with them is up.
 
 ## 6. Comparison
 

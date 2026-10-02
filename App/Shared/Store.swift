@@ -186,6 +186,7 @@ enum Store {
             let backup = url.deletingLastPathComponent().appendingPathComponent("eptt-state.unreadable.json")
             try? FileManager.default.removeItem(at: backup)
             try? FileManager.default.copyItem(at: url, to: backup)
+            excludeFromBackup(backup)
             return PersistedState()
         }
     }
@@ -194,6 +195,16 @@ enum Store {
         guard !readFailed, let data = try? JSONEncoder().encode(state) else { return }
         // Readable after first unlock so a push can wake a locked phone and still load contacts.
         try? data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        excludeFromBackup(url)
+    }
+
+    /// The state holds session and group keys: they stay on this device, never in an iCloud or
+    /// computer backup (the identity keys they belong to don't restore elsewhere anyway).
+    private static func excludeFromBackup(_ file: URL) {
+        var file = file
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? file.setResourceValues(values)
     }
 }
 

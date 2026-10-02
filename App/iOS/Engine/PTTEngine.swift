@@ -1149,9 +1149,12 @@ final class PTTEngine {
             }
             return
         } catch InboundError.replay {
-            // Retransmitted BURST_START/END; still proof the peer is reachable here.
-            if let endpoint, let header = try? PacketHeader(packet: data), contact(header.senderID) != nil {
-                noteHeard(header.senderID, at: endpoint)
+            // A retransmitted BURST_START/END keeps a live link fresh, but only on the path we
+            // already have: anyone can re-send a captured packet from their own address, and
+            // that must never move where we send their audio.
+            if let endpoint, let header = try? PacketHeader(packet: data),
+               let link = links[header.senderID], link.endpoint == endpoint {
+                links[header.senderID]?.lastHeard = Date()
             }
             return
         } catch {
@@ -1285,8 +1288,11 @@ final class PTTEngine {
             if holds(sender) {
                 emit(.message("Call alert from \(contact(sender)?.name ?? alert.name) · held by Do Not Disturb"))
             } else {
-                audioOrNotify(.callAlert, title: "Call alert", body: "\(alert.name) is trying to reach you")
-                emit(.callAlert(from: alert.name, text: alert.text))
+                // The name we know them by: the one in the alert is whatever the sender typed,
+                // and in a group any member could put someone else's there.
+                let name = contact(sender)?.name ?? alert.name
+                audioOrNotify(.callAlert, title: "Call alert", body: "\(name) is trying to reach you")
+                emit(.callAlert(from: name, text: alert.text))
             }
         case .wake(let wake):
             if let contact = self.contact(sender) { respondToWake(wake, from: contact) }
@@ -1330,6 +1336,15 @@ final class PTTEngine {
 
     /// Which one-time key opened a burst still being received.
     private var oneTimeKeyForBurst: [MessageID: UInt32] = [:]
+
+    /// The watch opened messages sealed to these one-time keys: delete them here too.
+    func oneTimeKeysUsedOnWatch(_ ids: [UInt32]) {
+        queue.async { [self] in
+            guard !ids.isEmpty else { return }
+            for id in ids { prekeys.oneTime.markUsed(id) }
+            saveOneTimeKeys()
+        }
+    }
 
     /// One-time keys the notification extension opened messages with: mark them used, so they
     /// are deleted once the message's relay copy can no longer be fetched again.
@@ -1403,9 +1418,11 @@ final class PTTEngine {
         // (the relay gets each offer once).
         let every = isLinked(contact.senderID) ? PTTEngine.offerResend : 60
         guard now.timeIntervalSince(lastOfferSent[state.channels[i].id] ?? .distantPast) >= every else { return }
-        guard let offer = try? session.offer(now: now),
-              let keys = session.channelKeys(channelID: state.channels[i].id, epoch: offer.baseEpoch),
-              let packets = try? builder.sealFragmented(.pqOffer, plaintext: offer.encoded, keys: keys) else { return }
+        guard var offer = try? session.offer(now: now),
+              let keys = session.channelKeys(channelID: state.channels[i].id, epoch: offer.baseEpoch) else { return }
+        // From the classical epoch: signed, so a peer already post-quantum can believe a restart.
+        if offer.baseEpoch == 0 { try? offer.signRestart(by: identity, channelID: state.channels[i].id) }
+        guard let packets = try? builder.sealFragmented(.pqOffer, plaintext: offer.encoded, keys: keys) else { return }
         state.channels[i].apply(session: session)
         lastOfferSent[state.channels[i].id] = now
         save()
@@ -1424,11 +1441,18 @@ final class PTTEngine {
             restartSession(with: contact, reason: "their offer is from epoch \(offer.baseEpoch), we're at \(session.epoch)")
             return
         }
-        if offer.baseEpoch == 0, session.epoch > 0, !session.hasAnswered(offer.offerID),
-           Double(offer.timestamp) / 1000 > session.epochStarted.timeIntervalSince1970 + 30 {
-            // A fresh offer from the classical epoch, made after our current epoch began: they
-            // lost or reset their side. Start over with them and answer it.
+        if offer.baseEpoch == 0, session.epoch > 0, !session.hasAnswered(offer.offerID) {
+            // An offer from the classical epoch while we're past it: only a genuine restart (they
+            // lost or reset their side) may take us back, and only if they signed it. Epoch 0 is
+            // keyed by the static X25519 keys alone, so without the signature anyone who stole or
+            // broke one could replace our post-quantum session with one of their own.
+            guard offer.hasValidRestartSignature(from: contact.identity, channelID: channelID) else {
+                noteLink(contact.id, "refused an unsigned offer from epoch 0 (we're at \(session.epoch))")
+                return
+            }
+            guard Double(offer.timestamp) / 1000 > session.epochStarted.timeIntervalSince1970 + 30 else { return }
             restartSession(with: contact, reason: "they restarted from epoch 0", offerNow: false)
+            emit(.message("\(contact.name) reset your secure link"))
             guard let fresh = state.channels[i].session else { return }
             session = fresh
         }
@@ -1486,6 +1510,9 @@ final class PTTEngine {
         lastRestart[contact.id] = Date()
         state.channels[i].apply(session: fresh)
         lastOfferSent[state.channels[i].id] = nil
+        // One-time keys they handed the old session may be gone on their side (or never theirs):
+        // fresh ones come after the new exchange.
+        if let c = contactsBySender[contact.senderID] { state.contacts[c].dropOneTimeKeys() }
         save()
         noteLink(contact.id, "starting over: \(reason)")
         if offerNow { rekeyIfDue(contact) }
@@ -2122,12 +2149,18 @@ final class PTTEngine {
         queue.async { [self] in addContact(card) }
     }
 
-    private func addContact(_ card: ContactCard, announce: Bool = true) {
+    /// `forwarded`: the card came from someone else (a group invite). Its relay inbox was meant
+    /// for whoever it was first given to, so it isn't used: they send us their own.
+    private func addContact(_ card: ContactCard, announce: Bool = true, forwarded: Bool = false) {
         guard card.id != identity.id else { return }
         if let i = state.contacts.firstIndex(where: { $0.id == card.id }) {
+            let mailbox = state.contacts[i].reachability.relayMailbox
             state.contacts[i].apply(card: card)
+            if forwarded { state.contacts[i].reachability.relayMailbox = mailbox }
         } else {
-            state.contacts.append(Contact(card: card))
+            var contact = Contact(card: card)
+            if forwarded { contact.reachability.relayMailbox = nil }
+            state.contacts.append(contact)
             if let direct = try? Channel.direct(local: identity, peer: card), channelIndex[direct.id] == nil {
                 state.channels.append(direct)
             }
@@ -2202,6 +2235,9 @@ final class PTTEngine {
             guard let i = channelIndex[groupID], state.channels[i].kind == .group,
                   state.channels[i].members.contains(member) else { return }
             state.channels[i].members.removeAll { $0 == member }
+            let removal = GroupRemoval(member: member, epoch: state.channels[i].keys.epoch &+ 1)
+            state.channels[i].removed = Array(((state.channels[i].removed ?? []).filter { $0.member != member } + [removal])
+                .suffix(GroupRemoval.maxKept))
             rekeyGroup(at: i)
             emit(.message("\(contact(id: member)?.name ?? "They") can no longer hear \(state.channels[i].name)"))
         }
@@ -2210,8 +2246,15 @@ final class PTTEngine {
     /// A new group key at the next epoch, sealed to every remaining member.
     private func rekeyGroup(at i: Int) {
         let old = state.channels[i].keys
+        // Epochs only go up (a wrapped one would be refused by everyone): at the last one the
+        // group can't be rekeyed, and needs to be made again.
+        guard old.epoch < UInt16.max else {
+            log.error("A talk group reached its last epoch")
+            return
+        }
         state.channels[i].previousKeys = old
         state.channels[i].keys = old.rekeyed()
+        state.channels[i].keyAuthor = nil
         save()
         let group = state.channels[i]
         for member in group.members {
@@ -2233,11 +2276,13 @@ final class PTTEngine {
         for member in channel.members {
             if let c = self.contact(id: member), let card = try? ContactCard(encoded: c.cardData) { cards.append(card) }
         }
-        let invite = GroupInvite(timestamp: currentTimestamp(), name: channel.name, keys: channel.keys, memberCards: cards)
+        let invite = GroupInvite(timestamp: currentTimestamp(), name: channel.name, keys: channel.keys, memberCards: cards,
+                                 removed: channel.removed ?? [])
         let messageID = MessageID.random()
-        if peerProtocol(contact.senderID) == .classical {
-            // No post-quantum link yet: the group key goes to them in protocol 1 (classical),
-            // which every build reads.
+        if peerProtocol(contact.senderID) == .classical, state.contactProtocols[contact.id] == 1 {
+            // They're on an older build (we've heard protocol 1 from them): the group key goes to
+            // them in protocol 1 (classical), the only thing it reads. Anyone else gets the group
+            // key only under a post-quantum session (below), never classically.
             guard var link = legacy,
                   let packet = legacyOnly(try? link.sealInvite(invite, direct: direct, peer: contact.identity,
                                                               prekey: contact.reachability.prekey, messageID: messageID))
@@ -2312,6 +2357,10 @@ final class PTTEngine {
             if !state.channels[i].members.contains(id) {
                 state.channels[i].members.append(id)
                 save()
+            }
+            if readmit(id, at: i) {
+                emit(.message("\(newcomer.name) added to \(state.channels[i].name)"))
+                return
             }
             let group = state.channels[i]
             for member in group.members {
@@ -2474,12 +2523,30 @@ final class PTTEngine {
             state.channels[i].members.append(card.id)
             save()
         }
+        if readmit(card.id, at: i) {
+            emit(.message("\(card.name.isEmpty ? "Someone" : card.name) joined \(state.channels[i].name)"))
+            return
+        }
         let group = state.channels[i]
         for member in group.members {
             if let contact = self.contact(id: member) { sendInvite(group, to: contact) }
         }
         if isNew { emit(.message("\(card.name.isEmpty ? "Someone" : card.name) joined \(group.name)")) }
     }
+
+    /// Someone removed earlier is being added back: drop the removal and rekey, so the invite
+    /// that lists them is newer than the removal everyone remembers. True if it rekeyed (which
+    /// sends the invites).
+    private func readmit(_ id: IdentityID, at i: Int) -> Bool {
+        guard state.channels[i].removed?.contains(where: { $0.member == id }) == true else { return false }
+        state.channels[i].removed?.removeAll { $0.member == id }
+        rekeyGroup(at: i)
+        return true
+    }
+
+    /// How far ahead of ours a group rekey may be: a member offline for a few rekeys still
+    /// catches up, but no one can jump the epoch so far that later rekeys stop counting.
+    static let maxGroupEpochJump = 16
 
     private func acceptInvite(_ invite: GroupInvite, from sender: SenderID) {
         let memberIDs = invite.memberCards.map(\.id)
@@ -2495,44 +2562,101 @@ final class PTTEngine {
                 log.notice("Refused a group invite for a channel the sender can't change")
                 return
             }
-            guard invite.keys.epoch > existing.keys.epoch
-                    || (invite.keys.epoch == existing.keys.epoch && invite.keys == existing.keys) else { return }
+            updateGroup(at: i, with: invite, from: inviter)
+            return
         } else {
             // A new group's ID must not be one a private channel with any of its members would use.
             for card in invite.memberCards where card.id != identity.id {
                 if let direct = try? Channel.direct(local: identity, peer: card), direct.id == id { return }
             }
         }
-        for card in invite.memberCards where card.id != identity.id { addContact(card, announce: false) }
-        let others = memberIDs.filter { $0 != identity.id }
-        if let i = channelIndex[id] {
-            let existing = state.channels[i]
-            if invite.keys.epoch > existing.keys.epoch {
-                // A rekey: its member list is the whole truth (someone may have been removed).
-                state.channels[i].previousKeys = existing.keys
-                state.channels[i].members = others
-            } else {
-                state.channels[i].members = Array(Set(existing.members).union(others))
-            }
-            // A member renamed the group.
-            if !invite.name.isEmpty, invite.name != existing.name {
-                state.channels[i].name = invite.name
-                if state.settings.selectedChannel == id { ptt.setDescriptorName(invite.name) }
-                publish()
-            }
-            state.channels[i].keys = invite.keys
-            save()
-        } else {
-            state.channels.append(Channel(kind: .group, name: invite.name, keys: invite.keys, members: others))
-            if state.pendingJoins.contains(where: { (try? GroupJoinCode(encoded: $0))?.groupID == invite.keys.channelID }) {
-                // The group we asked to join: select it.
-                state.pendingJoins.removeAll { (try? GroupJoinCode(encoded: $0))?.groupID == invite.keys.channelID }
-                state.settings.selectedChannel = invite.keys.channelID
-            }
-            save()
-            publish()
-            emit(.joinedGroup(invite.name))
+        for card in invite.memberCards where card.id != identity.id {
+            addContact(card, announce: false, forwarded: card.id != inviter.id)
         }
+        let removedIDs = Set(invite.removed.map(\.member))
+        let others = memberIDs.filter { $0 != identity.id && !removedIDs.contains($0) }
+        var group = Channel(kind: .group, name: invite.name, keys: invite.keys, members: others)
+        group.removed = invite.removed.filter { $0.member != identity.id }
+        group.keyAuthor = inviter.id
+        state.channels.append(group)
+        if state.pendingJoins.contains(where: { (try? GroupJoinCode(encoded: $0))?.groupID == invite.keys.channelID }) {
+            // The group we asked to join: select it.
+            state.pendingJoins.removeAll { (try? GroupJoinCode(encoded: $0))?.groupID == invite.keys.channelID }
+            state.settings.selectedChannel = invite.keys.channelID
+        }
+        save()
+        publish()
+        emit(.joinedGroup(invite.name))
+    }
+
+    /// An invite for a group we're in, from a member: a rekey, a new member, a rename, or a copy
+    /// of what we have. Removals from it and ours both stand; if a removed member still holds
+    /// the key we end up with, we replace it.
+    private func updateGroup(at i: Int, with invite: GroupInvite, from inviter: Contact) {
+        let existing = state.channels[i]
+        let invited = Set(invite.memberCards.map(\.id))
+        let gap = Int(invite.keys.epoch) - Int(existing.keys.epoch)
+        let adopt: Bool
+        if gap > 0 {
+            adopt = gap <= PTTEngine.maxGroupEpochJump
+            if !adopt { log.notice("Refused a group rekey too far ahead (\(gap) epochs)") }
+        } else if gap == 0, invite.keys != existing.keys {
+            // Two members rekeyed at once: everyone keeps the same one of the two keys.
+            adopt = invite.keys.key.lexicographicallyPrecedes(existing.keys.key)
+        } else {
+            adopt = false
+        }
+
+        // A rekey's member list is the whole truth; an invite for the same epoch adds members.
+        // An older one adds nobody (it could bring back someone removed since).
+        var members: Set<IdentityID>
+        if gap > 0 {
+            members = adopt ? invited : Set(existing.members)
+        } else if gap == 0 {
+            members = Set(existing.members).union(invited)
+        } else {
+            members = Set(existing.members)
+        }
+        members.remove(identity.id)
+
+        // Removals: ours and theirs. One is lifted only by a newer key we take, sent by someone
+        // other than the removed member, that lists them again (they were added back).
+        var removals = existing.removed ?? []
+        for r in invite.removed where r.member != identity.id && !removals.contains(r) { removals.append(r) }
+        if adopt {
+            removals.removeAll { invited.contains($0.member) && invite.keys.epoch > $0.epoch && inviter.id != $0.member }
+        }
+        let removedIDs = Set(removals.map(\.member))
+        let droppedNow = Set(existing.members).intersection(removedIDs)
+        members.subtract(removedIDs)
+        // New members we don't know yet become contacts (only from an invite we go along with).
+        if adopt || gap == 0 {
+            for card in invite.memberCards where card.id != identity.id && members.contains(card.id) {
+                addContact(card, announce: false, forwarded: card.id != inviter.id)
+            }
+        }
+
+        // Who holds the key we keep: if any of them is removed, or a member we keep doesn't
+        // have it (a same-epoch race lost their invite), a new key goes to everyone left.
+        let holders = adopt ? invited : Set(existing.members).union([identity.id])
+        let mustRekey = !holders.isDisjoint(with: removedIDs) || !droppedNow.isEmpty
+            || (adopt && gap == 0 && !members.isSubset(of: invited))
+
+        if adopt {
+            state.channels[i].previousKeys = existing.keys
+            state.channels[i].keys = invite.keys
+            state.channels[i].keyAuthor = inviter.id
+        }
+        state.channels[i].members = Array(members).sorted()
+        state.channels[i].removed = Array(removals.suffix(GroupRemoval.maxKept))
+        // A member renamed the group (only from an invite we go along with).
+        if adopt || gap == 0, !invite.name.isEmpty, invite.name != existing.name {
+            state.channels[i].name = invite.name
+            if state.settings.selectedChannel == existing.id { ptt.setDescriptorName(invite.name) }
+        }
+        save()
+        publish()
+        if mustRekey { rekeyGroup(at: i) }
     }
 
     // MARK: - Settings and selection
@@ -2675,12 +2799,16 @@ final class PTTEngine {
     }
 
     /// Adds a contact whose signed card was read face to face, and says hello straight to the
-    /// addresses it lists. They hold our card already, so nothing waits on the relay.
+    /// addresses it lists. They hold our card already, so nothing waits on the relay. Not yet
+    /// verified: another screen in view could have been read first (`faceVerified` marks it once
+    /// both phones confirmed the exchange).
     func addFacePaired(_ card: ContactCard) {
-        queue.async { [self] in
-            addContact(card)
-            markVerified(card.id)
-        }
+        queue.async { [self] in addContact(card) }
+    }
+
+    /// The face-to-face handshake completed both ways with this card.
+    func faceVerified(_ id: IdentityID) {
+        queue.async { [self] in markVerified(id) }
     }
 
     /// Confirmed in person (optical handshake) or by comparing safety numbers.
@@ -3204,14 +3332,14 @@ final class PTTEngine {
         save()
     }
 
-    /// Fixes the latch after an update: latched only where the post-quantum link is up, and
-    /// latched wherever it is (earlier builds latched on any protocol-2 packet).
+    /// Latches wherever the post-quantum link is up. Only ever raises a latch: lowering one at
+    /// launch would let protocol 1 back in, and an attacker who blocks protocol 2 could then
+    /// keep the pair classical. A latched contact without a post-quantum session gets nothing
+    /// until the link is re-established (never a protocol-1 copy).
     private func settleProtocolLatches() {
         for contact in state.contacts {
             let secure = (directChannel(for: contact.id)?.session?.sendEpoch ?? 0) >= 1
-            if secure { state.contactProtocols[contact.id] = 2 } else if (state.contactProtocols[contact.id] ?? 0) >= 2 {
-                state.contactProtocols[contact.id] = nil
-            }
+            if secure, (state.contactProtocols[contact.id] ?? 0) < 2 { state.contactProtocols[contact.id] = 2 }
         }
     }
 
@@ -3405,9 +3533,22 @@ final class PTTEngine {
         RelayInbox.saveSnapshot(snapshot)
     }
 
+    /// Tells the watch to delete the identity and keys it holds.
+    var onWatchWipe: (() -> Void)?
+    private var watchWiped = false
+
     /// Mirrors what a standalone watch needs, only when it changed.
     private func syncWatch() {
-        guard state.settings.standaloneWatch else { return }
+        guard state.settings.standaloneWatch else {
+            // Turned off: the watch must not keep acting as us.
+            if !watchWiped, let onWatchWipe {
+                watchWiped = true
+                lastWatchSync = nil
+                onWatchWipe()
+            }
+            return
+        }
+        watchWiped = false
         let sync = WatchSync(signingSeed: identity.signingSeed, keyAgreementSeed: identity.keyAgreementSeed,
                              prekeys: prekeys.store, displayName: state.settings.displayName,
                              contacts: state.contacts, channels: state.channels,
@@ -3488,6 +3629,7 @@ final class PTTEngine {
     func resyncWatch() {
         queue.async { [self] in
             lastWatchSync = nil
+            watchWiped = false
             syncWatch()
         }
     }

@@ -2,6 +2,7 @@ import AVFoundation
 import Foundation
 import Security
 import EPTTCore
+import EPTTCompat
 
 /// What lets the notification service extension play a relayed message while NXTPTT itself is
 /// suspended, without a push key: iCloud notifies us of a new relay record, the extension opens
@@ -298,11 +299,13 @@ enum RelayInbox {
     }
 
     /// Erases every received message this device still holds in the clear or could replay:
-    /// decoded notification sounds and the replay copy. (Held Do Not Disturb messages stay
-    /// sealed until they play, and are deleted as they do.)
+    /// decoded notification sounds, the replay copy, and Do Not Disturb messages held from a
+    /// live link (kept as decoded frames). Held relay messages stay sealed until they play, and
+    /// are deleted as they do.
     static func burnReceivedAudio() {
         purgeOldSounds(olderThan: 0)
         burnLastReceived()
+        for held in heldMessages() where held.source == .frames { removeHeld(held.id) }
     }
 
     /// The last message's details if it can be replayed, without reading its audio (cheap).
@@ -454,6 +457,12 @@ enum RelayInbox {
 
     private static func relayedIDs(_ packets: [Data]) -> [String] {
         packets.compactMap { packet in
+            if packet.first == 1 {
+                // Protocol 1 (an older build): its clear header names the sender and message.
+                guard LegacyLink.looksLegacy(packet), let sender = LegacyLink.senderID(of: packet),
+                      let message = LegacyLink.messageID(of: packet) else { return nil }
+                return (sender.bytes + message.bytes).base64EncodedString()
+            }
             guard let header = try? PacketHeader(packet: packet),
                   header.type == .burstStart || header.type == .callAlert else { return nil }
             return (header.senderID.bytes + header.messageID.bytes).base64EncodedString()
