@@ -288,9 +288,9 @@ final class OrbitClock {
         if let last {
             let dt = min(max(0, now.timeIntervalSince(last)), 0.25)
             let target = charging ? Self.chargedSpeed : Self.idleSpeed
-            // A gradual spin-up (top speed after about three seconds) and an equally gradual
-            // coast back down once the transmission ends.
-            let tau = charging ? 1.1 : 1.4
+            // A long, gradual spin-up (top speed after about eight seconds) and an equally
+            // gradual coast back down once the transmission ends.
+            let tau = charging ? 2.8 : 2.8
             speed += (target - speed) * (1 - exp(-dt / tau))
             phase += speed * dt
             if phase >= 1000 { phase -= 1000 }
