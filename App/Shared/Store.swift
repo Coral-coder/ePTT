@@ -34,6 +34,15 @@ struct Settings: Codable, Equatable {
     var talkLayout: TalkLayout = .classic
     /// Up to three channels kept at the top of the Pinned layout.
     var pinnedChannels: [ChannelID] = []
+    /// Hours between post-quantum rekeys with each contact (one of `rekeyChoices`).
+    var rekeyHours = 6
+
+    /// The rekey intervals offered in Settings › Privacy.
+    static let rekeyChoices = [1, 2, 3, 6, 12, 24]
+
+    var rekeyInterval: TimeInterval {
+        TimeInterval(Settings.rekeyChoices.contains(rekeyHours) ? rekeyHours : 6) * 3600
+    }
 
     var parsedStaticCandidates: [Candidate] {
         staticCandidates.compactMap(Settings.parseCandidate)
@@ -219,6 +228,7 @@ extension Settings {
         selectedChannel = try c.decodeIfPresent(ChannelID.self, forKey: .selectedChannel)
         talkLayout = (try? c.decodeIfPresent(TalkLayout.self, forKey: .talkLayout)) ?? d.talkLayout
         pinnedChannels = (try? c.decodeIfPresent([ChannelID].self, forKey: .pinnedChannels)) ?? []
+        rekeyHours = (try? c.decodeIfPresent(Int.self, forKey: .rekeyHours)) ?? d.rekeyHours
     }
 }
 
