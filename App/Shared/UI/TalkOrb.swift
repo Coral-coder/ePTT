@@ -224,14 +224,13 @@ struct QuantumLock: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var clock = OrbitClock()
-    /// The electrons have coasted back to rest: stop redrawing until the next transmission.
-    @State private var settled = false
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: charging ? 1 / 60 : 1 / 30, paused: reduceMotion || settled)) { timeline in
+        // The electrons keep orbiting slowly at rest (a still lock looks broken); 30 fps is
+        // plenty for that, 60 while they're charging.
+        TimelineView(.animation(minimumInterval: charging ? 1 / 60 : 1 / 30, paused: reduceMotion)) { timeline in
             let state = reduceMotion ? (phase: 0.0, energy: charging ? 1.0 : 0.0)
                                      : clock.advance(to: timeline.date, charging: charging)
-            let _ = settle(if: !charging && state.energy < 0.01)
             ZStack {
                 Image(systemName: charging ? "lock.fill" : "lock")
                     .font(.system(size: size * 0.62, weight: .bold))
@@ -246,13 +245,7 @@ struct QuantumLock: View {
             }
         }
         .frame(width: size * 1.45, height: size * 1.15)
-        .onChange(of: charging) { _, now in if now { settled = false } }
         .accessibilityLabel("Post-quantum link")
-    }
-
-    private func settle(if done: Bool) {
-        guard done, !settled else { return }
-        DispatchQueue.main.async { settled = true }
     }
 
     private func draw(in context: inout GraphicsContext, size canvas: CGSize, phase: Double, energy: Double) {
@@ -295,8 +288,9 @@ final class OrbitClock {
         if let last {
             let dt = min(max(0, now.timeIntervalSince(last)), 0.25)
             let target = charging ? Self.chargedSpeed : Self.idleSpeed
-            // Up in about a second, down over three or four.
-            let tau = charging ? 0.45 : 1.4
+            // A gradual spin-up (top speed after about three seconds) and an equally gradual
+            // coast back down once the transmission ends.
+            let tau = charging ? 1.1 : 1.4
             speed += (target - speed) * (1 - exp(-dt / tau))
             phase += speed * dt
             if phase >= 1000 { phase -= 1000 }
