@@ -1328,7 +1328,7 @@ final class PTTEngine {
     // MARK: - Post-quantum session ratchet (PROTOCOL.md §5.3)
 
     /// A quantum-safe epoch is replaced this often while the contact is reachable.
-    static let rekeyInterval: TimeInterval = 3600
+    static let rekeyInterval: TimeInterval = 6 * 3600
     /// A pending offer is re-sent this often while the contact is linked.
     static let offerResend: TimeInterval = 8
     private var lastOfferSent: [ChannelID: Date] = [:]
@@ -1364,7 +1364,7 @@ final class PTTEngine {
     }
 
     /// Starts (or re-sends) a rekey with a contact when it's due: right away while the session is
-    /// still at the classical epoch 0, then hourly while they're reachable.
+    /// still at the classical epoch 0, then every 6 hours while they're reachable.
     private func rekeyIfDue(_ contact: Contact, now: Date = Date()) {
         guard !state.watchPrimary, let i = channelIndex[directChannel(for: contact.id)?.id ?? .random()],
               var session = state.channels[i].session else { return }

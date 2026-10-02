@@ -88,7 +88,7 @@ all that message's layers:
   can't open it again (§3.2). The talker tries to keep 24 of each contact's keys on hand,
   and falls back to the signed prekey only when it has none left.
 - **Per epoch.** Every envelope also needs the pair's `burst_secret_e`. Epochs are
-  replaced hourly, and their keys are deleted 24 h after replacement (§5.3). The root
+  replaced every 6 h, and their keys are deleted 24 h after replacement (§5.3). The root
   chain cannot be walked back.
 
 **Window.** Someone who seizes a device at time T can read a past message only if it
@@ -108,7 +108,7 @@ Limits:
 
 - A rekey is authenticated only by the current root. An attacker who holds the state
   *and* is an active man-in-the-middle at every rekey can stay in.
-- Rekeys happen hourly while a contact is reachable, so healing takes up to an hour
+- Rekeys happen every 6 h while a contact is reachable, so healing takes up to 6 h
   plus the time until the contact is next reachable.
 - Identity keys are long-term and never rotate. A thief who keeps the Ed25519 key can
   sign as the user indefinitely. That alone doesn't open sessions that have healed,
@@ -248,9 +248,9 @@ the static keys.
 | | Signal (protocol as of 2025) | NXTPTT protocol 2 |
 | --- | --- | --- |
 | Initial key agreement | PQXDH: X25519 and ML-KEM (Kyber-1024), authenticated by identity keys and signed prekeys, one-time prekeys from the server | static-static X25519 (epoch 0, no content), then a fresh hybrid ML-KEM-1024 + X25519 exchange authenticated only by epoch 0 |
-| Ongoing ratchet | Double Ratchet: a new key per message, a DH step per round trip. ML-KEM was added to the ratchet in 2025. | a random key per burst, sealed to a one-time prekey; a hybrid root ratchet every hour |
+| Ongoing ratchet | Double Ratchet: a new key per message, a DH step per round trip. ML-KEM was added to the ratchet in 2025. | a random key per burst, sealed to a one-time prekey; a hybrid root ratchet every 6 h |
 | Forward secrecy | per message | per burst, plus a per-epoch window (§4.1) |
-| Post-compromise healing | at the next round trip | at the next hourly rekey that isn't intercepted |
+| Post-compromise healing | at the next round trip | at the next 6-hourly rekey that isn't intercepted |
 | Post-quantum confidentiality | yes | yes, from epoch 1 |
 | Post-quantum authentication | no (XEdDSA) | no (Ed25519) |
 | Key distribution | central server | peer to peer: cards, HELLOs, ONE_TIME_KEYS; no server |

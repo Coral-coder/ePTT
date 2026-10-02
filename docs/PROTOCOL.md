@@ -364,7 +364,7 @@ Rules:
   sending. At most 8 old epochs are kept, however recent. Roots are never kept,
   except a responder's previous root while it is unconfirmed (see Lost accept).
 - **Schedule.** A device starts a rekey as soon as a session is at epoch 0, and
-  then once the current epoch is older than **3600 s**. It does not start one while
+  then once the current epoch is older than **21600 s** (6 h). It does not start one while
   its own newest epoch is still unconfirmed.
 - Epochs are u16. A session at epoch 65535 does not rekey further.
 
@@ -834,7 +834,7 @@ Sending to a contact in the classical state:
 - **Relay records** hold each member's copy in its form: protocol-1 packets unshielded.
 
 What a protocol-1 link lacks: post-quantum protection, header shielding and padding,
-one-time prekeys, hourly rekeys, and group sender signatures. Group keys sent to a
+one-time prekeys, periodic rekeys, and group sender signatures. Group keys sent to a
 protocol-1 member travel under classical cryptography, so anyone who later breaks it can
 recover that group key. Apps show these links as classical ("older app" once heard in
 protocol 1), and they become protocol 2, for good, once the post-quantum link is up. Not supported across protocols:
