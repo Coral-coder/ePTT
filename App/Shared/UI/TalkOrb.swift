@@ -268,8 +268,9 @@ struct QuantumLock: View {
             let orbit = Path(ellipseIn: CGRect(x: -a, y: -b, width: 2 * a, height: 2 * b)).applying(transform)
             context.stroke(orbit, with: .color(color.opacity(0.55 + 0.45 * energy)), lineWidth: line * (1 + 0.4 * energy))
             // The electron, with a trail that lengthens as it speeds up.
-            // Both electrons go round clockwise, half a turn apart.
-            let start = (phase + Double(i) * 0.5) * 2 * .pi
+            // Both electrons go round clockwise, a quarter turn apart: when one is at the top or
+            // bottom of its orbit the other is halfway along, so they never peak together.
+            let start = (phase + Double(i) * 0.25) * 2 * .pi
             let trail = 1 + Int(6 * energy)
             for k in 0..<trail {
                 let t = start - Double(k) * 0.16
