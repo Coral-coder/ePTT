@@ -364,7 +364,8 @@ Rules:
   sending. At most 8 old epochs are kept, however recent. Roots are never kept,
   except a responder's previous root while it is unconfirmed (see Lost accept).
 - **Schedule.** A device starts a rekey as soon as a session is at epoch 0, and
-  then once the current epoch is older than **21600 s** (6 h). It does not start one while
+  then once the current epoch is older than **86400 s** (24 h), and only while the app
+  is open (or on a live link). It does not start one while
   its own newest epoch is still unconfirmed.
 - Epochs are u16. A session at epoch 65535 does not rekey further.
 

@@ -351,7 +351,7 @@ final class PTTEngine {
             transport.onPeerDiscovered = { [weak self] endpoint in self?.helloEveryone(at: .udp(endpoint)) }
             nearby.onPacket = { [weak self] data, peer in self?.handleDatagram(data, from: .nearby(peer)) }
             nearby.onPeerConnected = { [weak self] peer in self?.helloEveryone(at: .nearby(peer)) }
-            nearby.start()
+            // Nearby (Bluetooth / peer-to-peer Wi-Fi) runs only on screen: `resume` starts it.
             transport.onCandidatesChanged = { [weak self] _ in self?.announceReachability() }
             applyTransportSettings()
             transport.start()
@@ -388,10 +388,27 @@ final class PTTEngine {
         timer.setEventHandler { [weak self] in self?.housekeeping() }
         timer.resume()
         housekeepingTimer = timer
+        housekeepingFast = true
+    }
+
+    private var housekeepingFast = false
+
+    /// Four times a second on screen or while talking, listening or waiting on a wake; every
+    /// 2 s otherwise (in the background), so the phone can stay asleep between ticks.
+    private func adjustHousekeepingRate() {
+        let fast = isForeground || tx != nil || rx != nil || pendingWake != nil || heldWithoutLink
+        guard fast != housekeepingFast, let timer = housekeepingTimer else { return }
+        housekeepingFast = fast
+        if fast {
+            timer.schedule(deadline: .now() + 0.25, repeating: 0.25)
+        } else {
+            timer.schedule(deadline: .now() + 2, repeating: 2, leeway: .seconds(1))
+        }
     }
 
     private func housekeeping() {
         let now = Date()
+        adjustHousekeepingRate()
         if isQuiet != wasQuiet { quietChanged() }   // a timed Do Not Disturb ran out
         apply(floor.tick(now: now))
         // Links go stale silently (nothing arrives), so re-check who is online on every tick;
@@ -442,7 +459,11 @@ final class PTTEngine {
                 if session != before { state.channels[i].apply(session: session); expired = true }
             }
             if expired { save() }
-            for contact in state.contacts { rekeyIfDue(contact, now: now) }
+            // Rekeys start only on screen: a rekey wakes the other phone, and one started from the
+            // background could keep two phones waking each other.
+            if isForeground {
+                for contact in state.contacts { rekeyIfDue(contact, now: now) }
+            }
             if now.timeIntervalSince(lastRelayFetch) >= 60 {
                 fetchRelay()
                 refreshRelaySubscription()
@@ -879,7 +900,7 @@ final class PTTEngine {
     /// After going to the background, or after a conversation in the background, the app keeps
     /// its live links up for as long as iOS lets it (it asks for this long; iOS usually allows
     /// about 30 s), so a quick reply goes straight through instead of by push and relay.
-    static let lingerWanted: TimeInterval = 180
+    static let lingerWanted: TimeInterval = 60
     private var lingerTask = UIBackgroundTaskIdentifier.invalid
     private var lingerUntil = Date.distantPast
     private var isLingering: Bool { lingerTask != .invalid }
@@ -1327,8 +1348,8 @@ final class PTTEngine {
 
     // MARK: - Post-quantum session ratchet (PROTOCOL.md §5.3)
 
-    /// A quantum-safe epoch is replaced this often while the contact is reachable.
-    static let rekeyInterval: TimeInterval = 6 * 3600
+    /// A quantum-safe epoch is replaced this often (rekeys start only while the app is open).
+    static let rekeyInterval: TimeInterval = 24 * 3600
     /// A pending offer is re-sent this often while the contact is linked.
     static let offerResend: TimeInterval = 8
     private var lastOfferSent: [ChannelID: Date] = [:]
@@ -1364,7 +1385,7 @@ final class PTTEngine {
     }
 
     /// Starts (or re-sends) a rekey with a contact when it's due: right away while the session is
-    /// still at the classical epoch 0, then every 6 hours while they're reachable.
+    /// still at the classical epoch 0, then daily, while the app is open.
     private func rekeyIfDue(_ contact: Contact, now: Date = Date()) {
         guard !state.watchPrimary, let i = channelIndex[directChannel(for: contact.id)?.id ?? .random()],
               var session = state.channels[i].session else { return }
@@ -1376,6 +1397,8 @@ final class PTTEngine {
         }
         let due = !session.isQuantumSafe || now.timeIntervalSince(session.epochStarted) > PTTEngine.rekeyInterval
         guard due || session.hasPendingOffer else { return }
+        // From the background only on a live link: anything else wakes their phone by push.
+        guard isForeground || isLinked(contact.senderID) else { return }
         // Re-send briskly while they're live; otherwise once a minute to their last addresses
         // (the relay gets each offer once).
         let every = isLinked(contact.senderID) ? PTTEngine.offerResend : 60
@@ -1505,20 +1528,22 @@ final class PTTEngine {
 
     private var lastEpochConfirm: [IdentityID: Date] = [:]
     private var lastConfirmAsk: [IdentityID: Date] = [:]
-    /// The relay and silent pushes cost more: at most every 3 minutes per contact.
+    /// A silent push wakes their phone: at most every 30 minutes per contact.
     private var lastConfirmFar: [IdentityID: Date] = [:]
 
     /// Sends a confirmation HELLO: on the live link if there is one; otherwise to their last
-    /// addresses, plus (at most every 3 minutes) a silent push and the relay.
+    /// addresses, plus a silent push when it's the one right after a rekey (`force`), or while
+    /// the app is open at most every 30 minutes. Never through the relay: an iCloud record shows
+    /// a notification and wakes their phone, which would answer the same way.
     private func deliverConfirmation(_ packet: Data, to contact: Contact, force: Bool) {
         if let link = links[contact.senderID], isLinked(contact.senderID) {
             send(packet, to: contact.senderID, via: link.endpoint)
             return
         }
         sendAnyway(packet, to: contact)
-        guard force || Date().timeIntervalSince(lastConfirmFar[contact.id] ?? .distantPast) > 180 else { return }
+        guard force || (isForeground && Date().timeIntervalSince(lastConfirmFar[contact.id] ?? .distantPast) > 1800)
+        else { return }
         lastConfirmFar[contact.id] = Date()
-        deliverAnyway(packet, to: contact)
         if let apns, let wire = singleWire(packet, for: contact.senderID) { apns.sendBackground(wire, to: contact) }
     }
 
@@ -1566,7 +1591,9 @@ final class PTTEngine {
                                              keys: channel.keys) else { return }
         lastOneTimeKeysSent[contact.id] = Date()
         saveOneTimeKeys()
-        deliverAnyway(packet, to: contact)
+        // Live or to their last addresses, never the relay: an iCloud record shows a
+        // notification and wakes their phone. Until these arrive they use the signed prekey.
+        sendAnyway(packet, to: contact)
     }
 
     /// BURST_START details by burst, needed when reception begins.
@@ -2918,6 +2945,7 @@ final class PTTEngine {
     func setForeground(_ foreground: Bool) {
         queue.async { [self] in
             isForeground = foreground
+            adjustHousekeepingRate()
             if foreground {
                 endLinger(sayAway: false)
                 takeOverNow()
@@ -3487,6 +3515,7 @@ final class PTTEngine {
     }
 
     private func publish() {
+        adjustHousekeepingRate()
         var snapshot = EngineSnapshot()
         snapshot.contacts = state.contacts
         snapshot.legacyContacts = Set(state.contactProtocols.filter { $0.value == 1 }.keys)

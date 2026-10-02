@@ -82,7 +82,10 @@ final class CloudRelay {
             let info = CKSubscription.NotificationInfo()
             info.alertBody = "New voice message"
             info.soundName = "default"
-            info.shouldSendContentAvailable = true
+            // No background launch of the app for every record: the extension plays messages,
+            // and the app reads the rest of the inbox when it next opens. (Waking the app for
+            // each record cost battery on both phones.)
+            info.shouldSendContentAvailable = false
             // Lets the notification service extension decode the message and play it as the sound.
             info.shouldSendMutableContent = true
             subscription.notificationInfo = info
