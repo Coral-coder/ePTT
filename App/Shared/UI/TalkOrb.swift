@@ -229,7 +229,7 @@ struct QuantumLock: View {
         // The electrons keep orbiting slowly at rest (a still lock looks broken); 30 fps is
         // plenty for that, 60 while they're charging.
         TimelineView(.animation(minimumInterval: charging ? 1 / 60 : 1 / 30, paused: reduceMotion)) { timeline in
-            let state = reduceMotion ? (phase: 0.0, energy: charging ? 1.0 : 0.0)
+            let state = reduceMotion ? (phase: 0.0, energy: charging ? 1.0 : 0.0, precession: 0.0)
                                      : clock.advance(to: timeline.date, charging: charging)
             ZStack {
                 Image(systemName: charging ? "lock.fill" : "lock")
@@ -238,7 +238,7 @@ struct QuantumLock: View {
                 // Square, with room for the glow: an orbit can turn to any angle, vertical included.
                 // (Larger than the layout frame below; frames don't clip, so it just overhangs.)
                 Canvas { context, canvas in
-                    draw(in: &context, size: canvas, phase: state.phase, energy: state.energy)
+                    draw(in: &context, size: canvas, phase: state.phase, energy: state.energy, precession: state.precession)
                 }
                 .frame(width: size * 1.9, height: size * 1.9)
                 .allowsHitTesting(false)
@@ -248,14 +248,13 @@ struct QuantumLock: View {
         .accessibilityLabel("Post-quantum link")
     }
 
-    private func draw(in context: inout GraphicsContext, size canvas: CGSize, phase: Double, energy: Double) {
+    private func draw(in context: inout GraphicsContext, size canvas: CGSize, phase: Double, energy: Double, precession: Double) {
         let center = CGPoint(x: canvas.width / 2, y: canvas.height / 2)
         let a = size * 0.68, b = size * 0.25
         let line = max(1, size * 0.055)
-        // The orbit planes precess a little as the electrons go round.
-        let precession = phase * 0.08 * 360
+        // The orbit planes precess while charging, and park as an X (±45°) at rest.
         if energy > 0.05 { context.addFilter(.shadow(color: NX.cyan.opacity(0.9 * energy), radius: size * 0.12 * energy)) }
-        for (i, tilt) in [-35.0, 35.0].enumerated() {
+        for (i, tilt) in [-45.0, 45.0].enumerated() {
             let angle = Angle.degrees(tilt + (i == 0 ? precession : -precession))
             let transform = CGAffineTransform(translationX: center.x, y: center.y).rotated(by: angle.radians)
             let orbit = Path(ellipseIn: CGRect(x: -a, y: -b, width: 2 * a, height: 2 * b)).applying(transform)
@@ -284,7 +283,12 @@ final class OrbitClock {
     private var speed = OrbitClock.idleSpeed
     private var last: Date?
 
-    func advance(to now: Date, charging: Bool) -> (phase: Double, energy: Double) {
+    /// How far the orbit planes have turned, in degrees. They turn only with the energy above
+    /// rest, and settle on the nearest multiple of 90° as the electrons slow, so the two orbits
+    /// come to rest as an X.
+    private var precession: Double = 0
+
+    func advance(to now: Date, charging: Bool) -> (phase: Double, energy: Double, precession: Double) {
         if let last {
             let dt = min(max(0, now.timeIntervalSince(last)), 0.25)
             let target = charging ? Self.chargedSpeed : Self.idleSpeed
@@ -294,9 +298,17 @@ final class OrbitClock {
             speed += (target - speed) * (1 - exp(-dt / tau))
             phase += speed * dt
             if phase >= 1000 { phase -= 1000 }
+            let energy = min(1, max(0, (speed - Self.idleSpeed) / (Self.chargedSpeed - Self.idleSpeed)))
+            // Turn with the charge; as it fades, ease onto the nearest X.
+            precession += energy * 40 * dt
+            if energy < 0.35 {
+                let park = (precession / 90).rounded() * 90
+                precession += (park - precession) * (1 - exp(-dt / 0.8)) * (1 - energy / 0.35)
+            }
+            if precession >= 3600 { precession -= 3600 }
         }
         last = now
         let energy = (speed - Self.idleSpeed) / (Self.chargedSpeed - Self.idleSpeed)
-        return (phase, min(1, max(0, energy)))
+        return (phase, min(1, max(0, energy)), precession)
     }
 }
