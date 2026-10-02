@@ -88,7 +88,7 @@ all that message's layers:
   can't open it again (§3.2). The talker tries to keep 24 of each contact's keys on hand,
   and falls back to the signed prekey only when it has none left.
 - **Per epoch.** Every envelope also needs the pair's `burst_secret_e`. Epochs are
-  replaced every 1–24 h (user setting, default 6 h), and their keys are deleted 24 h after replacement (§5.3). The root
+  replaced every 6 h, and their keys are deleted 24 h after replacement (§5.3). The root
   chain cannot be walked back.
 
 **Window.** Someone who seizes a device at time T can read a past message only if it
@@ -108,8 +108,7 @@ Limits:
 
 - A rekey is authenticated only by the current root. An attacker who holds the state
   *and* is an active man-in-the-middle at every rekey can stay in.
-- Rekeys happen at the shorter of the two users' intervals (1–24 h, default 6 h) while a
-  contact is reachable, so healing takes up to that interval
+- Rekeys happen every 6 h while a contact is reachable, so healing takes up to 6 h
   plus the time until the contact is next reachable.
 - Identity keys are long-term and never rotate. A thief who keeps the Ed25519 key can
   sign as the user indefinitely. That alone doesn't open sessions that have healed,

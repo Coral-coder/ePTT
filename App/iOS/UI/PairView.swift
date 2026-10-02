@@ -251,7 +251,7 @@ struct ContactDetailView: View {
             } footer: {
                 Text(model.snapshot.legacyContacts.contains(contact.id)
                      ? "\(contact.name) is on an older NXTPTT. You can talk, but with the older encryption: end-to-end and forward-secret, not post-quantum, and without hidden packet headers. It upgrades on its own, for good, once they update."
-                     : "Until the post-quantum link with \(contact.name) is up, messages use the older encryption (end-to-end and forward-secret, not post-quantum). Once it's up, it's post-quantum for good: session keys renew on the schedule set in Settings and every message gets its own key, deleted after use.")
+                     : "Until the post-quantum link with \(contact.name) is up, messages use the older encryption (end-to-end and forward-secret, not post-quantum). Once it's up, it's post-quantum for good: session keys renew every 6 hours and every message gets its own key, deleted after use.")
                     .font(NX.body(13))
             }
             .nxRows()

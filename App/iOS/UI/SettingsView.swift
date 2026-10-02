@@ -75,36 +75,6 @@ struct SettingsView: View {
                 .nxRows()
 
                 Section {
-                    VStack(alignment: .leading, spacing: 6) {
-                        LabeledContent("Rekey every", value: RekeyChoice.label(settings.rekeyHours))
-                        Slider(value: Binding(
-                            get: { Double(Settings.rekeyChoices.firstIndex(of: settings.rekeyHours) ?? 3) },
-                            set: { index in
-                                let hours = Settings.rekeyChoices[Int(index.rounded())]
-                                if hours != settings.rekeyHours { model.engine.updateSettings { $0.rekeyHours = hours } }
-                            }
-                        ), in: 0...Double(Settings.rekeyChoices.count - 1), step: 1)
-                        .tint(NX.cyan)
-                        HStack {
-                            Text("More secure")
-                            Spacer()
-                            Text("Less battery")
-                        }
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    }
-                    ForEach(RekeyChoice.facts(settings.rekeyHours), id: \.0) { fact in
-                        LabeledContent(fact.0, value: fact.1)
-                            .font(.footnote)
-                    }
-                } header: {
-                    Text("Post-quantum rekey")
-                } footer: {
-                    Text("Each rekey replaces the link's keys with fresh ML-KEM-1024 + X25519 keys. If a phone's keys were ever stolen, messages become private again at the next rekey the thief doesn't intercept. Every message still gets its own one-time key either way. Your contact's setting counts too: a link rekeys at the shorter of the two.")
-                }
-                .nxRows()
-
-                Section {
                     Button("Erase received audio now", role: .destructive) { model.engine.burnReceivedAudio() }
                 } header: {
                     Text("Privacy")
@@ -258,30 +228,5 @@ struct PushKeyView: View {
         .clearsTabBar()
         .navigationTitle("Push key")
         .onAppear { shareURI = model.engine.pushKeyURI() }
-    }
-}
-
-/// What each rekey interval means, for the slider in Settings › Privacy.
-enum RekeyChoice {
-    static func label(_ hours: Int) -> String {
-        hours == 1 ? "hour" : hours == 24 ? "day" : "\(hours) hours"
-    }
-
-    static func facts(_ hours: Int) -> [(String, String)] {
-        let window = hours == 1 ? "Up to 1 hour" : hours == 24 ? "Up to 1 day" : "Up to \(hours) hours"
-        let perDay = 24 / hours
-        let battery: String
-        switch hours {
-        case ...1: battery = "Highest (about 1–2% a day)"
-        case ...3: battery = "Moderate (under 1% a day)"
-        case ...6: battery = "Low (about 0.1–0.3% a day)"
-        default: battery = "Negligible"
-        }
-        return [
-            ("Recovers from a key theft in", window),
-            ("Rekeys per contact", "Up to \(perDay) a day, while the app is open"),
-            ("Battery", battery),
-            ("Messages already delivered", "Safe at every setting"),
-        ]
     }
 }
